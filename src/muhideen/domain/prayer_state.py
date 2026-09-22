@@ -100,6 +100,19 @@ def resolve_next_event(
             continue
         dim_until = iqamah_at + timedelta(minutes=dim_minutes)
         adhan_end = adhan_at + adhan_duration
+        # ADHAN is checked first: when adhan_duration_s outlasts the gap to
+        # iqamah (short/fixed rule), the overlay must win over the states it
+        # overlaps, per PRD §8 ordering.
+        if adhan_at <= now < adhan_end:
+            return NextEvent(
+                now=now,
+                state=PrayerState.ADHAN,
+                next_prayer=prayer,
+                adhan_at=adhan_at,
+                iqamah_at=iqamah_at,
+                dim_until=dim_until,
+                stale=stale,
+            )
         if iqamah_at <= now < dim_until:
             return NextEvent(
                 now=now,
@@ -114,16 +127,6 @@ def resolve_next_event(
             return NextEvent(
                 now=now,
                 state=PrayerState.IQAMAH_COUNTDOWN,
-                next_prayer=prayer,
-                adhan_at=adhan_at,
-                iqamah_at=iqamah_at,
-                dim_until=dim_until,
-                stale=stale,
-            )
-        if adhan_at <= now < adhan_end:
-            return NextEvent(
-                now=now,
-                state=PrayerState.ADHAN,
                 next_prayer=prayer,
                 adhan_at=adhan_at,
                 iqamah_at=iqamah_at,

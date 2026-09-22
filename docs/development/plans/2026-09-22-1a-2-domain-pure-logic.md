@@ -29,7 +29,7 @@
 - Test: `tests/unit/test_domain_prayer_state.py` — NORMAL/PRE_ADHAN/ADHAN/IQAMAH_COUNTDOWN/SALAH_DIM windows + Syuruq/Jumuah/midnight edges
 - Test: `tests/unit/test_domain_determinism.py` — same now+snapshot+settings yields identical `NextEvent`
 
-No `src/muhideen/engine/`, `adapters/`, `api/`, `views/` changes. No `docs/api-contract.md` change. No `api/fixtures/` changes (contract diff: `none`).
+No `src/muhideen/engine/`, `adapters/`, `api/`, `views/` changes. `docs/api-contract.md` and `api/fixtures/next-event.json` change (as-built): example-value correction `now` `11:45` → `12:20` only — no key/shape change (contract diff: `shape: none`, see checklist item 2).
 
 ---
 
@@ -98,7 +98,7 @@ No `src/muhideen/engine/`, `adapters/`, `api/`, `views/` changes. No `docs/api-c
 3. **Changes with ownership:** backend-owned `domain/` only (4 new modules + `__init__` exports). No adapter/API/view changes. Frontend untouched.
 4. **Tests by layer + new invariants:** `unit` only (5 files, ~20 tests). New invariants: delay/fixed iqamah math; 48h stale boundary; offset bounds; 5-minute PRE_ADHAN; adhan-duration overlay; Syuruq never dims; Jumuah replaces Dhuhr Friday with 45m dim; midnight resolves next-day Fajr; determinism replay.
 5. **Purity/import-linter impact:** `domain/` imports `muhideen.core` + stdlib `datetime` only. Purity scan must show 0 hits. Layer contract `adapters → domain → core` unchanged; `lint-imports` stays green.
-6. **Docs touched:** none beyond this plan. `CONTEXT.md` glossary unchanged (no new terms); no ADR (no hard-to-reverse choice; Hijri calendar library choice deferred to 1A-6).
+6. **Docs touched:** this plan plus the `docs/api-contract.md` example correction and its matching `api/fixtures/next-event.json` update (checklist item 2). `CONTEXT.md` glossary unchanged (no new terms); no ADR (no hard-to-reverse choice; Hijri calendar library choice deferred to 1A-6).
 7. **Rollback:** delete the 4 created `domain/*.py` files plus 5 test files and revert `domain/__init__.py` to empty. No migration, no contract bump, no fixture revert needed.
 8. **Exit gate command output:** paste `uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run lint-imports && uv run pytest -q` result plus the `rg` purity output and the coverage line in the PR description.
 

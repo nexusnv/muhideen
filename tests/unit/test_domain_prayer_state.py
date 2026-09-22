@@ -137,6 +137,22 @@ def test_salah_dim_uses_default_minutes() -> None:
     assert event.dim_until == datetime(2025, 10, 22, 12, 45, tzinfo=TZ)
 
 
+@pytest.mark.unit
+def test_adhan_wins_when_overlay_overlaps_dim_window() -> None:
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    rules = _rules()
+    rules[PrayerName.DHUHR] = IqamahRule(
+        prayer=PrayerName.DHUHR, mode="delay", delay_minutes=1
+    )
+    event = resolve_next_event(_at(12, 17), _day(), None, rules, _settings(), False)
+    assert event.state == PrayerState.ADHAN
+    assert event.next_prayer == PrayerName.DHUHR
+    assert event.adhan_at == datetime(2025, 10, 22, 12, 15, tzinfo=TZ)
+    assert event.iqamah_at == datetime(2025, 10, 22, 12, 16, tzinfo=TZ)
+    assert event.dim_until == datetime(2025, 10, 22, 12, 36, tzinfo=TZ)
+
+
 def _friday_day() -> PrayerDay:
     return PrayerDay(
         date=date(2025, 10, 24),
