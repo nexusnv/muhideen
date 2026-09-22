@@ -6,7 +6,7 @@
 | Document Detail | Information |
 | :--- | :--- |
 | **Project Name** | Muhideen |
-| **Status** | Proposed — Rev 2 (review fixes applied) |
+| **Status** | Proposed — Rev 3 (marker taxonomy: Prayer Time vs Boundary Time Markers) |
 | **Target Platforms** | Linux (Debian / Raspberry Pi OS), x86/ARM devices |
 | **Primary Region Focus** | Malaysia (JAKIM Integration), extensible globally |
 | **License** | MIT |
@@ -15,14 +15,14 @@
 
 ## 0. Design Reference (Non-Binding)
 
-Expected, non-obligatory preview of one display theme. Final product does not need to pixel-match this mockup, but must meet readability and layout density shown (clock + next-prayer hero, 6 prayer cards with Adhan/Iqamah, carousel hint, admin QR hint).
+Expected, non-obligatory preview of one display theme. Final product does not need to pixel-match this mockup, but must meet readability and layout density shown (clock + next-prayer hero, 5 prayer cards with Adhan/Iqamah + a secondary Boundary Time Marker strip (Imsak/Syuruq/Dhuha), carousel hint, admin QR hint).
 
 ![Muhideen expected display mockup — non-obligatory reference](preview.jpg)
 
 Notes on mockup vs requirements:
 * Header: masjid name + zone label (e.g. `Gombak, Selangor / SGR01`), Gregorian + Hijri dates.
 * Hero left: large real-time clock. Hero right: next prayer + time + Iqamah countdown.
-* Cards: Fajr / Sunrise(Syuruq, No Iqamah) / Dhuhr / Asr / Maghrib / Isha, each with trilingual label.
+* Cards: Fajr / Dhuhr / Asr / Maghrib / Isha — the 5 Prayer Time Markers, each with trilingual label; Imsak / Syuruq / Dhuha shown as Boundary Time Markers in a secondary position (no Adhan/Iqamah, never at card/hero level).
 * Footer: carousel position indicator, admin QR hint (toggleable, auto-hidden during prayer states).
 * Caption in mockup ("Screen will automatically dim...") is documentation only, not on-screen UI.
 
@@ -77,20 +77,21 @@ To create an accessible, lightweight, modern, and open-source digital signage sy
 | **FR-1.1** | **JAKIM API Sync** | Auto-fetch from JAKIM E-Solat (unofficial endpoint) by zone code (e.g. `SGR01`). Scheduled fetch daily at 02:00 local + exponential-backoff retry (5m, 15m, 1h). Cache 30 days forward + 7 days past for **configured zone only**. Monthly prefetch loop at install seeds ~365 days. Show `STALE` badge if cache age >48h. | High |
 | **FR-1.2** | **Offline Mode + Fallback Chain** | Resolution order: (1) cached DB for `date+zone`, (2) on-device calculation (MABIMS defaults for MY), (3) last-known day + on-screen warning banner. System must run indefinitely offline once seeded. Only configured zone is preloaded; "all zones" bulk preload is out of scope. | High |
 | **FR-1.3** | **International Calculation Engine** | Built-in calculation (MWL, ISNA, Egyptian, MABIMS/JAKIM params) by lat/lon + method + Asr juristic setting. Used as FR-1.2 fallback and primary mode outside MY. DST handled via IANA timezone, not fixed offset. | Medium |
-| **FR-1.4** | **Iqamah Rule Management** | Per-prayer mode: `delay_minutes` after Adhan (default: Subuh 15, Syuruq N/A, Dhuhr 10, Asr 10, Maghrib 10, Isha 15) OR `fixed_time`. Jumuah replaces Dhuhr on Friday with own rule. Stored in `iqamah_rules`. | High |
+| **FR-1.4** | **Iqamah Rule Management** | Per-Prayer-Time-Marker mode: `delay_minutes` after Adhan (defaults: Subuh 15, Dhuhr 10, Asr 10, Maghrib 10, Isha 15) OR `fixed_time`; Boundary Time Markers have no iqamah rule. Jumuah replaces Dhuhr on Friday with own rule. Stored in `iqamah_rules`. | High |
 | **FR-1.5** | **Hijri Date + Offset** | Hijri calc (Umm-al-Qura / tabular, configurable) with manual offset -2..+2 days. Offset stored in `settings`, adjustable from Admin UI. | High |
 | **FR-1.6** | **Time Sync Health** | Require NTP (`systemd-timesyncd`/`chrony`). Display `TIME UNSYNCED` warning if unsynced at boot or drift suspected. Optional DS3231 RTC documented for fully offline sites. Countdowns use monotonic clock. | High |
+| **FR-1.7** | **Marker Taxonomy** | Two classes. Prayer Time Marker: Fajr, Dhuhr, Asr, Maghrib, Isha (Jumuah replaces Dhuhr Friday) — the only markers with Adhan, Iqamah, auto-dim, and state-machine transitions. Boundary Time Marker: Imsak, Syuruq, Dhuha — informational: no Adhan, no Iqamah, no auto-dim, never leaves `NORMAL`; optional countdown gated by `boundary_countdown` (default off) that never changes state; rendered below Prayer Time Marker level. JAKIM's 8 source markers map via the adapter to backend naming (§6.1). | High |
 
 ### 3.2 Display Client Interface (Public View)
 
 | ID | Feature | Description | Priority |
 | :--- | :--- | :--- | :--- |
-| **FR-2.1** | **Main Dashboard View** | Real-time clock (seconds optional), Gregorian + Hijri dates, 5 prayers + Syuruq/Sunrise, next-prayer highlight, Iqamah countdown. Trilingual labels: EN + BM + Arabic (Jawi optional). | High |
+| **FR-2.1** | **Main Dashboard View** | Real-time clock (seconds optional), Gregorian + Hijri dates, 5 Prayer Time Markers at card/hero level + Imsak/Syuruq/Dhuha as secondary Boundary Time Markers, next-prayer highlight always a Prayer Time Marker, Iqamah countdown, opt-in boundary countdown. Trilingual labels: EN + BM + Arabic (Jawi optional). | High |
 | **FR-2.2** | **Adhan Alert Overlay** | Full-screen state for configurable duration (default 3 min). Optional local audio: admin-uploaded chime/MP3 only — no bundled Adhan recitation (licensing/recitation variance). Volume schedule + mute respected. | High |
 | **FR-2.3** | **Iqamah Countdown Mode** | Prominent live countdown after Adhan overlay ends until Iqamah time. Uses server-computed target + client monotonic tick with SSE resync. | High |
 | **FR-2.4** | **Prayer Dimming / Blackout** | At Iqamah, enter `SALAH_DIM` for per-prayer duration (default 20 min, 45 min for Jumuah, configurable 5–60 min): dim to ≤10% brightness or black with minimalist clock only. Must be skippable by admin long-press. | High |
 | **FR-2.5** | **Responsive / TV Scaling** | Fluid layout for 720p/1080p/4K, 16:9 primary, 9:16 vertical best-effort. Minimum 10m readability: hero clock ≥12vh, prayer times ≥3.5vh, WCAG AA contrast. No horizontal scroll. | High |
-| **FR-2.6** | **Prayer State Machine** | Single source of truth, see §8. States: `NORMAL → PRE_ADHAN(-5m) → ADHAN → IQAMAH_COUNTDOWN → SALAH_DIM → NORMAL`. Syuruq has no Iqamah/dim. Jumuah overrides Dhuhr Friday. | High |
+| **FR-2.6** | **Prayer State Machine** | Single source of truth, see §8. States: `NORMAL → PRE_ADHAN(-5m) → ADHAN → IQAMAH_COUNTDOWN → SALAH_DIM → NORMAL`. Jumuah overrides Dhuhr Friday. Boundary Time Markers never trigger PRE_ADHAN/ADHAN/IQAMAH_COUNTDOWN/SALAH_DIM: no Adhan, no Iqamah, no dim; their opt-in countdown never changes state. | High |
 
 ### 3.3 Information Carousel Module
 
@@ -233,7 +234,7 @@ Treated as first-class NFR for open-source multi-contributor work:
 ```http
 GET https://www.e-solat.gov.my/index.php?r=esolatApi/takwimsolat&period=week&zone=SGR01
 ```
-* Prefer `period=week/month` over `today` to reduce calls. Timeout 15s, UA pinned, 3 retries with backoff. Validate `HH:MM` + sane ordering (Fajr<Syuruq<Dhuhr<Asr<Maghrib<Isha). Reject + keep cache on parse fail. Log zone + HTTP status. Document that endpoint may change without notice — admin can switch to calc-only mode.
+* Prefer `period=week/month` over `today` to reduce calls. Timeout 15s, UA pinned, 3 retries with backoff. Validate `HH:MM` + sane ordering (`Imsak < Fajr < Syuruq < Dhuha < Dhuhr < Asr < Maghrib < Isha`). Backend naming is canonical: the adapter maps source spellings (e.g. `subuh→fajr`, `zohor→dhuhr`, `isyak→isha`, `syuruk→syuruq`, `duha→dhuha`) to `MarkerName`; exact JSON keys + calc derivation for Imsak/Duha pinned by source research before 1A-6. Reject + keep cache on parse fail. Log zone + HTTP status. Document that endpoint may change without notice — admin can switch to calc-only mode.
 
 ### 6.2 SQLite Schema (v0.1)
 
@@ -245,15 +246,17 @@ CREATE TABLE settings (
   value TEXT NOT NULL
   -- keys: masjid_name, zone_code|lat,lon,method, hijri_offset(-2..2),
   -- adhan_duration_s, dim_minutes_default, dim_minutes_jumuah,
-  -- carousel_enabled, theme_default, qr_visible_default
+  -- boundary_countdown(0|1), carousel_enabled, theme_default,
+  -- qr_visible_default
 );
 
 CREATE TABLE prayer_times (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date_gregorian DATE NOT NULL,
   zone_code TEXT NOT NULL DEFAULT 'DEFAULT',
-  fajr TEXT NOT NULL, syuruq TEXT NOT NULL, dhuhr TEXT NOT NULL,
-  asr TEXT NOT NULL, maghrib TEXT NOT NULL, isha TEXT NOT NULL,
+  imsak TEXT NOT NULL, fajr TEXT NOT NULL, syuruq TEXT NOT NULL,
+  dhuha TEXT NOT NULL, dhuhr TEXT NOT NULL, asr TEXT NOT NULL,
+  maghrib TEXT NOT NULL, isha TEXT NOT NULL,
   source TEXT NOT NULL DEFAULT 'jakim', -- jakim|calc|manual
   fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(date_gregorian, zone_code)
@@ -261,7 +264,7 @@ CREATE TABLE prayer_times (
 CREATE INDEX idx_prayer_zone_date ON prayer_times(zone_code, date_gregorian);
 
 CREATE TABLE iqamah_rules (
-  prayer TEXT PRIMARY KEY, -- fajr,dhuhr,asr,maghrib,isha,jumuah (syuruq excluded)
+  prayer TEXT PRIMARY KEY, -- fajr,dhuhr,asr,maghrib,isha,jumuah (Boundary Time Markers excluded)
   mode TEXT NOT NULL DEFAULT 'delay', -- delay|fixed
   delay_minutes INTEGER DEFAULT 10,
   fixed_time TEXT -- HH:MM when mode=fixed
@@ -305,8 +308,8 @@ Migrations: integer `PRAGMA user_version` + `alembic`-free hand-rolled `migratio
 
 Single-repo logical split (§4.4). Backend implements first; frontend builds against fixtures.
 
-* `GET /api/prayer-day?date=&zone=` → day times + sources + `stale` flag (see `api/fixtures/prayer-day.json`).
-* `GET /api/next-event` → `{state, next_prayer, adhan_at, iqamah_at, dim_until}` per §8 (see `api/fixtures/next-event.json`).
+* `GET /api/prayer-day?date=&zone=` → day `prayers` (5 Prayer Time Markers) + `boundaries` (3 Boundary Time Markers) + `source` + `stale` flag (see `api/fixtures/prayer-day.json`).
+* `GET /api/next-event` → `{state, now, next_prayer, adhan_at, iqamah_at, dim_until, stale, next_boundary, boundary_at}` per §8 — `next_prayer` is always a Prayer Time Marker; `next_boundary`/`boundary_at` are populated only when `boundary_countdown` is enabled (see `api/fixtures/next-event.json`).
 * `GET /api/events` → SSE `text/event-stream` (`state`, `tick`, `config-update`); 60s poll of `next-event` is fallback (see `api/fixtures/events-stream.txt`).
 * `POST /api/displays/heartbeat` → `{id}` heartbeat; server batches `last_seen` writes every 60s.
 * Breaking changes require major version bump (`/api/v2/...`) + fixtures + changelog; additive fields allowed without bump.
@@ -342,7 +345,7 @@ IQAMAH_COUNTDOWN --(Iqamah time)--> SALAH_DIM [dim/blackout, dim_minutes_default
 SALAHT_DIM --(timeout or admin skip)--> NORMAL
 ```
 
-Edge rules: Syuruq triggers brief overlay only, no countdown/dim. Jumuah replaces Dhuhr Friday (Khutbah time = Dhuhr Adhan). Midnight crossover: after Isha `SALAH_DIM`, next prayer is next-day Fajr. All transitions server-computed (`/api/next-event`) and SSE-pushed; client never hardcodes times.
+Edge rules: Boundary Time Markers (Imsak, Syuruq, Dhuha) never trigger PRE_ADHAN/ADHAN/IQAMAH/SALAH_DIM — no Adhan, no Iqamah, no auto-dim; they render at secondary level and may show a countdown only when `boundary_countdown` is enabled, which never changes state. Jumuah replaces Dhuhr Friday (Khutbah time = Dhuhr Adhan). Midnight crossover: after Isha `SALAH_DIM`, next prayer is next-day Fajr. All transitions server-computed (`/api/next-event`) and SSE-pushed; client never hardcodes times.
 
 ---
 

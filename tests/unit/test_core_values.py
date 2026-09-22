@@ -7,12 +7,14 @@ import pytest
 
 from muhideen.core.values import (
     IqamahRule,
+    MarkerKind,
+    MarkerName,
     NextEvent,
     PrayerDay,
-    PrayerName,
     PrayerState,
     ScheduleSource,
     Settings,
+    marker_kind,
 )
 
 
@@ -20,8 +22,10 @@ def _day() -> PrayerDay:
     return PrayerDay(
         date=date(2025, 10, 20),
         zone="SGR01",
+        imsak=time(5, 35),
         fajr=time(5, 45),
         syuruq=time(6, 55),
+        dhuha=time(7, 25),
         dhuhr=time(12, 15),
         asr=time(15, 30),
         maghrib=time(18, 5),
@@ -35,11 +39,13 @@ def _event() -> NextEvent:
     return NextEvent(
         now=datetime(2025, 10, 20, 11, 45),
         state=PrayerState.IQAMAH_COUNTDOWN,
-        next_prayer=PrayerName.DHUHR,
+        next_prayer=MarkerName.DHUHR,
         adhan_at=datetime(2025, 10, 20, 12, 15),
         iqamah_at=datetime(2025, 10, 20, 12, 30),
         dim_until=datetime(2025, 10, 20, 12, 50),
         stale=False,
+        next_boundary=None,
+        boundary_at=None,
     )
 
 
@@ -57,7 +63,7 @@ def test_next_event_frozen() -> None:
 
 @pytest.mark.unit
 def test_iqamah_rule_and_settings_frozen() -> None:
-    rule = IqamahRule(prayer=PrayerName.FAJR, mode="delay", delay_minutes=15)
+    rule = IqamahRule(prayer=MarkerName.FAJR, mode="delay", delay_minutes=15)
     settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
     with pytest.raises(FrozenInstanceError):
         rule.delay_minutes = 10  # type: ignore[misc]
@@ -72,8 +78,10 @@ def test_value_equality_and_hash() -> None:
     other = PrayerDay(
         date=date(2025, 10, 20),
         zone="WKP01",
+        imsak=time(5, 35),
         fajr=time(5, 45),
         syuruq=time(6, 55),
+        dhuha=time(7, 25),
         dhuhr=time(12, 15),
         asr=time(15, 30),
         maghrib=time(18, 5),
@@ -91,20 +99,22 @@ def test_next_event_equality_and_hash() -> None:
     other = NextEvent(
         now=datetime(2025, 10, 20, 11, 45),
         state=PrayerState.NORMAL,
-        next_prayer=PrayerName.DHUHR,
+        next_prayer=MarkerName.DHUHR,
         adhan_at=datetime(2025, 10, 20, 12, 15),
         iqamah_at=datetime(2025, 10, 20, 12, 30),
         dim_until=datetime(2025, 10, 20, 12, 50),
         stale=False,
+        next_boundary=None,
+        boundary_at=None,
     )
     assert _event() != other
 
 
 @pytest.mark.unit
 def test_iqamah_rule_equality_and_hash() -> None:
-    rule = IqamahRule(prayer=PrayerName.FAJR, mode="delay", delay_minutes=15)
-    twin = IqamahRule(prayer=PrayerName.FAJR, mode="delay", delay_minutes=15)
-    other = IqamahRule(prayer=PrayerName.FAJR, mode="delay", delay_minutes=20)
+    rule = IqamahRule(prayer=MarkerName.FAJR, mode="delay", delay_minutes=15)
+    twin = IqamahRule(prayer=MarkerName.FAJR, mode="delay", delay_minutes=15)
+    other = IqamahRule(prayer=MarkerName.FAJR, mode="delay", delay_minutes=20)
     assert rule == twin
     assert hash(rule) == hash(twin)
     assert rule != other
@@ -137,21 +147,24 @@ def test_settings_default_iqamah_rules_match_prd_fr_1_4() -> None:
     settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
     by_prayer = {rule.prayer: rule for rule in settings.iqamah_rules}
     assert set(by_prayer) == {
-        PrayerName.FAJR,
-        PrayerName.DHUHR,
-        PrayerName.ASR,
-        PrayerName.MAGHRIB,
-        PrayerName.ISHA,
-        PrayerName.JUMUAH,
+        MarkerName.FAJR,
+        MarkerName.DHUHR,
+        MarkerName.ASR,
+        MarkerName.MAGHRIB,
+        MarkerName.ISHA,
+        MarkerName.JUMUAH,
     }
-    assert by_prayer[PrayerName.FAJR].delay_minutes == 15
-    assert by_prayer[PrayerName.DHUHR].delay_minutes == 10
-    assert by_prayer[PrayerName.ASR].delay_minutes == 10
-    assert by_prayer[PrayerName.MAGHRIB].delay_minutes == 10
-    assert by_prayer[PrayerName.ISHA].delay_minutes == 15
-    assert by_prayer[PrayerName.JUMUAH].delay_minutes == 10
+    assert by_prayer[MarkerName.FAJR].delay_minutes == 15
+    assert by_prayer[MarkerName.DHUHR].delay_minutes == 10
+    assert by_prayer[MarkerName.ASR].delay_minutes == 10
+    assert by_prayer[MarkerName.MAGHRIB].delay_minutes == 10
+    assert by_prayer[MarkerName.ISHA].delay_minutes == 15
+    assert by_prayer[MarkerName.JUMUAH].delay_minutes == 10
     assert all(rule.mode == "delay" for rule in settings.iqamah_rules)
-    assert PrayerName.SYURUQ not in by_prayer
+    assert MarkerName.SYURUQ not in by_prayer
+    assert not (
+        {MarkerName.IMSAK, MarkerName.SYURUQ, MarkerName.DHUHA} & set(by_prayer)
+    )
     assert settings.iqamah_rules == DEFAULT_IQAMAH_RULES
 
 
@@ -202,16 +215,100 @@ def test_prayer_state_members() -> None:
 
 
 @pytest.mark.unit
-def test_prayer_name_members() -> None:
-    assert {p.name.lower() for p in PrayerName} == {
+def test_marker_name_members() -> None:
+    assert {p.value for p in MarkerName} == {
         "fajr",
+        "imsak",
         "syuruq",
+        "dhuha",
         "dhuhr",
         "asr",
         "maghrib",
         "isha",
         "jumuah",
     }
+    # Locked wire spellings: pre-existing names keep their contract strings.
+    assert MarkerName.DHUHR.value == "dhuhr"
+    assert MarkerName.SYURUQ.value == "syuruq"
+
+
+@pytest.mark.unit
+def test_marker_kind_classification() -> None:
+    from muhideen.core import MarkerKind as CoreMarkerKind
+    from muhideen.core import MarkerName as CoreMarkerName
+    from muhideen.core import marker_kind as core_marker_kind
+
+    assert CoreMarkerKind is MarkerKind
+    assert CoreMarkerName is MarkerName
+    assert core_marker_kind is marker_kind
+    prayers = {
+        MarkerName.FAJR,
+        MarkerName.DHUHR,
+        MarkerName.ASR,
+        MarkerName.MAGHRIB,
+        MarkerName.ISHA,
+        MarkerName.JUMUAH,
+    }
+    boundaries = {MarkerName.IMSAK, MarkerName.SYURUQ, MarkerName.DHUHA}
+    assert len(set(MarkerName)) == 9
+    assert prayers | boundaries == set(MarkerName)
+    assert all(marker_kind(name) is MarkerKind.PRAYER for name in prayers)
+    assert all(marker_kind(name) is MarkerKind.BOUNDARY for name in boundaries)
+
+
+@pytest.mark.unit
+def test_prayer_day_carries_boundary_markers() -> None:
+    from dataclasses import replace
+
+    day = _day()
+    assert day.imsak == time(5, 35)
+    assert day.dhuha == time(7, 25)
+    assert isinstance(hash(day), int)
+    with pytest.raises(FrozenInstanceError):
+        day.imsak = time(5, 40)  # type: ignore[misc]
+    assert day != replace(day, imsak=time(5, 36))
+
+
+@pytest.mark.unit
+def test_next_event_carries_boundary_pointer() -> None:
+    from dataclasses import replace
+
+    event = NextEvent(
+        now=datetime(2025, 10, 20, 11, 45),
+        state=PrayerState.NORMAL,
+        next_prayer=MarkerName.DHUHR,
+        adhan_at=datetime(2025, 10, 20, 12, 15),
+        iqamah_at=datetime(2025, 10, 20, 12, 30),
+        dim_until=datetime(2025, 10, 20, 12, 50),
+        stale=False,
+        next_boundary=MarkerName.IMSAK,
+        boundary_at=datetime(2025, 10, 21, 5, 35),
+    )
+    assert event.next_boundary is MarkerName.IMSAK
+    assert isinstance(hash(event), int)
+    with pytest.raises(FrozenInstanceError):
+        event.boundary_at = None  # type: ignore[misc]
+    assert event != replace(event, boundary_at=datetime(2025, 10, 21, 5, 36))
+
+
+@pytest.mark.unit
+def test_settings_boundary_countdown_default_off() -> None:
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+    assert settings.boundary_countdown is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "marker", [MarkerName.IMSAK, MarkerName.SYURUQ, MarkerName.DHUHA]
+)
+def test_settings_rejects_boundary_marker_iqamah_rule(marker: MarkerName) -> None:
+    with pytest.raises(ValueError, match="boundary time marker"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            iqamah_rules=(IqamahRule(prayer=marker, mode="delay"),),
+        )
 
 
 @pytest.mark.unit

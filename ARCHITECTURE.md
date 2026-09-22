@@ -31,7 +31,7 @@ src/muhideen/
 ```
 
 ### Core
-Shared vocabulary and abstract ports: prayer/display/theme value objects (frozen), `PrayerRepo`, `SettingsRepo`, `JAKIMClient`, `CalcEngine`, `EventBus`, `MediaStore`, `Clock` ports, exception hierarchy (`MuhideenError`, `ContractError`, `ScheduleError`, `SyncError`). No framework, no SQLite, no HTTP.
+Shared vocabulary and abstract ports: prayer/display/theme value objects (frozen) incl. marker vocabulary (`MarkerName`, `MarkerKind` + `marker_kind`), `PrayerRepo`, `SettingsRepo`, `JAKIMClient`, `CalcEngine`, `EventBus`, `MediaStore`, `Clock` ports, exception hierarchy (`MuhideenError`, `ContractError`, `ScheduleError`, `SyncError`). No framework, no SQLite, no HTTP.
 
 ### Domain
 Pure functions over `(now, schedule, settings)`: state machine (§8 PRD), fallback chain, iqamah resolution, Hijri offset application, freshness flags. Frozen dataclasses (`slots=True`). A `Clock` is injected — never read wall time directly — so tests pin time exactly.

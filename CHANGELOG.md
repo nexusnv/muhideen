@@ -29,9 +29,20 @@ versioning follows [Semantic Versioning](https://semver.org/).
 - Property tests (Hypothesis) for the state machine: monotonic targets,
   non-overlapping state windows, Syuruq never dims, midnight always resolves
   next-day Fajr, and re-render idempotence.
+- Marker taxonomy (slice 1A-4a): `MarkerName`/`MarkerKind`/`marker_kind`
+  (PRD FR-1.7); Imsak/Dhuha on `PrayerDay` + `prayers`/`boundaries` contract
+  split; opt-in boundary countdown (`Settings.boundary_countdown`,
+  `next_boundary`/`boundary_at` on next-event + state payloads).
 
 ### Changed
 
+- `PrayerName` renamed `MarkerName`; state machine windows are
+  Prayer-Time-Marker-only (boundary markers never PRE_ADHAN/ADHAN/IQAMAH/dim;
+  `resolve_iqamah` raises for them); `next_prayer` narrowed to prayer markers
+  (**migration note**: `GET /api/prayer-day` `times` → `prayers` +
+  `boundaries`, `GET /api/next-event` gains `next_boundary`/`boundary_at` —
+  contract v1 amended pre-consumer under the new `docs/api-contract.md`
+  versioning clause, no `/api/v2`); PRD Rev 3 + docs/skills sweep.
 - `Settings` gains `iqamah_rules` (FR-1.4 defaults: Subuh 15, Dhuhr/Asr/
   Maghrib 10, Isha 15, Jumuah own rule) plus `lat`/`lon`/`method` calc
   configuration (PRD §6.2), with construction guards pairing and ranging the

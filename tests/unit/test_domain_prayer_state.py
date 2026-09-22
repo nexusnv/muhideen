@@ -8,8 +8,8 @@ import pytest
 
 from muhideen.core.values import (
     IqamahRule,
+    MarkerName,
     PrayerDay,
-    PrayerName,
     PrayerState,
     ScheduleSource,
     Settings,
@@ -35,8 +35,10 @@ def _day() -> PrayerDay:
     return PrayerDay(
         date=date(2025, 10, 22),
         zone="SGR01",
+        imsak=dtime(5, 35),
         fajr=dtime(5, 45),
         syuruq=dtime(6, 55),
+        dhuha=dtime(7, 25),
         dhuhr=dtime(12, 15),
         asr=dtime(15, 30),
         maghrib=dtime(18, 5),
@@ -46,30 +48,30 @@ def _day() -> PrayerDay:
     )
 
 
-def _rules() -> dict[PrayerName, IqamahRule]:
+def _rules() -> dict[MarkerName, IqamahRule]:
     return {
-        PrayerName.FAJR: IqamahRule(
-            prayer=PrayerName.FAJR, mode="delay", delay_minutes=15
+        MarkerName.FAJR: IqamahRule(
+            prayer=MarkerName.FAJR, mode="delay", delay_minutes=15
         ),
-        PrayerName.DHUHR: IqamahRule(
-            prayer=PrayerName.DHUHR, mode="delay", delay_minutes=10
+        MarkerName.DHUHR: IqamahRule(
+            prayer=MarkerName.DHUHR, mode="delay", delay_minutes=10
         ),
-        PrayerName.ASR: IqamahRule(
-            prayer=PrayerName.ASR, mode="delay", delay_minutes=10
+        MarkerName.ASR: IqamahRule(
+            prayer=MarkerName.ASR, mode="delay", delay_minutes=10
         ),
-        PrayerName.MAGHRIB: IqamahRule(
-            prayer=PrayerName.MAGHRIB, mode="delay", delay_minutes=10
+        MarkerName.MAGHRIB: IqamahRule(
+            prayer=MarkerName.MAGHRIB, mode="delay", delay_minutes=10
         ),
-        PrayerName.ISHA: IqamahRule(
-            prayer=PrayerName.ISHA, mode="delay", delay_minutes=15
+        MarkerName.ISHA: IqamahRule(
+            prayer=MarkerName.ISHA, mode="delay", delay_minutes=15
         ),
-        PrayerName.JUMUAH: IqamahRule(
-            prayer=PrayerName.JUMUAH, mode="delay", delay_minutes=10
+        MarkerName.JUMUAH: IqamahRule(
+            prayer=MarkerName.JUMUAH, mode="delay", delay_minutes=10
         ),
     }
 
 
-def _settings() -> Settings:
+def _settings(boundary_countdown: bool = False) -> Settings:
     return Settings(
         masjid_name="Masjid Test",
         zone="SGR01",
@@ -77,6 +79,7 @@ def _settings() -> Settings:
         adhan_duration_s=180,
         dim_minutes_default=20,
         dim_minutes_jumuah=45,
+        boundary_countdown=boundary_countdown,
     )
 
 
@@ -90,7 +93,7 @@ def test_normal_mid_morning() -> None:
 
     event = resolve_next_event(_at(10, 0), _day(), None, _rules(), _settings(), False)
     assert event.state == PrayerState.NORMAL
-    assert event.next_prayer == PrayerName.DHUHR
+    assert event.next_prayer == MarkerName.DHUHR
     assert event.adhan_at == datetime(2025, 10, 22, 12, 15, tzinfo=TZ)
     assert event.iqamah_at == datetime(2025, 10, 22, 12, 25, tzinfo=TZ)
     assert event.dim_until == datetime(2025, 10, 22, 12, 45, tzinfo=TZ)
@@ -103,7 +106,7 @@ def test_pre_adhan_five_minute_window() -> None:
 
     event = resolve_next_event(_at(12, 11), _day(), None, _rules(), _settings(), False)
     assert event.state == PrayerState.PRE_ADHAN
-    assert event.next_prayer == PrayerName.DHUHR
+    assert event.next_prayer == MarkerName.DHUHR
 
 
 @pytest.mark.unit
@@ -112,7 +115,7 @@ def test_adhan_overlay_uses_settings_duration() -> None:
 
     event = resolve_next_event(_at(12, 16), _day(), None, _rules(), _settings(), False)
     assert event.state == PrayerState.ADHAN
-    assert event.next_prayer == PrayerName.DHUHR
+    assert event.next_prayer == MarkerName.DHUHR
     assert event.adhan_at == datetime(2025, 10, 22, 12, 15, tzinfo=TZ)
 
 
@@ -122,7 +125,7 @@ def test_iqamah_countdown_targets_rule() -> None:
 
     event = resolve_next_event(_at(12, 20), _day(), None, _rules(), _settings(), False)
     assert event.state == PrayerState.IQAMAH_COUNTDOWN
-    assert event.next_prayer == PrayerName.DHUHR
+    assert event.next_prayer == MarkerName.DHUHR
     assert event.iqamah_at == datetime(2025, 10, 22, 12, 25, tzinfo=TZ)
     assert event.dim_until == datetime(2025, 10, 22, 12, 45, tzinfo=TZ)
 
@@ -133,7 +136,7 @@ def test_salah_dim_uses_default_minutes() -> None:
 
     event = resolve_next_event(_at(12, 30), _day(), None, _rules(), _settings(), False)
     assert event.state == PrayerState.SALAH_DIM
-    assert event.next_prayer == PrayerName.DHUHR
+    assert event.next_prayer == MarkerName.DHUHR
     assert event.dim_until == datetime(2025, 10, 22, 12, 45, tzinfo=TZ)
 
 
@@ -142,12 +145,12 @@ def test_adhan_wins_when_overlay_overlaps_dim_window() -> None:
     from muhideen.domain.prayer_state import resolve_next_event
 
     rules = _rules()
-    rules[PrayerName.DHUHR] = IqamahRule(
-        prayer=PrayerName.DHUHR, mode="delay", delay_minutes=1
+    rules[MarkerName.DHUHR] = IqamahRule(
+        prayer=MarkerName.DHUHR, mode="delay", delay_minutes=1
     )
     event = resolve_next_event(_at(12, 17), _day(), None, rules, _settings(), False)
     assert event.state == PrayerState.ADHAN
-    assert event.next_prayer == PrayerName.DHUHR
+    assert event.next_prayer == MarkerName.DHUHR
     assert event.adhan_at == datetime(2025, 10, 22, 12, 15, tzinfo=TZ)
     assert event.iqamah_at == datetime(2025, 10, 22, 12, 16, tzinfo=TZ)
     assert event.dim_until == datetime(2025, 10, 22, 12, 36, tzinfo=TZ)
@@ -157,8 +160,10 @@ def _friday_day() -> PrayerDay:
     return PrayerDay(
         date=date(2025, 10, 24),
         zone="SGR01",
+        imsak=dtime(5, 35),
         fajr=dtime(5, 45),
         syuruq=dtime(6, 55),
+        dhuha=dtime(7, 25),
         dhuhr=dtime(12, 15),
         asr=dtime(15, 30),
         maghrib=dtime(18, 5),
@@ -173,24 +178,26 @@ def _friday_at(hour: int, minute: int) -> datetime:
 
 
 @pytest.mark.unit
-def test_syuruq_overlay_then_normal_no_dim() -> None:
+def test_boundary_window_stays_normal() -> None:
     from muhideen.domain.prayer_state import resolve_next_event
 
-    overlay = resolve_next_event(_at(6, 56), _day(), None, _rules(), _settings(), False)
-    assert overlay.state == PrayerState.ADHAN
-    assert overlay.next_prayer == PrayerName.SYURUQ
+    at_boundary = resolve_next_event(
+        _at(6, 56), _day(), None, _rules(), _settings(), False
+    )
+    assert at_boundary.state == PrayerState.NORMAL
+    assert at_boundary.next_prayer == MarkerName.DHUHR
     after = resolve_next_event(_at(7, 10), _day(), None, _rules(), _settings(), False)
     assert after.state == PrayerState.NORMAL
-    assert after.next_prayer == PrayerName.DHUHR
+    assert after.next_prayer == MarkerName.DHUHR
 
 
 @pytest.mark.unit
-def test_syuruq_never_produces_iqamah_targets() -> None:
+def test_boundary_countdown_disabled_by_default() -> None:
     from muhideen.domain.prayer_state import resolve_next_event
 
-    overlay = resolve_next_event(_at(6, 56), _day(), None, _rules(), _settings(), False)
-    assert overlay.iqamah_at is None
-    assert overlay.dim_until is None
+    event = resolve_next_event(_at(6, 56), _day(), None, _rules(), _settings(), False)
+    assert event.next_boundary is None
+    assert event.boundary_at is None
 
 
 @pytest.mark.unit
@@ -201,7 +208,7 @@ def test_jumuah_replaces_dhuhr_friday() -> None:
         _friday_at(12, 20), _friday_day(), None, _rules(), _settings(), False
     )
     assert event.state == PrayerState.IQAMAH_COUNTDOWN
-    assert event.next_prayer == PrayerName.JUMUAH
+    assert event.next_prayer == MarkerName.JUMUAH
     assert event.adhan_at == datetime(2025, 10, 24, 12, 15, tzinfo=TZ)
 
 
@@ -213,7 +220,7 @@ def test_jumuah_uses_45m_dim() -> None:
         _friday_at(12, 30), _friday_day(), None, _rules(), _settings(), False
     )
     assert event.state == PrayerState.SALAH_DIM
-    assert event.next_prayer == PrayerName.JUMUAH
+    assert event.next_prayer == MarkerName.JUMUAH
     assert event.dim_until == datetime(2025, 10, 24, 13, 10, tzinfo=TZ)
 
 
@@ -223,7 +230,7 @@ def test_midnight_crossover_next_day_fajr() -> None:
 
     event = resolve_next_event(_at(21, 0), _day(), None, _rules(), _settings(), False)
     assert event.state == PrayerState.NORMAL
-    assert event.next_prayer == PrayerName.FAJR
+    assert event.next_prayer == MarkerName.FAJR
     assert event.adhan_at == datetime(2025, 10, 23, 5, 45, tzinfo=TZ)
 
 
@@ -234,8 +241,10 @@ def test_midnight_crossover_uses_tomorrow_schedule() -> None:
     tomorrow = PrayerDay(
         date=date(2025, 10, 23),
         zone="SGR01",
+        imsak=dtime(5, 36),
         fajr=dtime(5, 46),
         syuruq=dtime(6, 56),
+        dhuha=dtime(7, 26),
         dhuhr=dtime(12, 15),
         asr=dtime(15, 30),
         maghrib=dtime(18, 5),
@@ -246,20 +255,79 @@ def test_midnight_crossover_uses_tomorrow_schedule() -> None:
     event = resolve_next_event(
         _at(21, 0), _day(), tomorrow, _rules(), _settings(), False
     )
-    assert event.next_prayer == PrayerName.FAJR
+    assert event.next_prayer == MarkerName.FAJR
     assert event.adhan_at == datetime(2025, 10, 23, 5, 46, tzinfo=TZ)
 
 
 @pytest.mark.unit
-def test_syuruq_pre_adhan_window() -> None:
+def test_boundary_window_never_pre_adhan() -> None:
     from muhideen.domain.prayer_state import resolve_next_event
 
     event = resolve_next_event(_at(6, 52), _day(), None, _rules(), _settings(), False)
-    assert event.state == PrayerState.PRE_ADHAN
-    assert event.next_prayer == PrayerName.SYURUQ
-    assert event.adhan_at == datetime(2025, 10, 22, 6, 55, tzinfo=TZ)
-    assert event.iqamah_at is None
-    assert event.dim_until is None
+    assert event.state == PrayerState.NORMAL
+    assert event.next_prayer == MarkerName.DHUHR
+
+
+@pytest.mark.unit
+def test_boundary_countdown_populates_pointer_without_state_change() -> None:
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    event = resolve_next_event(
+        _at(6, 30), _day(), None, _rules(), _settings(True), False
+    )
+    assert event.state is PrayerState.NORMAL
+    assert event.next_prayer is MarkerName.DHUHR
+    assert event.next_boundary is MarkerName.SYURUQ
+    assert event.boundary_at == datetime(2025, 10, 22, 6, 55, tzinfo=TZ)
+
+
+@pytest.mark.unit
+def test_boundary_pointer_before_imsak() -> None:
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    event = resolve_next_event(
+        _at(5, 30), _day(), None, _rules(), _settings(True), False
+    )
+    assert event.state is PrayerState.NORMAL
+    assert event.next_prayer is MarkerName.FAJR
+    assert event.next_boundary is MarkerName.IMSAK
+    assert event.boundary_at == datetime(2025, 10, 22, 5, 35, tzinfo=TZ)
+
+
+@pytest.mark.unit
+def test_boundary_carry_past_dhuha_uses_tomorrow_imsak() -> None:
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    event = resolve_next_event(
+        _at(8, 0), _day(), None, _rules(), _settings(True), False
+    )
+    assert event.next_boundary is MarkerName.IMSAK
+    assert event.boundary_at == datetime(2025, 10, 23, 5, 35, tzinfo=TZ)
+
+
+@pytest.mark.unit
+def test_boundary_carry_prefers_tomorrow_schedule() -> None:
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    tomorrow = PrayerDay(
+        date=date(2025, 10, 23),
+        zone="SGR01",
+        imsak=dtime(5, 36),
+        fajr=dtime(5, 46),
+        syuruq=dtime(6, 56),
+        dhuha=dtime(7, 26),
+        dhuhr=dtime(12, 15),
+        asr=dtime(15, 30),
+        maghrib=dtime(18, 5),
+        isha=dtime(19, 25),
+        source=ScheduleSource.JAKIM,
+        fetched_at=datetime(2025, 10, 23, 1, 0, tzinfo=TZ),
+    )
+    event = resolve_next_event(
+        _at(21, 0), _day(), tomorrow, _rules(), _settings(True), False
+    )
+    assert event.next_boundary is MarkerName.IMSAK
+    assert event.boundary_at == datetime(2025, 10, 23, 5, 36, tzinfo=TZ)
 
 
 @pytest.mark.unit
@@ -269,7 +337,7 @@ def test_next_day_fajr_pre_adhan() -> None:
     now = FakeClock(datetime(2025, 10, 23, 5, 43, tzinfo=TZ)).now()
     event = resolve_next_event(now, _day(), None, _rules(), _settings(), False)
     assert event.state == PrayerState.PRE_ADHAN
-    assert event.next_prayer == PrayerName.FAJR
+    assert event.next_prayer == MarkerName.FAJR
     assert event.adhan_at == datetime(2025, 10, 23, 5, 45, tzinfo=TZ)
 
 
@@ -287,7 +355,7 @@ def test_fixed_offset_tz_matches_zoneinfo() -> None:
     fixed_event = resolve_next_event(fixed, _day(), None, _rules(), _settings(), False)
     zoned_event = resolve_next_event(zoned, _day(), None, _rules(), _settings(), False)
     assert fixed_event.state == zoned_event.state == PrayerState.IQAMAH_COUNTDOWN
-    assert fixed_event.next_prayer == zoned_event.next_prayer == PrayerName.DHUHR
+    assert fixed_event.next_prayer == zoned_event.next_prayer == MarkerName.DHUHR
     assert fixed_event.iqamah_at == zoned_event.iqamah_at
 
 
@@ -300,8 +368,10 @@ def test_stale_day_remaps_onto_today() -> None:
     stale_day = PrayerDay(
         date=date(2025, 10, 22),
         zone="SGR01",
+        imsak=dtime(5, 35),
         fajr=dtime(5, 45),
         syuruq=dtime(6, 55),
+        dhuha=dtime(7, 25),
         dhuhr=dtime(12, 15),
         asr=dtime(15, 30),
         maghrib=dtime(18, 5),
@@ -312,7 +382,7 @@ def test_stale_day_remaps_onto_today() -> None:
     now = datetime(2025, 10, 23, 13, 0, tzinfo=TZ)
     event = resolve_next_event(now, stale_day, None, _rules(), _settings(), True)
     assert event.state == PrayerState.NORMAL
-    assert event.next_prayer == PrayerName.ASR
+    assert event.next_prayer == MarkerName.ASR
     assert event.adhan_at is not None
     assert event.adhan_at > now
     assert event.stale is True
@@ -333,7 +403,7 @@ def test_friday_missing_jumuah_rule_raises_config_error() -> None:
     from muhideen.domain.prayer_state import resolve_next_event
 
     rules = _rules()
-    del rules[PrayerName.JUMUAH]
+    del rules[MarkerName.JUMUAH]
     with pytest.raises(ConfigError):
         resolve_next_event(
             _friday_at(12, 20), _friday_day(), None, rules, _settings(), False

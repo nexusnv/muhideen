@@ -22,9 +22,9 @@ from muhideen.api.dto import (
     VersionDTO,
 )
 from muhideen.core.values import (
+    MarkerName,
     NextEvent,
     PrayerDay,
-    PrayerName,
     PrayerState,
     ScheduleSource,
 )
@@ -59,9 +59,43 @@ def test_state_requires_uppercase_wire_value() -> None:
 
 def test_times_require_hh_mm_format() -> None:
     payload = _load("prayer-day.json")
-    payload["times"] = {**payload["times"], "fajr": "05:45:00"}
+    payload["prayers"] = {**payload["prayers"], "fajr": "05:45:00"}
     with pytest.raises(ValidationError):
         PrayerDayDTO.model_validate(payload)
+    payload = _load("prayer-day.json")
+    payload["boundaries"] = {**payload["boundaries"], "imsak": "05:35:00"}
+    with pytest.raises(ValidationError):
+        PrayerDayDTO.model_validate(payload)
+
+
+def test_prayer_day_prayers_reject_boundary_key() -> None:
+    """extra=forbid makes the class split executable on the wire."""
+    payload = _load("prayer-day.json")
+    payload["prayers"]["syuruq"] = "06:55"
+    with pytest.raises(ValidationError):
+        PrayerDayDTO.model_validate(payload)
+
+
+def test_prayer_day_requires_boundaries() -> None:
+    payload = _load("prayer-day.json")
+    payload.pop("boundaries")
+    with pytest.raises(ValidationError):
+        PrayerDayDTO.model_validate(payload)
+
+
+def test_next_prayer_rejects_boundary_marker() -> None:
+    """next_prayer is narrowed to Prayer Time Markers (PRD FR-1.7)."""
+    with pytest.raises(ValidationError):
+        NextEventDTO.model_validate(
+            dict(_load("next-event.json"), next_prayer="syuruq")
+        )
+
+
+def test_next_boundary_rejects_prayer_marker() -> None:
+    with pytest.raises(ValidationError):
+        NextEventDTO.model_validate(
+            dict(_load("next-event.json"), next_boundary="dhuhr")
+        )
 
 
 def test_naive_datetime_rejected() -> None:
@@ -81,11 +115,13 @@ def test_next_event_from_domain_matches_fixture() -> None:
     event = NextEvent(
         state=PrayerState.IQAMAH_COUNTDOWN,
         now=datetime(2025, 10, 20, 12, 20, tzinfo=KL),
-        next_prayer=PrayerName.DHUHR,
+        next_prayer=MarkerName.DHUHR,
         adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=KL),
         iqamah_at=datetime(2025, 10, 20, 12, 30, tzinfo=KL),
         dim_until=datetime(2025, 10, 20, 12, 50, tzinfo=KL),
         stale=False,
+        next_boundary=MarkerName.IMSAK,
+        boundary_at=datetime(2025, 10, 21, 5, 35, tzinfo=KL),
     )
     assert NextEventDTO.from_domain(event).model_dump(mode="json") == _load(
         "next-event.json"
@@ -96,8 +132,10 @@ def test_prayer_day_from_domain_matches_fixture() -> None:
     day = PrayerDay(
         date=date(2025, 10, 20),
         zone="SGR01",
+        imsak=time(5, 35),
         fajr=time(5, 45),
         syuruq=time(6, 55),
+        dhuha=time(7, 25),
         dhuhr=time(12, 15),
         asr=time(15, 30),
         maghrib=time(18, 5),

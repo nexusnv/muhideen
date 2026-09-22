@@ -5,17 +5,26 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from muhideen.core.errors import ConfigError
-from muhideen.core.values import IqamahRule, PrayerName
+from muhideen.core.values import (
+    IqamahRule,
+    MarkerKind,
+    MarkerName,
+    marker_kind,
+)
 
 
 def resolve_iqamah(
-    prayer: PrayerName,
+    prayer: MarkerName,
     adhan_at: datetime,
-    rules: dict[PrayerName, IqamahRule],
-) -> datetime | None:
-    """Return the iqamah target for one adhan, or None for Syuruq."""
-    if prayer is PrayerName.SYURUQ:
-        return None
+    rules: dict[MarkerName, IqamahRule],
+) -> datetime:
+    """Iqamah target for one Prayer Time Marker adhan.
+
+    Boundary Time Markers raise ``ConfigError`` (a ``Settings`` construction
+    guard prevents such rules from ever existing).
+    """
+    if marker_kind(prayer) is MarkerKind.BOUNDARY:
+        raise ConfigError(f"boundary time marker has no iqamah: {prayer.value}")
     rule = rules.get(prayer)
     if rule is None:
         raise ConfigError(f"missing iqamah rule for prayer: {prayer.value}")
