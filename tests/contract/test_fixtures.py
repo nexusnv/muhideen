@@ -1,46 +1,104 @@
-"""Skeleton: checked-in fixtures parse and carry the contract shapes.
+"""Contract parity: Pydantic DTOs vs checked-in api/fixtures (slice 1A-3).
 
-Full DTO-vs-fixture parity belongs to slice 1A-3; these smoke tests only
-pin that the fixture files exist and hold the documented keys.
+Round-trip both directions: fixture -> DTO -> dump equals the fixture dict
+(exact key set via extra="forbid"), and domain value objects -> DTO equals
+the fixture. Negative cases pin the wire format: uppercase state, HH:MM
+times, tz-aware ISO8601 datetimes, no extra fields.
 """
 
 import json
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
+from pydantic import ValidationError
+
+from muhideen.api.dto import NextEventDTO, PrayerDayDTO
+from muhideen.core.values import (
+    NextEvent,
+    PrayerDay,
+    PrayerName,
+    PrayerState,
+    ScheduleSource,
+)
+
+pytestmark = pytest.mark.contract
 
 FIXTURES = Path(__file__).resolve().parents[2] / "api" / "fixtures"
+KL = timezone(timedelta(hours=8))
 
 
-@pytest.mark.contract
-def test_next_event_fixture_shape() -> None:
-    payload = json.loads((FIXTURES / "next-event.json").read_text())
-    assert set(payload) >= {
-        "state",
-        "next_prayer",
-        "adhan_at",
-        "iqamah_at",
-        "dim_until",
-        "stale",
-    }
+def _load(name: str) -> Any:
+    return json.loads((FIXTURES / name).read_text())
 
 
-@pytest.mark.contract
-def test_prayer_day_fixture_shape() -> None:
-    payload = json.loads((FIXTURES / "prayer-day.json").read_text())
-    assert set(payload["times"]) == {
-        "fajr",
-        "syuruq",
-        "dhuhr",
-        "asr",
-        "maghrib",
-        "isha",
-    }
-    assert set(payload) >= {"date", "zone", "source", "stale"}
+def test_prayer_day_fixture_round_trips() -> None:
+    payload = _load("prayer-day.json")
+    dto = PrayerDayDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
 
 
-@pytest.mark.contract
-def test_events_stream_fixture_non_empty() -> None:
-    lines = (FIXTURES / "events-stream.txt").read_text().splitlines()
-    assert any(line.startswith("event:") for line in lines)
-    assert any(line.startswith("data:") for line in lines)
+def test_next_event_fixture_round_trips() -> None:
+    payload = _load("next-event.json")
+    dto = NextEventDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
+def test_state_requires_uppercase_wire_value() -> None:
+    payload = dict(_load("next-event.json"), state="iqamah_countdown")
+    with pytest.raises(ValidationError):
+        NextEventDTO.model_validate(payload)
+
+
+def test_times_require_hh_mm_format() -> None:
+    payload = _load("prayer-day.json")
+    payload["times"] = {**payload["times"], "fajr": "05:45:00"}
+    with pytest.raises(ValidationError):
+        PrayerDayDTO.model_validate(payload)
+
+
+def test_naive_datetime_rejected() -> None:
+    payload = dict(_load("next-event.json"), now="2025-10-20T12:20:00")
+    with pytest.raises(ValidationError):
+        NextEventDTO.model_validate(payload)
+
+
+def test_extra_field_rejected() -> None:
+    with pytest.raises(ValidationError):
+        NextEventDTO.model_validate(dict(_load("next-event.json"), extra=1))
+    with pytest.raises(ValidationError):
+        PrayerDayDTO.model_validate(dict(_load("prayer-day.json"), extra=1))
+
+
+def test_next_event_from_domain_matches_fixture() -> None:
+    event = NextEvent(
+        state=PrayerState.IQAMAH_COUNTDOWN,
+        now=datetime(2025, 10, 20, 12, 20, tzinfo=KL),
+        next_prayer=PrayerName.DHUHR,
+        adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=KL),
+        iqamah_at=datetime(2025, 10, 20, 12, 30, tzinfo=KL),
+        dim_until=datetime(2025, 10, 20, 12, 50, tzinfo=KL),
+        stale=False,
+    )
+    assert NextEventDTO.from_domain(event).model_dump(mode="json") == _load(
+        "next-event.json"
+    )
+
+
+def test_prayer_day_from_domain_matches_fixture() -> None:
+    day = PrayerDay(
+        date=date(2025, 10, 20),
+        zone="SGR01",
+        fajr=time(5, 45),
+        syuruq=time(6, 55),
+        dhuhr=time(12, 15),
+        asr=time(15, 30),
+        maghrib=time(18, 5),
+        isha=time(19, 25),
+        source=ScheduleSource.JAKIM,
+        fetched_at=datetime(2025, 10, 20, 1, 0, tzinfo=KL),
+    )
+    assert PrayerDayDTO.from_domain(day, stale=False).model_dump(
+        mode="json"
+    ) == _load("prayer-day.json")

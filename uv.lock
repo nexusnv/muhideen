@@ -582,6 +582,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "pillow" },
+    { name = "pydantic" },
     { name = "uvicorn" },
 ]
 
@@ -602,6 +603,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "pillow", specifier = ">=10.0" },
+    { name = "pydantic", specifier = ">=2" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 
