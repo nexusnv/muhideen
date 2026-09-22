@@ -12,7 +12,13 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 from muhideen.core.values import (
     NextEvent,
@@ -96,3 +102,51 @@ class NextEventDTO(ContractDTO):
             dim_until=event.dim_until,
             stale=event.stale,
         )
+
+
+class StateEventDTO(ContractDTO):
+    """SSE `state` event payload; absent targets omitted via exclude_none."""
+
+    state: StateLiteral
+    now: datetime | None = None
+    next_prayer: PrayerLiteral | None = None
+    adhan_at: datetime | None = None
+    iqamah_at: datetime | None = None
+    dim_until: datetime | None = None
+    stale: bool | None = None
+
+    @classmethod
+    def from_domain(cls, event: NextEvent) -> StateEventDTO:
+        return cls(
+            state=event.state.name,
+            now=event.now,
+            next_prayer=event.next_prayer.value if event.next_prayer else None,
+            adhan_at=event.adhan_at,
+            iqamah_at=event.iqamah_at,
+            dim_until=event.dim_until,
+            stale=event.stale,
+        )
+
+
+class TickEventDTO(ContractDTO):
+    """SSE `tick` event payload: server `now` + state, sent 1/min."""
+
+    now: datetime
+    state: StateLiteral
+
+    @classmethod
+    def from_domain(cls, event: NextEvent) -> TickEventDTO:
+        return cls(now=event.now, state=event.state.name)
+
+
+class ConfigUpdateEventDTO(ContractDTO):
+    """SSE `config-update` event payload: which config groups changed."""
+
+    changed: Annotated[list[str], Field(min_length=1)]
+
+
+SSE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
+    "state": StateEventDTO,
+    "tick": TickEventDTO,
+    "config-update": ConfigUpdateEventDTO,
+}
