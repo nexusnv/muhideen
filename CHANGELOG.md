@@ -18,9 +18,26 @@ versioning follows [Semantic Versioning](https://semver.org/).
   parity — any drift fails CI.
 - This changelog: contract changes now ship fixtures + doc + changelog entry
   together (`CONTRIBUTING.md`).
+- Engine orchestration (slice 1A-4): `muhideen.engine.Engine` resolves day
+  schedules through the FR-1.2 fallback chain (cache → calc → last-known)
+  over the `PrayerRepo`/`SettingsRepo`/`CalcEngine`/`Clock` ports, computes
+  the PRD §8 next event, and fans out `state`/`tick` on the `EventBus`.
+- Integration tests for the engine on in-memory fakes: fallback ordering and
+  lazy port queries, zone stamping of calc days, settings hot-reload,
+  midnight crossover, stale provenance, and `["state", "tick"]` fan-out
+  order.
+- Property tests (Hypothesis) for the state machine: monotonic targets,
+  non-overlapping state windows, Syuruq never dims, midnight always resolves
+  next-day Fajr, and re-render idempotence.
 
 ### Changed
 
+- `Settings` gains `iqamah_rules` (FR-1.4 defaults: Subuh 15, Dhuhr/Asr/
+  Maghrib 10, Isha 15, Jumuah own rule) plus `lat`/`lon`/`method` calc
+  configuration (PRD §6.2), with construction guards pairing and ranging the
+  coordinates.
+- `PrayerRepo` gains `last_known(day, zone)` (FR-1.2 step 3); no adapter
+  implemented the port yet, so the surface change is free.
 - `docs/api-contract.md`: heartbeat response body `{"ok": true}` documented
   (was undocumented; additive, no version bump).
 - `tools/mock_api.py`: serves version and heartbeat responses from fixture

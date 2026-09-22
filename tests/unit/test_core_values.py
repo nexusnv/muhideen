@@ -131,6 +131,66 @@ def test_settings_hijri_offset_range(offset: int) -> None:
 
 
 @pytest.mark.unit
+def test_settings_default_iqamah_rules_match_prd_fr_1_4() -> None:
+    from muhideen.core import DEFAULT_IQAMAH_RULES
+
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+    by_prayer = {rule.prayer: rule for rule in settings.iqamah_rules}
+    assert set(by_prayer) == {
+        PrayerName.FAJR,
+        PrayerName.DHUHR,
+        PrayerName.ASR,
+        PrayerName.MAGHRIB,
+        PrayerName.ISHA,
+        PrayerName.JUMUAH,
+    }
+    assert by_prayer[PrayerName.FAJR].delay_minutes == 15
+    assert by_prayer[PrayerName.DHUHR].delay_minutes == 10
+    assert by_prayer[PrayerName.ASR].delay_minutes == 10
+    assert by_prayer[PrayerName.MAGHRIB].delay_minutes == 10
+    assert by_prayer[PrayerName.ISHA].delay_minutes == 15
+    assert by_prayer[PrayerName.JUMUAH].delay_minutes == 10
+    assert all(rule.mode == "delay" for rule in settings.iqamah_rules)
+    assert PrayerName.SYURUQ not in by_prayer
+    assert settings.iqamah_rules == DEFAULT_IQAMAH_RULES
+
+
+@pytest.mark.unit
+def test_settings_calc_config_defaults_disabled() -> None:
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+    assert settings.lat is None
+    assert settings.lon is None
+    assert settings.method == "MABIMS"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("lat", "lon"), [(3.1, None), (None, 101.6)])
+def test_settings_rejects_half_configured_coordinates(
+    lat: float | None, lon: float | None
+) -> None:
+    with pytest.raises(ValueError, match="lat and lon must be set together"):
+        Settings(masjid_name="M", zone="SGR01", hijri_offset=0, lat=lat, lon=lon)
+
+
+@pytest.mark.unit
+def test_settings_rejects_out_of_range_coordinates() -> None:
+    with pytest.raises(ValueError, match="latitude out of range"):
+        Settings(masjid_name="M", zone="SGR01", hijri_offset=0, lat=91.0, lon=101.6)
+    with pytest.raises(ValueError, match="longitude out of range"):
+        Settings(masjid_name="M", zone="SGR01", hijri_offset=0, lat=3.1, lon=181.0)
+
+
+@pytest.mark.unit
+def test_settings_new_fields_frozen_hashable_and_compared() -> None:
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+    with pytest.raises(FrozenInstanceError):
+        settings.method = "MWL"  # type: ignore[misc]
+    assert isinstance(hash(settings), int)
+    other = Settings(masjid_name="M", zone="SGR01", hijri_offset=0, method="MWL")
+    assert settings != other
+
+
+@pytest.mark.unit
 def test_prayer_state_members() -> None:
     assert {s.name for s in PrayerState} == {
         "NORMAL",

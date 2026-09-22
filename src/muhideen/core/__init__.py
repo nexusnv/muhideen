@@ -17,6 +17,7 @@ from muhideen.core.ports import (
     SettingsRepo,
 )
 from muhideen.core.values import (
+    DEFAULT_IQAMAH_RULES,
     IqamahRule,
     NextEvent,
     PrayerDay,
@@ -27,6 +28,7 @@ from muhideen.core.values import (
 )
 
 __all__ = [
+    "DEFAULT_IQAMAH_RULES",
     "CalcEngine",
     "Clock",
     "ConfigError",
