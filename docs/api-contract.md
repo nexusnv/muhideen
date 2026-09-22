@@ -42,8 +42,16 @@ Events: `state` (on transition), `tick` (1/min heartbeat with server `now`), `co
 
 ## `POST /api/displays/heartbeat`
 
+Request body:
+
 ```json
 {"id": "HALL-01"}
+```
+
+Response body (`200 OK`):
+
+```json
+{"ok": true}
 ```
 
 Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-only; IDs pre-registered or pending-approval.
