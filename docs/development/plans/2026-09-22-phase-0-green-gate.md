@@ -58,7 +58,7 @@ No `src/muhideen/` changes. No `docs/api-contract.md` or fixture content changes
 
 - [ ] Commit `uv.lock` from the local `uv sync --all-extras` run. Verify: fresh `uv sync --locked --all-extras` → exit 0.
 - [ ] Append `tmp/` to `.gitignore`. Verify: `git check-ignore tmp/foo` → ignored.
-- [ ] `ci.yml`: triggers push/PR, `uv sync --all-extras`, then the exact CONTRIBUTING gate (`ruff check`, `ruff format --check`, `pyright`, `lint-imports`, `pytest -q`) plus `lint_theme.py --theme classic-green`. Verify: YAML parses (`python3 -c yaml` or `gh workflow view` after push); full gate run locally → all green.
+- [ ] `ci.yml`: triggers push/PR, `uv sync --all-extras`, then the exact CONTRIBUTING gate (`ruff check`, `ruff format --check`, `pyright`, `lint-imports`, `pytest -q`) plus `lint_theme.py --theme classic-green`. Verify: `actionlint .github/workflows/ci.yml` or `gh workflow view ci` after push; full gate run locally → all green.
 - [ ] Final verify (all green in one line): `uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run lint-imports && uv run pytest -q`.
 
 ---
