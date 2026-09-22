@@ -148,13 +148,13 @@ Backend-only RAM shown. Full kiosk system always adds 300–600MB for X11 + Chro
 
 ### 4.2 Selected Stack
 
-**Option B' — Python 3.11+ (sync) + SQLite WAL + Jinja2 + HTMX / Alpine.js + hand-written vanilla CSS.**
+**Option B' — Python 3.11+ (sync) + SQLite WAL + Jinja2 + HTMX / Alpine.js + hand-written vanilla CSS (ADR-0001).**
 
-1. **Python native** on Debian/RPi OS Bookworm; stdlib `sqlite3`, APScheduler, Pillow, hostname/time handling. No Node at any stage.
-2. **Sync server:** Flask + Waitress (preferred) or FastAPI with `def` sync endpoints + Uvicorn single-worker. No async DB code; SQLite accessed from a single writer thread. SSE via `text/event-stream`. OpenAPI docs at `/docs` (LAN + admin auth only).
+1. **Python native** on Debian/RPi OS Bookworm; stdlib `sqlite3`, APScheduler, Pillow, hostname/time handling. No Node at any stage. Toolchain is `uv` only (see CONTRIBUTING.md).
+2. **Sync server (locked):** FastAPI with `def` sync endpoints + Uvicorn single worker. Pydantic DTOs are the executable contract (§6.3, `docs/api-contract.md`). No async DB code; SQLite accessed from a single writer thread. SSE via `text/event-stream`. OpenAPI docs at `/docs` (LAN + admin auth only).
 3. **No build step, no Tailwind:** hand-written `static/app.css` (~10KB target). Tailwind Play CDN forbidden (offline + perf). Contributors editing HTML/themes never run Node; maintainers have no Node toolchain to keep.
-4. **SQLite WAL** single-file, zero-admin. `PRAGMA journal_mode=WAL; synchronous=NORMAL;` + atomic backup via `VACUUM INTO`. Heartbeats received every 30s but flushed in 60s batches via single writer.
-5. **Offline installer:** `requirements.txt` hashed + vendored wheel tarball (`vendor/wheels/`) built for `armv7l/aarch64/x86_64`. `install.sh` installs with `pip install --no-index --find-links vendor/wheels`. No live `pip` on device.
+4. **SQLite WAL behind ports (ADR-0003)** single-file, zero-admin. `PRAGMA journal_mode=WAL; synchronous=NORMAL;` + atomic backup via `VACUUM INTO`. Heartbeats received every 30s but flushed in 60s batches via single writer.
+5. **Offline installer:** `uv.lock` + vendored wheel tarball (`vendor/wheels/`) built for `armv7l/aarch64/x86_64`. Install with `uv pip install --no-index --find-links vendor/wheels` or `uv sync --offline`. No live package index on device.
 
 ### 4.3 Architecture Rules (ports-and-adapters)
 
@@ -165,14 +165,26 @@ Domain core is framework-free so a later Go rewrite (Option C) needs no display/
 * Adapters: `adapters/jakim_esolat.py`, `adapters/sqlite_repo.py`, `adapters/sse.py`, `adapters/cec.py`.
 * Stable API contract: `GET /api/next-event`, `GET /api/events` (SSE), `POST /api/displays/heartbeat`, `GET /display?id=`. Use-case tests run with in-memory repos, no DB/network.
 
+### 4.4 Development Constraints (API-first, backend-first, single repo)
+
+Normative constraint to allow frontend-only and backend-only contributors to work without blocking each other:
+
+1. **Single repo, single deployable.** No split repos or separately deployed frontend/backend services. Logical split only (§4.3, ARCHITECTURE.md).
+2. **Ownership boundaries:**
+   * Backend-owned: `src/muhideen/core/`, `domain/`, `engine/`, `adapters/`, `api/`, `migrations/`.
+   * Frontend-owned: `src/muhideen/views/display/`, `views/admin/`, `static/app.css`, `static/app.js`, `themes/`, `api/fixtures/`.
+   * Cross-boundary change = API contract change (§6.3, `docs/api-contract.md`). Frontend must never import `domain/`; backend must never embed presentation logic beyond Jinja context DTOs. Enforced by import-linter + purity scans (ARCHITECTURE.md).
+3. **Backend-first, frontend-independent:** backend lands `api/` + OpenAPI + fixtures first. Frontend builds against fixtures/mock without a live DB or JAKIM access.
+4. **Fixtures are normative:** `api/fixtures/next-event.json`, `api/fixtures/prayer-day.json`, `api/fixtures/events-stream.txt` (SSE sample) must be committed with every contract change. `uv run tools/mock_api.py` serves fixtures on `:8001` for frontend-only dev (stdlib only, no backend deps).
+5. **No frontend toolchain:** frontend-only path requires browser + `uv run tools/mock_api.py` only. No Node/npm. CSS/JS hand-written; `themes/` validated by `uv run tools/lint_theme.py --theme <slug>`.
+
 ```
 +-----------------------------------------------------------------------+
 |                           MUHIDEEN STACK                             |
 +-----------------------------------------------------------------------+
 |  Frontend Layer    | HTML + static/app.css (vanilla, ~10KB) + Alpine.js + HTMX |
 |  Realtime Sync     | SSE primary (/api/events), 60s poll fallback      |
-|  App Server        | Python 3.11+ Flask + Waitress (sync, single writer) |
-|                    | alt: FastAPI sync-endpoints + Uvicorn 1 worker      |
+|  App Server        | Python 3.11+ FastAPI-sync + Uvicorn 1 worker (ADR-0001) |
 |  DB                | SQLite3 WAL (single file)                          |
 |  OS & Runtime      | Debian / RPi OS + systemd + timesyncd/chrony       |
 |  Client Display    | Chromium --kiosk (pull + heartbeat, §3.4)          |
@@ -203,6 +215,15 @@ Domain core is framework-free so a later Go rewrite (Option C) needs no display/
 * LAN-only by default; no inbound internet ports; `/docs` bound to LAN/admin auth.
 * Uploads: images re-encoded via Pillow (strip EXIF), 5MB limit; theme zips validated per FR-5.2, extracted to `themes/<slug>/` with `manifest.json` required (`name,version,author,entry`).
 * QR contains no secret (§3.6).
+
+### 5.5 Developer & Contributor Experience (DX/CX)
+
+Treated as first-class NFR for open-source multi-contributor work:
+
+* **Frontend-only path:** browser + `uv run tools/mock_api.py` only, ≤5 min setup, no backend deps, no Node, no DB. Contract fixtures (§4.4) + `CONTRIBUTING.md` frontend track are sufficient to build display/admin/themes.
+* **Backend-only path:** `uv sync --all-extras`, ≤15 min setup, `uv run pytest -m "unit or contract or integration"` runs domain use-cases with in-memory repos (no DB/network/Chromium).
+* **No stepping on toes:** CI fails on (a) OpenAPI/fixture drift, (b) `domain/` importing web/DB, (c) `views/` importing `domain/`, (d) new Node/toolchain introduction.
+* **Docs:** `CONTRIBUTING.md` maintains separate frontend-only and backend-only quickstarts; every API change ships fixtures + changelog entry.
 
 ---
 
@@ -280,6 +301,16 @@ CREATE TABLE users (
 
 Migrations: integer `PRAGMA user_version` + `alembic`-free hand-rolled `migrations/*.sql` applied at boot.
 
+### 6.3 Frontend/Backend API Contract (normative, backend-first)
+
+Single-repo logical split (§4.4). Backend implements first; frontend builds against fixtures.
+
+* `GET /api/prayer-day?date=&zone=` → day times + sources + `stale` flag (see `api/fixtures/prayer-day.json`).
+* `GET /api/next-event` → `{state, next_prayer, adhan_at, iqamah_at, dim_until}` per §8 (see `api/fixtures/next-event.json`).
+* `GET /api/events` → SSE `text/event-stream` (`state`, `tick`, `config-update`); 60s poll of `next-event` is fallback (see `api/fixtures/events-stream.txt`).
+* `POST /api/displays/heartbeat` → `{id}` heartbeat; server batches `last_seen` writes every 60s.
+* Breaking changes require major version bump (`/api/v2/...`) + fixtures + changelog; additive fields allowed without bump.
+
 ---
 
 ## 7. Deployment & OS Integration
@@ -288,7 +319,7 @@ Migrations: integer `PRAGMA user_version` + `alembic`-free hand-rolled `migratio
 All-in-one requires Pi 4 2GB+ / Pi 5 / x86. Zero 2 W only as thin client or headless server. Documented in installer preflight check (refuse all-in-one install on <1GB RAM with override flag).
 
 ### 7.2 Linux Setup
-1. **Service:** `muhideen.service` (`After=network-online.target time-sync.target`, `Restart=always`), runs Waitress (or Uvicorn 1 worker in FastAPI-alt) on `127.0.0.1:8000` + LAN via `--host 0.0.0.0` behind admin auth. Single process, sync workers only.
+1. **Service:** `muhideen.service` (`After=network-online.target time-sync.target`, `Restart=always`), runs Uvicorn single worker on `127.0.0.1:8000` + LAN via `--host 0.0.0.0` behind admin auth. Single process, sync handlers, single SQLite writer.
 2. **Kiosk:** `openbox` + Chromium:
    ```bash
    chromium --kiosk --noerrdialogs --disable-infobars --autoplay-policy=no-user-gesture-required \
@@ -297,7 +328,7 @@ All-in-one requires Pi 4 2GB+ / Pi 5 / x86. Zero 2 W only as thin client or head
    Display `?id=` is stable registration ID, not IP.
 3. **Time:** enable `systemd-timesyncd` or `chrony`; optional DS3231 overlay documented.
 4. **CEC (optional, Phase 2):** `cec-utils` ON 30m before Fajr, OFF 30m after Isha;Master toggle + per-group opt-out; never power-off during admin session.
-5. **Installer (Phase 1):** `install.sh` does apt deps, venv, `pip install --no-index --find-links vendor/wheels`, systemd unit, seed-fetch for configured zone, preflight RAM/disk check. OTA: `/api/version` + `update.sh` (git tag pull + `VACUUM INTO` backup first). Go single-binary noted as future Phase 3 appliance option, same API contract.
+5. **Installer (Phase 1):** `install.sh` does apt deps, `uv sync --offline` from vendored wheels, systemd unit, seed-fetch for configured zone, preflight RAM/disk check. OTA: `/api/version` + `update.sh` (git tag pull + `VACUUM INTO` backup first). Go single-binary noted as future Phase 3 appliance option, same API contract.
 
 ---
 
@@ -329,7 +360,7 @@ Edge rules: Syuruq triggers brief overlay only, no countdown/dim. Jumuah replace
   +---------------------+         +---------------------+       +----------------------+
 ```
 
-* **Phase 1 (MVP):** B' backend (Flask+Waitress sync), sync+fallback, schema §6.2, state machine §8, one vanilla-CSS theme matching preview, minimal settings API + wizard, dim, installer with vendored wheels. No group UI (single `Default` group), no CEC.
+* **Phase 1 (MVP):** 1a backend first (FastAPI-sync single worker, sync+fallback, schema §6.2, contract §6.3 + fixtures + mock-api, state machine §8, installer with vendored wheels + `uv.lock`); 1b frontend against fixtures (one vanilla-CSS theme matching preview, minimal settings API + wizard, dim). No group UI (single `Default` group), no CEC. Frontend-only contributors stay unblocked after 1a fixtures land.
 * **Phase 2:** carousel manager, theme sandbox/upload/preview, backup/restore, audio upload, extra themes.
 * **Phase 3:** grouping UI, targeted configs, CEC, community theme library docs, thin-client Zero 2 W image, Go single-binary appliance evaluation (drop-in behind §4.3 contract).
 

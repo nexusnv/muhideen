@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.uv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+.mypy_cache/
+.pyright/
+.import_linter_cache/
+*.db
+*.sqlite3
+media/uploads/

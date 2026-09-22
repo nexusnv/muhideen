@@ -23,7 +23,7 @@ Full requirements: [`PRD.md`](PRD.md).
 
 ## Tech stack
 
-Python 3.11+ (sync) + SQLite WAL + Jinja2 + HTMX/Alpine.js + hand-written vanilla CSS. Flask + Waitress preferred (FastAPI sync single-worker alt). No Node, no build step. See `PRD.md` §4 for evaluation and architecture rules.
+Python 3.11+ FastAPI-sync + Uvicorn 1 worker + SQLite WAL + Jinja2 + HTMX/Alpine.js + hand-written vanilla CSS. No Node, no build step. See `PRD.md` §4, `ARCHITECTURE.md`, and `docs/adr/0001-backend-stack.md`.
 
 ## Hardware
 
@@ -34,9 +34,20 @@ Python 3.11+ (sync) + SQLite WAL + Jinja2 + HTMX/Alpine.js + hand-written vanill
 ## Repo layout
 
 * `PRD.md` — product requirements (normative).
+* `ARCHITECTURE.md` — layers, ownership, enforcement.
+* `CONTEXT.md` — domain glossary.
+* `TESTING_STRATEGY.md` — test layers and commands.
+* `CONTRIBUTING.md` — frontend-only / backend-only tracks.
+* `docs/adr/` — accepted decisions. `docs/api-contract.md` — normative API.
+* `api/fixtures/` — contract examples. Frontend builds against these.
+* `src/muhideen/` — `core/ domain/ engine/ adapters/ api/ views/ migrations/`.
+* `themes/classic-green/` — MVP theme scaffold. `tools/` — `mock_api.py`, `new_theme.py`, `lint_theme.py`.
 * `preview.jpg` — non-binding display mockup.
-* `src/` — planned: `domain/`, `adapters/`, `static/app.css`, `themes/`, `migrations/`.
 * `install.sh` / `update.sh` — planned.
+
+## Contribute
+
+Frontend-only: `uv run tools/mock_api.py` then build against `docs/api-contract.md`. Backend-only: `uv sync --all-extras` then `uv run pytest`. Full gate in `CONTRIBUTING.md`.
 
 ## License
 
