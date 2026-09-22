@@ -153,7 +153,7 @@ def _friday_day() -> PrayerDay:
 
 
 def _friday_at(hour: int, minute: int) -> datetime:
-    return datetime(2025, 10, 24, hour, minute, tzinfo=TZ)
+    return FakeClock(datetime(2025, 10, 24, hour, minute, tzinfo=TZ)).now()
 
 
 @pytest.mark.unit
@@ -250,7 +250,7 @@ def test_syuruq_pre_adhan_window() -> None:
 def test_next_day_fajr_pre_adhan() -> None:
     from muhideen.domain.prayer_state import resolve_next_event
 
-    now = datetime(2025, 10, 23, 5, 43, tzinfo=TZ)
+    now = FakeClock(datetime(2025, 10, 23, 5, 43, tzinfo=TZ)).now()
     event = resolve_next_event(now, _day(), None, _rules(), _settings(), False)
     assert event.state == PrayerState.PRE_ADHAN
     assert event.next_prayer == PrayerName.FAJR
@@ -309,3 +309,16 @@ def test_stale_flag_passes_through_true() -> None:
     event = resolve_next_event(_at(10, 0), _day(), None, _rules(), _settings(), True)
     assert event.state == PrayerState.NORMAL
     assert event.stale is True
+
+
+@pytest.mark.unit
+def test_friday_missing_jumuah_rule_raises_config_error() -> None:
+    from muhideen.core.errors import ConfigError
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    rules = _rules()
+    del rules[PrayerName.JUMUAH]
+    with pytest.raises(ConfigError):
+        resolve_next_event(
+            _friday_at(12, 20), _friday_day(), None, rules, _settings(), False
+        )
