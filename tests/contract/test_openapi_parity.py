@@ -109,7 +109,7 @@ def test_openapi_query_params_match_doc() -> None:
 
 def test_events_route_declares_text_event_stream() -> None:
     responses = create_app().openapi()["paths"]["/api/events"]["get"]["responses"]
-    assert "text/event-stream" in responses["200"]["content"]
+    assert set(responses["200"]["content"]) == {"text/event-stream"}
 
 
 def test_stub_endpoints_return_501() -> None:

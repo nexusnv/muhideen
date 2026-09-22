@@ -12,6 +12,7 @@ from datetime import date, datetime
 from importlib.metadata import version as package_version
 
 from fastapi import FastAPI, HTTPException
+from starlette.responses import StreamingResponse
 
 from muhideen.api.dto import (
     HeartbeatRequestDTO,
@@ -22,6 +23,12 @@ from muhideen.api.dto import (
 )
 
 _STUB_DETAIL = "handler wired in slice 1A-7"
+
+
+class EventStreamResponse(StreamingResponse):
+    """SSE responses: content type text/event-stream, declared in OpenAPI."""
+
+    media_type = "text/event-stream"
 
 
 def create_app() -> FastAPI:
@@ -35,16 +42,9 @@ def create_app() -> FastAPI:
     def next_event(now: datetime) -> NextEventDTO:
         raise HTTPException(status_code=501, detail=_STUB_DETAIL)
 
-    @app.get(
-        "/api/events",
-        responses={
-            200: {
-                "content": {"text/event-stream": {"schema": {"type": "string"}}},
-                "description": "SSE stream of state/tick/config-update events",
-            }
-        },
-    )
+    @app.get("/api/events", response_class=EventStreamResponse)
     def events() -> None:
+        """SSE stream of state/tick/config-update events."""
         raise HTTPException(status_code=501, detail=_STUB_DETAIL)
 
     @app.post(
