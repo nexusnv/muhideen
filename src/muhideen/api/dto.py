@@ -23,14 +23,10 @@ from pydantic import (
 from muhideen.core.values import (
     NextEvent,
     PrayerDay,
-    PrayerName,
-    PrayerState,
     ScheduleSource,
 )
 
-StateLiteral = Literal[
-    "NORMAL", "PRE_ADHAN", "ADHAN", "IQAMAH_COUNTDOWN", "SALAH_DIM"
-]
+StateLiteral = Literal["NORMAL", "PRE_ADHAN", "ADHAN", "IQAMAH_COUNTDOWN", "SALAH_DIM"]
 PrayerLiteral = Literal["fajr", "syuruq", "dhuhr", "asr", "maghrib", "isha", "jumuah"]
 TimeHHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
 

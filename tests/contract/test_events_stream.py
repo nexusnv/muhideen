@@ -31,9 +31,7 @@ EVENT_NAMES = {"state", "tick", "config-update"}
 
 def _blocks() -> list[list[str]]:
     text = (FIXTURES / "events-stream.txt").read_text()
-    return [
-        block.splitlines() for block in text.split("\n\n") if block.strip("\n")
-    ]
+    return [block.splitlines() for block in text.split("\n\n") if block.strip("\n")]
 
 
 def _event_name(lines: list[str]) -> str:
@@ -47,9 +45,7 @@ def _event_name(lines: list[str]) -> str:
 
 def _payload(lines: list[str]) -> Any:
     data = [
-        line.removeprefix("data:").strip()
-        for line in lines
-        if line.startswith("data:")
+        line.removeprefix("data:").strip() for line in lines if line.startswith("data:")
     ]
     return json.loads(data[0])
 
