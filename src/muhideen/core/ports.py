@@ -18,6 +18,10 @@ class PrayerRepo(Protocol):
 
     def save_day(self, prayer_day: PrayerDay) -> None: ...
 
+    def last_known(self, day: date, zone: str) -> PrayerDay | None:
+        """Most recent saved day with ``date <= day`` for ``zone``, else ``None``."""
+        ...
+
 
 @runtime_checkable
 class SettingsRepo(Protocol):

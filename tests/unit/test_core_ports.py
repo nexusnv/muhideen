@@ -24,9 +24,20 @@ class FullPrayerRepo:
     def save_day(self, prayer_day: PrayerDay) -> None:
         raise NotImplementedError
 
+    def last_known(self, day: date, zone: str) -> PrayerDay | None:
+        raise NotImplementedError
+
 
 class PartialPrayerRepo:
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
+        raise NotImplementedError
+
+
+class MissingLastKnownRepo:
+    def get_day(self, day: date, zone: str) -> PrayerDay | None:
+        raise NotImplementedError
+
+    def save_day(self, prayer_day: PrayerDay) -> None:
         raise NotImplementedError
 
 
@@ -129,6 +140,7 @@ def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
     ("stub", "protocol"),
     [
         (PartialPrayerRepo(), PrayerRepo),
+        (MissingLastKnownRepo(), PrayerRepo),
         (PartialSettingsRepo(), SettingsRepo),
         (PartialJAKIMClient(), JAKIMClient),
         (PartialCalcEngine(), CalcEngine),
