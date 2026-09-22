@@ -1,4 +1,7 @@
-"""Validate a theme package without backend deps. Run: uv run tools/lint_theme.py --theme <slug>"""
+"""Validate a theme package without backend deps.
+
+Usage: uv run tools/lint_theme.py --theme <slug>
+"""
 
 from __future__ import annotations
 
@@ -31,7 +34,11 @@ def main() -> int:
     for path in sorted(target.rglob("*")):
         if path.is_symlink():
             bad.append(f"symlink: {path}")
-        if path.is_file() and path.suffix not in ALLOWED and path.name != "manifest.json":
+        if (
+            path.is_file()
+            and path.suffix not in ALLOWED
+            and path.name != "manifest.json"
+        ):
             bad.append(f"extension not allowed: {path}")
         if path.name.startswith("."):
             bad.append(f"dotfile: {path}")

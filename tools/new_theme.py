@@ -31,12 +31,14 @@ INDEX_HTML = """<!doctype html>
 </html>
 """
 
-THEME_JS = """// Read-only consumer of the contract. Polls next-event; SSE upgrades when present.
+THEME_JS = """// Read-only consumer of the contract.
+// Polls next-event; upgrades to SSE when present.
 async function tick() {
   try {
     const r = await fetch('/api/next-event', {cache: 'no-store'});
     const e = await r.json();
-    document.getElementById('next').textContent = e.state + ' → ' + (e.next_prayer || '');
+    document.getElementById('next').textContent =
+      e.state + ' → ' + (e.next_prayer || '');
   } catch { /* keep last rendered state offline */ }
 }
 setInterval(tick, 5000); tick();
@@ -59,7 +61,11 @@ def main() -> None:
         raise SystemExit(f"exists: {target}")
     (target).mkdir(parents=True)
     (target / "manifest.json").write_text(
-        json.dumps({"name": args.name, "version": "0.1.0", "entry": "index.html"}, indent=2) + "\n"
+        json.dumps(
+            {"name": args.name, "version": "0.1.0", "entry": "index.html"},
+            indent=2,
+        )
+        + "\n"
     )
     (target / "index.html").write_text(INDEX_HTML.format(name=args.name))
     (target / "theme.css").write_text(THEME_CSS)
