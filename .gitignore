@@ -15,3 +15,4 @@ coverage.xml
 *.db
 *.sqlite3
 media/uploads/
+tmp/
