@@ -150,3 +150,22 @@ SSE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "tick": TickEventDTO,
     "config-update": ConfigUpdateEventDTO,
 }
+
+
+class HeartbeatRequestDTO(ContractDTO):
+    """POST /api/displays/heartbeat body: stable pre-registered display ID."""
+
+    id: Annotated[str, Field(min_length=1)]
+
+
+class HeartbeatResponseDTO(ContractDTO):
+    """POST /api/displays/heartbeat response: acknowledgement."""
+
+    ok: bool
+
+
+class VersionDTO(ContractDTO):
+    """GET /api/version payload; `api` literal pins the contract generation."""
+
+    version: str
+    api: Literal["v1"]

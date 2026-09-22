@@ -14,7 +14,13 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from muhideen.api.dto import NextEventDTO, PrayerDayDTO
+from muhideen.api.dto import (
+    HeartbeatRequestDTO,
+    HeartbeatResponseDTO,
+    NextEventDTO,
+    PrayerDayDTO,
+    VersionDTO,
+)
 from muhideen.core.values import (
     NextEvent,
     PrayerDay,
@@ -102,3 +108,43 @@ def test_prayer_day_from_domain_matches_fixture() -> None:
     assert PrayerDayDTO.from_domain(day, stale=False).model_dump(
         mode="json"
     ) == _load("prayer-day.json")
+
+
+def test_version_fixture_round_trips() -> None:
+    payload = _load("version.json")
+    dto = VersionDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
+def test_heartbeat_request_fixture_round_trips() -> None:
+    payload = _load("heartbeat-request.json")
+    dto = HeartbeatRequestDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
+def test_heartbeat_response_fixture_round_trips() -> None:
+    payload = _load("heartbeat-response.json")
+    dto = HeartbeatResponseDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
+def test_heartbeat_rejects_empty_id() -> None:
+    with pytest.raises(ValidationError):
+        HeartbeatRequestDTO.model_validate({"id": ""})
+
+
+def test_version_rejects_unknown_api_value() -> None:
+    with pytest.raises(ValidationError):
+        VersionDTO.model_validate({"version": "0.1.0", "api": "v2"})
+
+
+def test_all_contract_surfaces_have_fixtures() -> None:
+    for name in (
+        "prayer-day.json",
+        "next-event.json",
+        "heartbeat-request.json",
+        "heartbeat-response.json",
+        "version.json",
+    ):
+        _load(name)
+    assert (FIXTURES / "events-stream.txt").read_text().strip()

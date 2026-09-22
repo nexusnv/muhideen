@@ -7,7 +7,6 @@ No third-party deps. Run: uv run tools/mock_api.py [--port 8001]
 from __future__ import annotations
 
 import argparse
-import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -47,7 +46,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == "/api/version":
-            self._send_json(json.dumps({"version": "0.1.0", "api": "v1"}).encode())
+            self._send_json(_read("version.json"))
         else:
             self.send_response(404)
             self.end_headers()
@@ -57,7 +56,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/displays/heartbeat":
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
-            self._send_json(b'{"ok": true}')
+            self._send_json(_read("heartbeat-response.json"))
         else:
             self.send_response(404)
             self.end_headers()
