@@ -255,3 +255,57 @@ def test_next_day_fajr_pre_adhan() -> None:
     assert event.state == PrayerState.PRE_ADHAN
     assert event.next_prayer == PrayerName.FAJR
     assert event.adhan_at == datetime(2025, 10, 23, 5, 45, tzinfo=TZ)
+
+
+@pytest.mark.unit
+def test_fixed_offset_tz_matches_zoneinfo() -> None:
+    """Contract `+08:00` timestamps must behave like ZoneInfo equivalents."""
+
+    from datetime import timedelta, timezone
+
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    offset = timezone(timedelta(hours=8))
+    fixed = datetime(2025, 10, 22, 12, 20, tzinfo=offset)
+    zoned = datetime(2025, 10, 22, 12, 20, tzinfo=TZ)
+    fixed_event = resolve_next_event(fixed, _day(), None, _rules(), _settings(), False)
+    zoned_event = resolve_next_event(zoned, _day(), None, _rules(), _settings(), False)
+    assert fixed_event.state == zoned_event.state == PrayerState.IQAMAH_COUNTDOWN
+    assert fixed_event.next_prayer == zoned_event.next_prayer == PrayerName.DHUHR
+    assert fixed_event.iqamah_at == zoned_event.iqamah_at
+
+
+@pytest.mark.unit
+def test_stale_day_remaps_onto_today() -> None:
+    """A last-known day from another date renders as a template for today."""
+
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    stale_day = PrayerDay(
+        date=date(2025, 10, 22),
+        zone="SGR01",
+        fajr=dtime(5, 45),
+        syuruq=dtime(6, 55),
+        dhuhr=dtime(12, 15),
+        asr=dtime(15, 30),
+        maghrib=dtime(18, 5),
+        isha=dtime(19, 25),
+        source=ScheduleSource.MANUAL,
+        fetched_at=datetime(2025, 10, 20, 1, 0, tzinfo=TZ),
+    )
+    now = datetime(2025, 10, 23, 13, 0, tzinfo=TZ)
+    event = resolve_next_event(now, stale_day, None, _rules(), _settings(), True)
+    assert event.state == PrayerState.NORMAL
+    assert event.next_prayer == PrayerName.ASR
+    assert event.adhan_at is not None
+    assert event.adhan_at > now
+    assert event.stale is True
+
+
+@pytest.mark.unit
+def test_stale_flag_passes_through_true() -> None:
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    event = resolve_next_event(_at(10, 0), _day(), None, _rules(), _settings(), True)
+    assert event.state == PrayerState.NORMAL
+    assert event.stale is True

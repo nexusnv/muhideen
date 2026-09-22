@@ -25,7 +25,7 @@ Server-computed state per PRD §8. Client never computes. All timestamps ISO8601
 ```json
 {
   "state": "IQAMAH_COUNTDOWN",
-  "now": "2025-10-20T11:45:00+08:00",
+  "now": "2025-10-20T12:20:00+08:00",
   "next_prayer": "dhuhr",
   "adhan_at": "2025-10-20T12:15:00+08:00",
   "iqamah_at": "2025-10-20T12:30:00+08:00",
