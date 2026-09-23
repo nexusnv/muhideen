@@ -44,6 +44,16 @@ versioning follows [Semantic Versioning](https://semver.org/).
   `VACUUM INTO` backup primitive; 60s-batched heartbeat writes
   (`SqliteDisplayRepo`); integration suite on tmp-file SQLite covering
   migration upgrade/downgrade round-trips and engine-over-SQLite wiring.
+- Schedule sources (slice 1A-6): defensive JAKIM e-solat client
+  (`period=year`, pinned UA/15s timeout, 2s/4s/8s in-client backoff,
+  adapter-side naming map, parse + ordering rejection keeping cache
+  intact); `MabimsCalcEngine` MABIMS fallback deriving all 8 markers per
+  recorded research (golden-tested against captured JAKIM year tables);
+  02:00 scheduler with FR-1.1 5m/15m/1h retry chain (injected `Clock`,
+  APScheduler, never started in tests); `domain.ordering.ensure_ordered`;
+  captured payloads `tests/data/` plus the recorded source research
+  pinning the MABIMS params, the dhuha latitude rule, and the golden
+  tolerance.
 
 ### Changed
 
@@ -68,3 +78,10 @@ versioning follows [Semantic Versioning](https://semver.org/).
   heartbeats are written in 60s batches, never per-call (PRD §5.2/§6.3);
   display IDs that are not pre-registered are dropped at flush
   (contract: IDs are pre-registered or pending-approval).
+- **Migration note:** `core.ports.JAKIMClient.fetch_week` renamed
+  `fetch_year` (one `period=year` call covers FR-1.1's window; zero
+  consumers outside this slice).
+- `httpx>=0.27` promoted from the dev group to runtime dependencies (the
+  client needs it at runtime; already in the lockfile).
+- Added `adhanpy==1.0.5` (MIT, zero runtime deps) as the MABIMS calc
+  engine library.

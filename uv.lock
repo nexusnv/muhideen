@@ -3,6 +3,15 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
+name = "adhanpy"
+version = "1.0.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/77/1111dd754493146e14d4a28ac4df114cc5c74b4317055a300dd5df3df1bf/adhanpy-1.0.5.tar.gz", hash = "sha256:9b6670f8d563d61d4f9fde581165cbe692c917710b694cb6b5e2130ffc902680", size = 13738, upload-time = "2023-01-28T15:54:32.095Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/5b/89b9705b95aca620409574ce4bd4e013c33d3fd1f27edf7ab9b9ca40a18c/adhanpy-1.0.5-py3-none-any.whl", hash = "sha256:79d765e6b91d3b29448988691957b51109faaca10f498eb3656e7c87b56b6066", size = 17178, upload-time = "2023-01-28T15:54:30.328Z" },
+]
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -578,8 +587,10 @@ name = "muhideen"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "adhanpy" },
     { name = "apscheduler" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "jinja2" },
     { name = "pillow" },
     { name = "pydantic" },
@@ -588,7 +599,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "pyright" },
@@ -599,8 +609,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "adhanpy", specifier = "==1.0.5" },
     { name = "apscheduler", specifier = ">=3.10" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "pydantic", specifier = ">=2" },
@@ -609,7 +621,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27" },
     { name = "hypothesis", specifier = ">=6.100" },
     { name = "import-linter", specifier = ">=2.13" },
     { name = "pyright", specifier = ">=1.1" },

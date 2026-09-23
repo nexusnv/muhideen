@@ -40,7 +40,7 @@ Pure functions over `(now, schedule, settings)`: state machine (§8 PRD), fallba
 Capability-agnostic orchestrator: load settings, resolve day schedule via fallback chain, compute next event, fan out SSE. Owns registry-free composition (no global mutable singletons except the single-writer DB handle created at startup).
 
 ### Adapters
-One module per port, plus the migration runner. Landed: `sqlite_repo` (connection, single-writer `Database`, the prayer/settings/display repos, `VACUUM INTO` backup) and `migrate`. Pending with their ports: `jakim_esolat`, `calc_mabims` (later MWL/ISNA/Egyptian), `system_clock`/`fake_clock`, `sse_bus`, `cec`. Data tables live beside logic (`adapters/data/`), never inside presentation.
+One module per port, plus the migration runner. Landed: `sqlite_repo` (connection, single-writer `Database`, the prayer/settings/display repos, `VACUUM INTO` backup), `migrate`, `jakim_esolat` (defensive `period=year` client: pinned UA/timeout, in-client backoff, adapter-side naming map, parse + ordering rejection, keep-cache on fail), `calc_mabims` (MABIMS fallback behind `CalcEngine`, golden-tested against recorded JAKIM tables), `scheduler` (02:00 cron + 5m/15m/1h retries over APScheduler, injected `Clock`, never started outside 1A-7 wiring). Pending with their ports: `system_clock`/`fake_clock`, `sse_bus`, `cec`, and the MWL/ISNA/Egyptian calc methods (FR-1.3). Data tables live beside logic (`adapters/data/`), never inside presentation.
 
 ### API
 FastAPI `def` sync handlers mapping HTTP ↔ engine. Pydantic DTOs are the executable contract. OpenAPI served LAN-only behind admin auth. No business logic here beyond parsing and status codes.
