@@ -37,7 +37,7 @@ Server-computed state per PRD §8. Client never computes. All timestamps ISO8601
 }
 ```
 
-`state` ∈ `NORMAL|PRE_ADHAN|ADHAN|IQAMAH_COUNTDOWN|SALAH_DIM`. `next_prayer` ∈ `fajr|dhuhr|asr|maghrib|isha|jumuah` only (Prayer Time Markers; never a Boundary Time Marker). `next_boundary`/`boundary_at` name the next Boundary Time Marker instant and are present only when the installation opts in (`boundary_countdown` setting), default off; they never influence `state`.
+`state` ∈ `NORMAL|PRE_ADHAN|ADHAN|IQAMAH_COUNTDOWN|SALAH_DIM`. `next_prayer` ∈ `fajr|dhuhr|asr|maghrib|isha|jumuah` only (Prayer Time Markers; never a Boundary Time Marker). `next_boundary`/`boundary_at` name the next Boundary Time Marker instant. In `next-event` payloads both keys are required and may be `null`; they are non-null only when the installation opts in (`boundary_countdown` setting, default off). In SSE `state` payloads `None` values are omitted, so the keys appear only when the opt-in is on. They never influence `state`.
 
 ## `GET /api/events` (SSE `text/event-stream`)
 
