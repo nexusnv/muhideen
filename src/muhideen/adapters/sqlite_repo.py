@@ -311,3 +311,14 @@ class SqliteDisplayRepo:
             ],
         )
         return cursor.rowcount
+
+
+def backup_to(db: Database, dest: Path) -> Path:
+    """Atomic hot backup via ``VACUUM INTO`` (ADR-0003, PRD §4.2.4).
+
+    Fails (``sqlite3.OperationalError``) if ``dest`` already exists —
+    backups are never silently clobbered.
+    """
+    with db.write() as conn:
+        conn.execute("VACUUM INTO ?", (str(dest),))
+    return dest
