@@ -73,7 +73,7 @@ Fit assessment + 5 key findings shaping the design.
 Angles, offsets, juristic factors, or calendar arithmetic as frozen dataclass fields.
 
 ## 4. Sync / Computation Strategy
-Fetch cadence, retry/backoff, validation gates (HH:MM sanity, Fajr< Syuruq< Dhuhr< Asr< Maghrib< Isha ordering), cache windows, stale policy.
+Fetch cadence, retry/backoff, validation gates (HH:MM sanity, `Imsak < Fajr < Syuruq < Dhuha < Dhuhr < Asr < Maghrib < Isha` ordering), cache windows, stale policy. Capture the source's exact marker key spellings and the adapter mapping to backend `MarkerName`.
 
 ## 5. Provenance
 Authority, spec name, version, URL, lifecycle, publication year — one entry per rule/data file the implementation will add.

@@ -29,7 +29,7 @@ Reviewer is an oracle, not an assistant: verdict + blocking issues with evidence
 2. **Contract parity** — DTOs ↔ `api/fixtures/` ↔ OpenAPI in agreement? Breaking change without `/api/v2` + changelog?
 3. **Freshness honesty** — every resolved schedule carries `source` + `stale`? Degraded paths banner instead of silent?
 4. **Boundary integrity** — `domain/` free of web/DB/time imports? `views/` free of `domain/` imports? Themes only via sandboxed JSON seam + CSP?
-5. **State-machine fidelity** — transitions match PRD §8 incl. Syuruq (no dim), Jumuah override, midnight crossover?
+5. **State-machine fidelity** — transitions match PRD §8 incl. Boundary Time Markers never enter a state, Jumuah override, midnight crossover?
 6. **Failure behavior** — bad feed payloads rejected with cache kept? Auth/rate limits intact? Heartbeat batching preserved?
 
 Treat success claims as unverified until reproduced. Anchor every finding to path:line. Soften absolutes the evidence does not support.

@@ -15,9 +15,9 @@ from datetime import date, datetime, timedelta
 from muhideen.core.errors import MuhideenError
 from muhideen.core.ports import CalcEngine, Clock, EventBus, PrayerRepo, SettingsRepo
 from muhideen.core.values import (
+    MarkerName,
     NextEvent,
     PrayerDay,
-    PrayerName,
     PrayerState,
     Settings,
 )
@@ -28,12 +28,16 @@ STATE_EVENT = "state"
 TICK_EVENT = "tick"
 
 # Fan-out key: everything a client's render depends on, deliberately
-# excluding `event.now`, which changes on every call.
+# excluding `event.now`, which changes on every call. The gated boundary
+# pointer is included so a `boundary_countdown` opt-in flip fans out as
+# `state` (FR-6.1 live-reload precedent), without ever changing state itself.
 _Fingerprint = tuple[
     PrayerState,
-    PrayerName | None,
+    MarkerName | None,
     datetime | None,
     datetime | None,
+    datetime | None,
+    MarkerName | None,
     datetime | None,
     bool,
 ]
@@ -66,7 +70,12 @@ class Engine:
         return self._resolve_day(requested, zone, now, settings)
 
     def next_event(self, now: datetime) -> NextEvent:
-        """Compute the PRD §8 display state for one pinned instant."""
+        """Compute the PRD §8 display state for one pinned instant.
+
+        Carries the boundary pointer when `Settings.boundary_countdown` is
+        on; toggling that opt-in fans out as `state` via the tick
+        fingerprint (FR-6.1 live reload).
+        """
         settings = self._settings_repo.load()
         zone = settings.zone  # one zone per installation
         today = self._resolve_day(now.date(), zone, now, settings)
@@ -86,6 +95,8 @@ class Engine:
             event.adhan_at,
             event.iqamah_at,
             event.dim_until,
+            event.next_boundary,
+            event.boundary_at,
             event.stale,
         )
         minute: _Minute = (now.year, now.month, now.day, now.hour, now.minute)

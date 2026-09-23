@@ -6,30 +6,30 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from muhideen.core.errors import ConfigError
-from muhideen.core.values import IqamahRule, PrayerName
+from muhideen.core.values import IqamahRule, MarkerName
 
 TZ = ZoneInfo("Asia/Kuala_Lumpur")
 
 
-def _rules() -> dict[PrayerName, IqamahRule]:
+def _rules() -> dict[MarkerName, IqamahRule]:
     return {
-        PrayerName.FAJR: IqamahRule(
-            prayer=PrayerName.FAJR, mode="delay", delay_minutes=15
+        MarkerName.FAJR: IqamahRule(
+            prayer=MarkerName.FAJR, mode="delay", delay_minutes=15
         ),
-        PrayerName.DHUHR: IqamahRule(
-            prayer=PrayerName.DHUHR, mode="delay", delay_minutes=10
+        MarkerName.DHUHR: IqamahRule(
+            prayer=MarkerName.DHUHR, mode="delay", delay_minutes=10
         ),
-        PrayerName.ASR: IqamahRule(
-            prayer=PrayerName.ASR, mode="delay", delay_minutes=10
+        MarkerName.ASR: IqamahRule(
+            prayer=MarkerName.ASR, mode="delay", delay_minutes=10
         ),
-        PrayerName.MAGHRIB: IqamahRule(
-            prayer=PrayerName.MAGHRIB, mode="delay", delay_minutes=10
+        MarkerName.MAGHRIB: IqamahRule(
+            prayer=MarkerName.MAGHRIB, mode="delay", delay_minutes=10
         ),
-        PrayerName.ISHA: IqamahRule(
-            prayer=PrayerName.ISHA, mode="delay", delay_minutes=15
+        MarkerName.ISHA: IqamahRule(
+            prayer=MarkerName.ISHA, mode="delay", delay_minutes=15
         ),
-        PrayerName.JUMUAH: IqamahRule(
-            prayer=PrayerName.JUMUAH, mode="delay", delay_minutes=10
+        MarkerName.JUMUAH: IqamahRule(
+            prayer=MarkerName.JUMUAH, mode="delay", delay_minutes=10
         ),
     }
 
@@ -42,7 +42,7 @@ def _adhan() -> datetime:
 def test_delay_adds_minutes() -> None:
     from muhideen.domain.iqamah import resolve_iqamah
 
-    assert resolve_iqamah(PrayerName.DHUHR, _adhan(), _rules()) == datetime(
+    assert resolve_iqamah(MarkerName.DHUHR, _adhan(), _rules()) == datetime(
         2025, 10, 20, 12, 25, tzinfo=TZ
     )
 
@@ -52,21 +52,24 @@ def test_fixed_uses_clock_time() -> None:
     from muhideen.domain.iqamah import resolve_iqamah
 
     rules = _rules()
-    rules[PrayerName.ISHA] = IqamahRule(
-        prayer=PrayerName.ISHA, mode="fixed", fixed_time=time(20, 30)
+    rules[MarkerName.ISHA] = IqamahRule(
+        prayer=MarkerName.ISHA, mode="fixed", fixed_time=time(20, 30)
     )
     adhan = datetime(2025, 10, 20, 19, 25, tzinfo=TZ)
-    assert resolve_iqamah(PrayerName.ISHA, adhan, rules) == datetime(
+    assert resolve_iqamah(MarkerName.ISHA, adhan, rules) == datetime(
         2025, 10, 20, 20, 30, tzinfo=TZ
     )
 
 
 @pytest.mark.unit
-def test_syuruq_returns_none() -> None:
+@pytest.mark.parametrize(
+    "marker", [MarkerName.IMSAK, MarkerName.SYURUQ, MarkerName.DHUHA]
+)
+def test_boundary_marker_raises_config_error(marker: MarkerName) -> None:
     from muhideen.domain.iqamah import resolve_iqamah
 
-    adhan = datetime(2025, 10, 20, 6, 55, tzinfo=TZ)
-    assert resolve_iqamah(PrayerName.SYURUQ, adhan, _rules()) is None
+    with pytest.raises(ConfigError, match="boundary"):
+        resolve_iqamah(marker, _adhan(), _rules())
 
 
 @pytest.mark.unit
@@ -74,9 +77,9 @@ def test_missing_rule_raises_config_error() -> None:
     from muhideen.domain.iqamah import resolve_iqamah
 
     rules = _rules()
-    del rules[PrayerName.ASR]
+    del rules[MarkerName.ASR]
     with pytest.raises(ConfigError):
-        resolve_iqamah(PrayerName.ASR, _adhan(), rules)
+        resolve_iqamah(MarkerName.ASR, _adhan(), rules)
 
 
 @pytest.mark.unit
@@ -84,7 +87,7 @@ def test_fixed_without_time_raises_config_error() -> None:
     from muhideen.domain.iqamah import resolve_iqamah
 
     rules = _rules()
-    rules[PrayerName.MAGHRIB] = IqamahRule(prayer=PrayerName.MAGHRIB, mode="fixed")
+    rules[MarkerName.MAGHRIB] = IqamahRule(prayer=MarkerName.MAGHRIB, mode="fixed")
     adhan = datetime(2025, 10, 20, 18, 5, tzinfo=TZ)
     with pytest.raises(ConfigError):
-        resolve_iqamah(PrayerName.MAGHRIB, adhan, rules)
+        resolve_iqamah(MarkerName.MAGHRIB, adhan, rules)

@@ -2,7 +2,7 @@ event: tick
 data: {"now": "2025-10-20T11:45:00+08:00", "state": "NORMAL"}
 
 event: state
-data: {"state": "PRE_ADHAN", "next_prayer": "dhuhr", "adhan_at": "2025-10-20T12:15:00+08:00"}
+data: {"state": "PRE_ADHAN", "next_prayer": "dhuhr", "adhan_at": "2025-10-20T12:15:00+08:00", "next_boundary": "imsak", "boundary_at": "2025-10-21T05:35:00+08:00"}
 
 event: state
 data: {"state": "ADHAN", "next_prayer": "dhuhr"}

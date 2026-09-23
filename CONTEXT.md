@@ -21,6 +21,12 @@ A technical volunteer installing hardware, onboarding displays, or contributing 
 
 ## Prayer Vocabulary
 
+### Prayer Time Marker
+The five daily prayers: Fajr, Dhuhr, Asr, Maghrib, Isha. Jumuah replaces Dhuhr on Fridays. Only Prayer Time Markers have Adhan, Iqamah, and dimming, and only they drive the Prayer State machine.
+
+### Boundary Time Marker
+Imsak, Syuruq, Dhuha: informational markers. Never Adhan, never Iqamah, never auto-dim, never a non-NORMAL state. Optional countdown when the installation opts in. Rendered below the Prayer Time Marker level, never on prayer cards or the hero.
+
 ### Adhan
 The call announcing a prayer time has arrived. Triggers a full-screen overlay of fixed duration.
 
@@ -28,7 +34,7 @@ The call announcing a prayer time has arrived. Triggers a full-screen overlay of
 The start of congregational prayer. Either a delay in minutes after Adhan or a fixed clock time, configured per prayer.
 
 ### Syuruq / Sunrise
-Sunrise marker. Displayed, never triggers an Iqamah countdown or dimming.
+Sunrise marker — a Boundary Time Marker: displayed, never Adhan/Iqamah/dim/state.
 
 ### Jumuah
 Friday congregational prayer. Replaces Dhuhr on Fridays with its own Iqamah rule and dim duration.
@@ -45,7 +51,7 @@ A prayer-time algorithm (MABIMS, MWL, ISNA, Egyptian) plus latitude, longitude, 
 ## System Vocabulary
 
 ### Prayer State
-Exactly one of `NORMAL`, `PRE_ADHAN`, `ADHAN`, `IQAMAH_COUNTDOWN`, `SALAH_DIM`. Computed by the backend; the display never computes it.
+Exactly one of `NORMAL`, `PRE_ADHAN`, `ADHAN`, `IQAMAH_COUNTDOWN`, `SALAH_DIM`. Computed by the backend; the display never computes it. Driven only by Prayer Time Markers; Boundary Time Markers always render under `NORMAL`.
 
 ### Fallback Chain
 Ordered schedule resolution: cached schedule, then on-device calculation, then last-known day with warning. The display always renders the resolved value plus a freshness flag.

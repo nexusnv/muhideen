@@ -36,8 +36,10 @@ def _day(
     return PrayerDay(
         date=day,
         zone=zone,
+        imsak=dtime(5, 35),
         fajr=dtime(5, 45),
         syuruq=dtime(6, 55),
+        dhuha=dtime(7, 25),
         dhuhr=dtime(12, 15),
         asr=dtime(15, 30),
         maghrib=dtime(18, 5),

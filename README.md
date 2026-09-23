@@ -13,7 +13,7 @@ Proposed. Spec is in [`PRD.md`](PRD.md). No implementation yet.
 ## What it does
 
 * JAKIM E-Solat sync by zone with cached fallback + on-device calculation (MABIMS/MWL/ISNA/Egyptian).
-* Display: clock, Gregorian + Hijri dates, 5 prayers + Syuruq, next-prayer hero, Iqamah countdown.
+* Display: clock, Gregorian + Hijri dates, 5 prayer times (primary) + Imsak/Syuruq/Dhuha boundary markers (secondary), next-prayer hero, Iqamah countdown.
 * Prayer state machine: `NORMAL → PRE_ADHAN → ADHAN → IQAMAH_COUNTDOWN → SALAH_DIM`.
 * Carousel for announcements (auto-hidden around prayer), sandboxed community themes, display groups.
 * Admin: setup wizard, mobile UI, QR fast-connect (`http://muhideen.local:8000/admin`), backup/restore.

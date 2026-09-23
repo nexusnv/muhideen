@@ -20,7 +20,7 @@ from muhideen.api.dto import (
     StateEventDTO,
     TickEventDTO,
 )
-from muhideen.core.values import NextEvent, PrayerName, PrayerState
+from muhideen.core.values import MarkerName, NextEvent, PrayerState
 
 pytestmark = pytest.mark.contract
 
@@ -80,21 +80,43 @@ def test_state_event_omitted_targets_dump_without_null_keys() -> None:
     assert set(dump) == {"state", "next_prayer", "adhan_at"}
 
 
+def test_state_event_includes_boundary_targets_when_set() -> None:
+    event = StateEventDTO(
+        state="PRE_ADHAN",
+        next_prayer="dhuhr",
+        adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=KL),
+        next_boundary="imsak",
+        boundary_at=datetime(2025, 10, 21, 5, 35, tzinfo=KL),
+    )
+    dump = event.model_dump(mode="json", exclude_none=True)
+    assert set(dump) == {
+        "state",
+        "next_prayer",
+        "adhan_at",
+        "next_boundary",
+        "boundary_at",
+    }
+
+
 def test_state_event_from_domain_excludes_absent_targets() -> None:
     next_event = NextEvent(
         state=PrayerState.PRE_ADHAN,
         now=datetime(2025, 10, 20, 12, 10, tzinfo=KL),
-        next_prayer=PrayerName.DHUHR,
+        next_prayer=MarkerName.DHUHR,
         adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=KL),
         iqamah_at=None,
         dim_until=None,
         stale=False,
+        next_boundary=None,
+        boundary_at=None,
     )
     dump = StateEventDTO.from_domain(next_event).model_dump(
         mode="json", exclude_none=True
     )
     assert "iqamah_at" not in dump
     assert "dim_until" not in dump
+    assert "next_boundary" not in dump
+    assert "boundary_at" not in dump
     assert dump["state"] == "PRE_ADHAN"
     assert dump["next_prayer"] == "dhuhr"
 
@@ -103,11 +125,13 @@ def test_tick_event_from_domain_carries_now_and_state() -> None:
     next_event = NextEvent(
         state=PrayerState.NORMAL,
         now=datetime(2025, 10, 20, 11, 45, tzinfo=KL),
-        next_prayer=PrayerName.DHUHR,
+        next_prayer=MarkerName.DHUHR,
         adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=KL),
         iqamah_at=datetime(2025, 10, 20, 12, 30, tzinfo=KL),
         dim_until=datetime(2025, 10, 20, 12, 50, tzinfo=KL),
         stale=False,
+        next_boundary=None,
+        boundary_at=None,
     )
     assert TickEventDTO.from_domain(next_event).model_dump(mode="json") == {
         "now": "2025-10-20T11:45:00+08:00",

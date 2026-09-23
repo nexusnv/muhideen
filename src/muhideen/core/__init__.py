@@ -19,12 +19,14 @@ from muhideen.core.ports import (
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
     IqamahRule,
+    MarkerKind,
+    MarkerName,
     NextEvent,
     PrayerDay,
-    PrayerName,
     PrayerState,
     ScheduleSource,
     Settings,
+    marker_kind,
 )
 
 __all__ = [
@@ -36,11 +38,12 @@ __all__ = [
     "EventBus",
     "IqamahRule",
     "JAKIMClient",
+    "MarkerKind",
+    "MarkerName",
     "MediaStore",
     "MuhideenError",
     "NextEvent",
     "PrayerDay",
-    "PrayerName",
     "PrayerState",
     "PrayerRepo",
     "ScheduleError",
@@ -48,4 +51,5 @@ __all__ = [
     "Settings",
     "SettingsRepo",
     "SyncError",
+    "marker_kind",
 ]

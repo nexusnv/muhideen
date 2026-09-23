@@ -1,13 +1,15 @@
 """Property invariants of the PRD §8 prayer state machine (slice 1A-4).
 
 These pin already-landed pure-domain behaviour under generated schedules:
-monotonic targets, disjoint state windows, the Syuruq edge, the midnight
-crossover, and re-render idempotence. A failure here is a domain defect or
-a wrong strategy bound — never weaken an invariant to get green.
+monotonic targets, disjoint state windows driven only by Prayer Time
+Markers, the Boundary Time Marker edge, the midnight crossover, and
+re-render idempotence. A failure here is a domain defect or a wrong
+strategy bound — never weaken an invariant to get green.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from typing import TypeAlias
 from zoneinfo import ZoneInfo
@@ -19,11 +21,13 @@ from hypothesis import strategies as st
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
     IqamahRule,
+    MarkerKind,
+    MarkerName,
     PrayerDay,
-    PrayerName,
     PrayerState,
     ScheduleSource,
     Settings,
+    marker_kind,
 )
 from muhideen.domain import resolve_next_event
 
@@ -47,17 +51,17 @@ def _at(day: date, moment: time) -> datetime:
     return datetime.combine(day, moment, tzinfo=TZ)
 
 
-def _rules(settings: Settings) -> dict[PrayerName, IqamahRule]:
+def _rules(settings: Settings) -> dict[MarkerName, IqamahRule]:
     return {rule.prayer: rule for rule in settings.iqamah_rules}
 
 
 @st.composite
 def _minutes(draw: st.DrawFn, max_minute: int = 1439) -> list[int]:
-    """Six strictly increasing minute-of-day slots with gaps >= MIN_GAP."""
-    first = draw(st.integers(0, max_minute - 5 * MIN_GAP))
+    """Eight strictly increasing minute-of-day slots with gaps >= MIN_GAP."""
+    first = draw(st.integers(0, max_minute - 7 * MIN_GAP))
     minutes = [first]
     previous = first
-    for gaps_left_after in range(4, -1, -1):
+    for gaps_left_after in range(6, -1, -1):
         upper = max_minute - previous - MIN_GAP * gaps_left_after
         previous += draw(st.integers(MIN_GAP, upper))
         minutes.append(previous)
@@ -77,14 +81,16 @@ def _scenario(
     now = _at(day_date, time(0, 0)) + timedelta(
         seconds=draw(st.integers(now_start, now_end))
     )
-    fajr, syuruq, dhuhr, asr, maghrib, isha = (
+    imsak, fajr, syuruq, dhuha, dhuhr, asr, maghrib, isha = (
         time(minute // 60, minute % 60) for minute in slots
     )
     day = PrayerDay(
         date=day_date,
         zone="SGR01",
+        imsak=imsak,
         fajr=fajr,
         syuruq=syuruq,
+        dhuha=dhuha,
         dhuhr=dhuhr,
         asr=asr,
         maghrib=maghrib,
@@ -98,6 +104,9 @@ def _scenario(
         hijri_offset=0,
         adhan_duration_s=duration_s,
         iqamah_rules=DEFAULT_IQAMAH_RULES,
+        # The flag only gates the pointer: every property below runs under
+        # both values and must hold either way.
+        boundary_countdown=draw(st.booleans()),
     )
     return day, settings, now
 
@@ -112,27 +121,24 @@ def _windows(
     is_friday = day.date.weekday() == 4
     windows: list[tuple[datetime, datetime, PrayerState]] = []
     for prayer, moment in (
-        (PrayerName.FAJR, day.fajr),
-        (PrayerName.SYURUQ, day.syuruq),
-        (PrayerName.DHUHR, day.dhuhr),
-        (PrayerName.ASR, day.asr),
-        (PrayerName.MAGHRIB, day.maghrib),
-        (PrayerName.ISHA, day.isha),
+        (MarkerName.FAJR, day.fajr),
+        (MarkerName.DHUHR, day.dhuhr),
+        (MarkerName.ASR, day.asr),
+        (MarkerName.MAGHRIB, day.maghrib),
+        (MarkerName.ISHA, day.isha),
     ):
         adhan_at = _at(day.date, moment)
         windows.append((adhan_at - pre_adhan, adhan_at, PrayerState.PRE_ADHAN))
         windows.append((adhan_at, adhan_at + duration, PrayerState.ADHAN))
-        if prayer is PrayerName.SYURUQ:
-            continue  # Syuruq is announced, never prayed: no iqamah, no dim
         label = (
-            PrayerName.JUMUAH if is_friday and prayer is PrayerName.DHUHR else prayer
+            MarkerName.JUMUAH if is_friday and prayer is MarkerName.DHUHR else prayer
         )
         rule = rules[label]
         assert rule.mode == "delay" and rule.fixed_time is None
         iqamah_at = adhan_at + timedelta(minutes=rule.delay_minutes)
         dim_minutes = (
             settings.dim_minutes_jumuah
-            if label is PrayerName.JUMUAH
+            if label is MarkerName.JUMUAH
             else settings.dim_minutes_default
         )
         windows.append((adhan_at + duration, iqamah_at, PrayerState.IQAMAH_COUNTDOWN))
@@ -191,17 +197,17 @@ def test_state_windows_do_not_overlap(case: Case) -> None:
 
 
 @given(_scenario())
-def test_syuruq_never_dims(case: Case) -> None:
+def test_next_prayer_is_always_a_prayer_marker(case: Case) -> None:
     day, settings, now = case
     event = resolve_next_event(now, day, None, _rules(settings), settings, False)
-    if event.next_prayer is PrayerName.SYURUQ:
-        assert event.iqamah_at is None
-        assert event.dim_until is None
-        assert event.state in {
-            PrayerState.NORMAL,
-            PrayerState.PRE_ADHAN,
-            PrayerState.ADHAN,
-        }
+    assert event.next_prayer in {
+        MarkerName.FAJR,
+        MarkerName.DHUHR,
+        MarkerName.JUMUAH,
+        MarkerName.ASR,
+        MarkerName.MAGHRIB,
+        MarkerName.ISHA,
+    }
 
 
 @given(_scenario(max_minute=1320, now_start=23 * 3600, now_end=86399))
@@ -210,7 +216,7 @@ def test_midnight_resolves_next_day_fajr(case: Case) -> None:
     day, settings, now = case
     event = resolve_next_event(now, day, None, _rules(settings), settings, False)
     assert event.state is PrayerState.NORMAL
-    assert event.next_prayer is PrayerName.FAJR
+    assert event.next_prayer is MarkerName.FAJR
     assert event.adhan_at is not None
     expected = datetime.combine(now.date() + timedelta(days=1), day.fajr, tzinfo=TZ)
     assert event.adhan_at == expected
@@ -225,3 +231,49 @@ def test_resolution_is_idempotent(case: Case) -> None:
     second = resolve_next_event(now, day, None, _rules(settings), settings, False)
     assert first == second
     assert hash(first) == hash(second)
+
+
+@given(_scenario())
+def test_boundary_pointer_present_iff_opted_in(case: Case) -> None:
+    day, settings, now = case
+    event = resolve_next_event(now, day, None, _rules(settings), settings, False)
+    if settings.boundary_countdown:
+        assert event.next_boundary is not None
+        assert event.boundary_at is not None
+    else:
+        assert event.next_boundary is None
+        assert event.boundary_at is None
+
+
+@given(_scenario())
+def test_boundary_pointer_is_future_and_tz_aware(case: Case) -> None:
+    day, settings, now = case
+    event = resolve_next_event(now, day, None, _rules(settings), settings, False)
+    if event.next_boundary is None:
+        return
+    assert marker_kind(event.next_boundary) is MarkerKind.BOUNDARY
+    assert event.boundary_at is not None
+    assert event.boundary_at.tzinfo is not None
+    # Today's upcoming marker or tomorrow's carried imsak — never a past instant.
+    assert event.boundary_at > event.now
+
+
+@given(_scenario())
+def test_boundary_pointer_never_overlaps_prayer_targets(case: Case) -> None:
+    """The opt-in changes only the pointer: state/prayer targets identical."""
+    day, settings, now = case
+    rules = _rules(settings)
+    off = resolve_next_event(
+        now, day, None, rules, replace(settings, boundary_countdown=False), False
+    )
+    on = resolve_next_event(
+        now, day, None, rules, replace(settings, boundary_countdown=True), False
+    )
+    assert off.state is on.state
+    assert off.next_prayer is on.next_prayer
+    assert off.adhan_at == on.adhan_at
+    assert off.iqamah_at == on.iqamah_at
+    assert off.dim_until == on.dim_until
+    assert off.next_boundary is None
+    assert on.next_boundary is not None
+    assert on.boundary_at is not None

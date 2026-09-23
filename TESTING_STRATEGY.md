@@ -9,7 +9,7 @@ Tests mirror `ARCHITECTURE.md` layers. Organized by scope, run with `uv`. No ski
 | `tests/unit/` | `unit` | Pure domain: state machine, fallback chain, iqamah resolution, Hijri offset. Pinned `FakeClock`, in-memory fakes. No DB, no HTTP, no network. |
 | `tests/contract/` | `contract` | API schema vs fixtures: Pydantic DTOs serialize to `api/fixtures/*.json`, SSE sample parses, OpenAPI matches handlers. Fails on drift. |
 | `tests/integration/` | `integration` | Engine + real SQLite (tmp file, WAL) + fake JAKIM/calc: seeding, fallback ordering, heartbeat batching, migration `user_version`. |
-| `tests/property/` | `property` | Hypothesis invariants: monotonic countdown targets, no overlapping states, Syuruq never dims, midnight crossover always resolves next-day Fajr, re-render idempotence. |
+| `tests/property/` | `property` | Hypothesis invariants: monotonic countdown targets, no overlapping states, Boundary Time Markers never adhan/iqamah/dim/leave NORMAL, opt-in pointer gates exactly, midnight crossover always resolves next-day Fajr, re-render idempotence. |
 | `tests/e2e/` | `e2e` | Public surface via ASGI test client: `/display`, `/admin` (auth), `/api/next-event`, SSE stream head. No Chromium. |
 
 ## Shared Infrastructure

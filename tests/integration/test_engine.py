@@ -15,8 +15,8 @@ from muhideen.core.errors import ConfigError, ScheduleError
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
     IqamahRule,
+    MarkerName,
     PrayerDay,
-    PrayerName,
     PrayerState,
     ScheduleSource,
     Settings,
@@ -88,8 +88,10 @@ class FakeCalc:
         return PrayerDay(
             date=day,
             zone=self.returned_zone,
+            imsak=time(5, 40),
             fajr=time(5, 50),
             syuruq=time(7, 0),
+            dhuha=time(7, 30),
             dhuhr=time(12, 20),
             asr=time(15, 35),
             maghrib=time(18, 10),
@@ -145,8 +147,10 @@ def _day(
     return PrayerDay(
         date=day,
         zone=zone,
+        imsak=time(5, 35),
         fajr=fajr,
         syuruq=time(6, 55),
+        dhuha=time(7, 25),
         dhuhr=dhuhr,
         asr=time(15, 30),
         maghrib=time(18, 5),
@@ -268,7 +272,7 @@ def _rules(dhuhr_delay: int) -> tuple[IqamahRule, ...]:
     """DEFAULT_IQAMAH_RULES with an overridden Dhuhr delay."""
     return tuple(
         replace(rule, delay_minutes=dhuhr_delay)
-        if rule.prayer is PrayerName.DHUHR
+        if rule.prayer is MarkerName.DHUHR
         else rule
         for rule in DEFAULT_IQAMAH_RULES
     )
@@ -278,22 +282,27 @@ def test_engine_replays_contract_fixture_vector() -> None:
     """Engine output round-trips api/fixtures/next-event.json via the DTO."""
     day_payload = json.loads((FIXTURES / "prayer-day.json").read_text())
     event_payload = json.loads((FIXTURES / "next-event.json").read_text())
-    times = day_payload["times"]
+    prayers = day_payload["prayers"]
+    boundaries = day_payload["boundaries"]
     now = datetime.fromisoformat(event_payload["now"])
     seed = PrayerDay(
         date=date.fromisoformat(day_payload["date"]),
         zone=day_payload["zone"],
-        fajr=time.fromisoformat(times["fajr"]),
-        syuruq=time.fromisoformat(times["syuruq"]),
-        dhuhr=time.fromisoformat(times["dhuhr"]),
-        asr=time.fromisoformat(times["asr"]),
-        maghrib=time.fromisoformat(times["maghrib"]),
-        isha=time.fromisoformat(times["isha"]),
+        imsak=time.fromisoformat(boundaries["imsak"]),
+        fajr=time.fromisoformat(prayers["fajr"]),
+        syuruq=time.fromisoformat(boundaries["syuruq"]),
+        dhuha=time.fromisoformat(boundaries["dhuha"]),
+        dhuhr=time.fromisoformat(prayers["dhuhr"]),
+        asr=time.fromisoformat(prayers["asr"]),
+        maghrib=time.fromisoformat(prayers["maghrib"]),
+        isha=time.fromisoformat(prayers["isha"]),
         source=ScheduleSource.JAKIM,
         fetched_at=now - timedelta(hours=11),
     )
     harness = _harness(
-        settings=_settings(iqamah_rules=_rules(15)), rows=(seed,), now=now
+        settings=_settings(iqamah_rules=_rules(15), boundary_countdown=True),
+        rows=(seed,),
+        now=now,
     )
     payload = NextEventDTO.from_domain(harness.engine.next_event(now)).model_dump(
         mode="json"
@@ -328,7 +337,7 @@ def test_midnight_uses_tomorrow_row() -> None:
     harness = _harness(rows=(today, tomorrow), now=now)
     event = harness.engine.next_event(now)
     assert event.state is PrayerState.NORMAL
-    assert event.next_prayer is PrayerName.FAJR
+    assert event.next_prayer is MarkerName.FAJR
     assert event.adhan_at == datetime.combine(
         date(2025, 10, 21), time(5, 47), tzinfo=TZ
     )
@@ -355,7 +364,7 @@ def test_midnight_without_tomorrow_uses_today_fajr() -> None:
     harness = _harness(rows=(_day(DAY),), calc=None, now=now)
     event = harness.engine.next_event(now)
     assert event.state is PrayerState.NORMAL
-    assert event.next_prayer is PrayerName.FAJR
+    assert event.next_prayer is MarkerName.FAJR
     assert event.adhan_at == datetime.combine(
         date(2025, 10, 21), time(5, 45), tzinfo=TZ
     )
@@ -440,6 +449,22 @@ def test_target_change_same_minute_publishes_state_only() -> None:
     )
     second = harness.engine.tick()
     assert second.iqamah_at == datetime(2025, 10, 20, 12, 20, tzinfo=TZ)
+    assert harness.bus.events == ["state"]
+
+
+def test_boundary_optin_toggle_publishes_state_same_minute() -> None:
+    now = datetime(2025, 10, 20, 12, 14, tzinfo=TZ)
+    harness = _tick_harness(now)
+    first = harness.engine.tick()
+    assert first.next_boundary is None  # opt-in off: no pointer
+    harness.bus.events.clear()
+    # The installation opts in live: the pointer appears (PRD FR-1.7), so
+    # the fingerprint must notice even though state/prayer targets don't.
+    harness.settings.settings = replace(
+        harness.settings.settings, boundary_countdown=True
+    )
+    second = harness.engine.tick()
+    assert second.next_boundary is MarkerName.IMSAK
     assert harness.bus.events == ["state"]
 
 

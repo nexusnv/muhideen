@@ -19,7 +19,7 @@ Black-box acceptance through the **HTTP API only** — act as a display client, 
 
 ### 1. Generate scenarios (~100 rows, seeded RNG)
 Matrix over pinned `now` × zone/method × schedule condition:
-- ~55 nominal: each state (`NORMAL/PRE_ADHAN/ADHAN/IQAMAH_COUNTDOWN/SALAH_DIM`) × prayers, Syuruq edge, Jumuah Friday, midnight crossover, exact-boundary `now` values.
+- ~55 nominal: each state (`NORMAL/PRE_ADHAN/ADHAN/IQAMAH_COUNTDOWN/SALAH_DIM`) × prayers, Jumuah Friday, midnight crossover, exact-boundary `now` values; Boundary Time Markers (imsak/syuruq/dhuha) pinned to stay NORMAL with pointer on/off; `next_prayer` never a boundary value.
 - ~45 degraded: empty cache, expired cache (>48h), malformed feed payload, calc-only mode, unknown zone, DST transition day, leap day, unsynced-clock flag.
 - Per row: `{"now", "zone_or_method", "schedule_state", "expect_state", "expect_source", "expect_stale", "mode": "assert"|"explore", "why"}` as JSON. Seed recorded. Explore rows ≤20%.
 
