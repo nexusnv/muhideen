@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from muhideen.adapters.migrate import current_version, migrate, migrate_down
+from muhideen.adapters.migrate import (
+    _user_version_stmt,
+    current_version,
+    migrate,
+    migrate_down,
+)
 from muhideen.adapters.sqlite_repo import Database, connect
 from muhideen.core.errors import MuhideenError
 
@@ -198,3 +203,18 @@ def test_migrate_down_without_matching_down_file_raises(tmp_path: Path) -> None:
         conn.execute("PRAGMA user_version = 42")  # corrupt/future version
     with pytest.raises(MuhideenError, match="no down migration"):
         migrate_down(db)
+
+
+def test_user_version_stmt_rejects_non_builtin_int() -> None:
+    # Security guard (Sourcery review): an int subclass can override
+    # __format__ and return arbitrary SQL, so only exact built-in ints
+    # are admitted before the value reaches the PRAGMA statement.
+    class Evil(int):
+        def __format__(self, spec: str) -> str:
+            return "0; DROP TABLE settings--"
+
+    with pytest.raises(TypeError, match="built-in int"):
+        _user_version_stmt(Evil(1))
+    with pytest.raises(TypeError, match="built-in int"):
+        _user_version_stmt("1")
+    assert _user_version_stmt(1) == "PRAGMA user_version = 1"

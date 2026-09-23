@@ -27,6 +27,21 @@ def _version_of(path: Path) -> int:
     return int(path.name.split("_", 1)[0])
 
 
+def _user_version_stmt(version: int) -> str:
+    """Build the ``PRAGMA user_version`` setter.
+
+    SQLite pragmas reject bound parameters (``PRAGMA user_version = ?``
+    is a syntax error), so the value must be part of the statement text.
+    Only an exact built-in ``int`` is admitted — an ``int`` subclass (or
+    any other object) could override ``__format__`` and emit arbitrary
+    text — and the ``d`` spec then renders it as decimal digits, so no
+    untrusted text can ever reach the SQL.
+    """
+    if type(version) is not int:
+        raise TypeError("version must be a built-in int")
+    return f"PRAGMA user_version = {version:d}"
+
+
 def current_version(db: Database) -> int:
     """Read ``PRAGMA user_version`` (0 on a never-migrated database)."""
     with db.read() as conn:
@@ -43,7 +58,7 @@ def migrate(db: Database) -> int:
             continue
         with db.write() as conn:
             conn.executescript(path.read_text(encoding="utf-8"))
-            conn.execute(f"PRAGMA user_version = {file_version}")
+            conn.execute(_user_version_stmt(file_version))
         version = file_version
     return version
 
@@ -57,6 +72,6 @@ def migrate_down(db: Database, target: int = 0) -> int:
             raise MuhideenError(f"no down migration for version {version}")
         with db.write() as conn:
             conn.executescript(downs[0].read_text(encoding="utf-8"))
-            conn.execute(f"PRAGMA user_version = {version - 1}")
+            conn.execute(_user_version_stmt(version - 1))
         version -= 1
     return version
