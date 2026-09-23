@@ -32,10 +32,13 @@ def _user_version_stmt(version: int) -> str:
 
     SQLite pragmas reject bound parameters (``PRAGMA user_version = ?``
     is a syntax error), so the value must be part of the statement text.
-    The ``d`` format spec admits plain integers only — any other type,
-    including a crafted string, raises before a statement exists — so no
+    Only an exact built-in ``int`` is admitted — an ``int`` subclass (or
+    any other object) could override ``__format__`` and emit arbitrary
+    text — and the ``d`` spec then renders it as decimal digits, so no
     untrusted text can ever reach the SQL.
     """
+    if type(version) is not int:
+        raise TypeError("version must be a built-in int")
     return f"PRAGMA user_version = {version:d}"
 
 
