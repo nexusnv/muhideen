@@ -120,8 +120,10 @@ def parse_takwim(
     """Validate one ``period=year`` payload and convert every row.
 
     Raises ``SyncError`` on any malformed shape, bad marker/date value,
-    zone mismatch, missing marker, empty ``prayerTime`` list, or ordering
-    violation — the caller keeps its cache untouched (Design Decision 5).
+    zone mismatch, non-year ``periodType``, missing marker, empty
+    ``prayerTime`` list, a payload that does not uniquely cover the
+    whole fetched calendar year, or ordering violation — the caller
+    keeps its cache untouched (Design Decision 5).
     """
     if not isinstance(payload, dict):
         raise SyncError("payload is not a JSON object", zone=zone)
@@ -130,6 +132,12 @@ def parse_takwim(
     status: object = body.get("status")
     if not isinstance(status, str) or status.rstrip("!") != "OK":
         raise SyncError(f"unexpected status: {status!r}", zone=zone)
+
+    period_type: object = body.get("periodType")
+    if period_type != "year":
+        # period=week/month echo their own periodType; saving one would
+        # report a successful year sync while writing only a window.
+        raise SyncError(f"unexpected periodType: {period_type!r}", zone=zone)
 
     payload_zone: object = body.get("zone")
     if payload_zone != zone:
@@ -189,6 +197,20 @@ def parse_takwim(
             fetched_at=fetched_at,
         )
         days.append(ensure_ordered(prayer_day))
+
+    # period=year must uniquely cover the whole fetched calendar year:
+    # truncated or foreign-year payloads would report success while
+    # leaving cache holes (dates beyond 31-Dis stay FR-1.2's job).
+    expected_count = (
+        date(fetched_at.year + 1, 1, 1) - date(fetched_at.year, 1, 1)
+    ).days
+    dates = [day.date for day in days]
+    if (
+        len(dates) != expected_count
+        or len(set(dates)) != expected_count
+        or any(day_date.year != fetched_at.year for day_date in dates)
+    ):
+        raise SyncError(f"year payload does not cover {fetched_at.year}", zone=zone)
     return days
 
 

@@ -96,7 +96,11 @@ def test_parse_pins_recorded_marker_values_and_provenance() -> None:
 )
 def test_parse_malay_month_tokens(date_text: str, expected: date) -> None:
     payload = _payload()
-    payload["prayerTime"][0]["date"] = date_text
+    rows = payload["prayerTime"]
+    # Swap with the row already carrying this date so the payload keeps its
+    # unique full-year coverage (the parser rejects incomplete years).
+    holder = next(r for r in rows if r["date"] == date_text)
+    rows[0]["date"], holder["date"] = holder["date"], rows[0]["date"]
     days = _parse(payload)
     assert days[0].date == expected
 
@@ -165,6 +169,43 @@ def test_rejects_zone_mismatch() -> None:
 
     with pytest.raises(SyncError):
         parse_takwim(_payload(), zone="KDH01", fetched_at=PINNED)
+
+
+@pytest.mark.parametrize("period_type", ["week", "month", None])
+def test_rejects_non_year_period_type(period_type: str | None) -> None:
+    # period=week/month payloads echo their own periodType (research probe
+    # table: "week" → 8 rows); accepting one would save a 7-day window as a
+    # "successful" year sync and skip the retry chain.
+    payload = _payload()
+    if period_type is None:
+        del payload["periodType"]
+    else:
+        payload["periodType"] = period_type
+    with pytest.raises(SyncError):
+        _parse(payload)
+
+
+@pytest.mark.parametrize("mode", ["truncated", "duplicate_date"])
+def test_rejects_incomplete_year_payload(mode: str) -> None:
+    # period=year must yield the whole fetched calendar year uniquely —
+    # a partial payload would report success while leaving cache holes.
+    payload = _payload()
+    rows = payload["prayerTime"]
+    if mode == "truncated":
+        payload["prayerTime"] = rows[:-10]  # Dec 22-31 missing
+    else:
+        rows[10]["date"] = rows[9]["date"]  # one day twice, another lost
+    with pytest.raises(SyncError):
+        _parse(payload)
+
+
+def test_rejects_out_of_year_row() -> None:
+    # Coverage is exactly the fetched year: a row outside it (and the 2026
+    # day it displaces) is rejected; dates beyond 31-Dis stay FR-1.2's job.
+    payload = _payload()
+    payload["prayerTime"][0]["date"] = "01-Jan-2025"
+    with pytest.raises(SyncError):
+        _parse(payload)
 
 
 def test_rejects_ordering_violation() -> None:

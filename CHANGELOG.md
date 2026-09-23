@@ -48,7 +48,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
   (`period=year`, pinned UA/15s timeout, 2s/4s/8s in-client backoff for
   5xx/transport failures — any 4xx incl. 429 fails fast, paced by the
   02:00 chain —, adapter-side naming map, parse + ordering rejection
-  incl. empty payloads keeping cache intact); `MabimsCalcEngine` MABIMS fallback deriving all 8 markers per
+  incl. empty or incomplete payloads keeping cache intact); `MabimsCalcEngine` MABIMS fallback deriving all 8 markers per
   recorded research (golden-tested against captured JAKIM year tables);
   02:00 scheduler with FR-1.1 5m/15m/1h retry chain (injected `Clock`,
   APScheduler, never started in tests); `domain.ordering.ensure_ordered`;
