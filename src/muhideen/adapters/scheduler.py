@@ -105,8 +105,10 @@ def run_sync(
     `SyncError` (with the original chained): `sync_job` only schedules
     retries for `SyncError`, so an uncaught backend error (locked/full
     database) would otherwise escape the job and skip the whole 5m/15m/1h
-    chain. Each `save_day` is an independent upsert, so a partial write
-    is repaired by the next attempt, which rewrites the full year.
+    chain. When `SyncError` propagates, days earlier in the loop have
+    already been saved — a partial save the caller sees as a failed sync.
+    Each `save_day` is an independent upsert, so the partial write is
+    repaired by the next attempt, which rewrites the full year.
     """
     settings = settings_repo.load()
     days = client.fetch_year(settings.zone)
