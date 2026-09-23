@@ -2,8 +2,11 @@
 
 Unofficial, publicly accessible endpoint with no service guarantees — the
 client pins UA/timeout, retries transport-level failures with backoff
-(2s/4s/8s), rejects malformed payloads immediately (**no** retry: reject +
-keep cache), and logs zone + HTTP status on every failed attempt. Parse
+(2s/4s/8s), fails fast on any 4xx (incl. 429: request-level rejections
+cannot heal inside one burst — the endpoint's WAF ban re-engages within
+seconds of a burst, so retries happen only at the scheduler tier),
+rejects malformed payloads immediately (**no** retry: reject + keep
+cache), and logs zone + HTTP status on every failed attempt. Parse
 happens fully before anything returns, so a rejected payload performs
 zero writes and the existing cache survives.
 """
@@ -77,13 +80,14 @@ _TIME_RE = re.compile(r"\d{2}:\d{2}(?::\d{2})?")
 
 
 def _parse_row_date(value: object, *, zone: str) -> date:
-    """Parse ``dd-Mmm-yyyy`` via the Malay month map (unknown → SyncError)."""
+    """Parse exactly ``dd-Mmm-yyyy`` via the Malay month map (bad → SyncError)."""
     if not isinstance(value, str):
         raise SyncError(f"malformed date: {value!r}", zone=zone)
-    parts = value.split("-")
-    if len(parts) != 3 or not parts[0].isdigit() or not parts[2].isdigit():
+    # Exact shape: rejects ``1-Jan-2026``/``01-Jan-26`` before any conversion
+    # (unpadded day or short year would otherwise become a valid PrayerDay).
+    if re.fullmatch(r"\d{2}-[A-Za-z]{3,4}-\d{4}", value) is None:
         raise SyncError(f"malformed date: {value!r}", zone=zone)
-    day_text, month_token, year_text = parts
+    day_text, month_token, year_text = value.split("-")
     month = MALAY_MONTHS.get(month_token)
     if month is None:
         raise SyncError(f"unknown month token in date: {value!r}", zone=zone)
@@ -116,8 +120,8 @@ def parse_takwim(
     """Validate one ``period=year`` payload and convert every row.
 
     Raises ``SyncError`` on any malformed shape, bad marker/date value,
-    zone mismatch, missing marker, or ordering violation — the caller
-    keeps its cache untouched (Design Decision 5).
+    zone mismatch, missing marker, empty ``prayerTime`` list, or ordering
+    violation — the caller keeps its cache untouched (Design Decision 5).
     """
     if not isinstance(payload, dict):
         raise SyncError("payload is not a JSON object", zone=zone)
@@ -138,6 +142,10 @@ def parse_takwim(
     if not isinstance(raw_rows, list):
         raise SyncError("prayerTime is missing or not a list", zone=zone)
     rows = cast(list[object], raw_rows)
+    if not rows:
+        # 200/OK! with zero rows is a degenerate payload: accepting it would
+        # report a successful sync while saving nothing and skipping retries.
+        raise SyncError("prayerTime is empty — nothing to sync", zone=zone)
 
     days: list[PrayerDay] = []
     for raw_row in rows:
@@ -187,9 +195,13 @@ def parse_takwim(
 class HttpJAKIMClient:
     """``fetch_year`` over the unofficial endpoint, per PRD §6.1.
 
-    Up to 4 attempts (3 backoff sleeps: 2s/4s/8s) around transport-level
-    failures and invalid JSON; a ``SyncError`` from ``parse_takwim``
-    escapes immediately — a rejected payload is never retried.
+    Up to 4 attempts (3 backoff sleeps: 2s/4s/8s) around 5xx, transport
+    failures, and invalid JSON; any 4xx (incl. 429) fails fast after the
+    first request — request-level rejections cannot heal inside one burst
+    and in-client bursts keep the endpoint's WAF ban re-engaged, so the
+    scheduler tier (5m/15m/1h, FR-1.1) paces those retries instead. A
+    ``SyncError`` from ``parse_takwim`` escapes immediately — a rejected
+    payload is never retried.
     """
 
     def __init__(
@@ -199,11 +211,13 @@ class HttpJAKIMClient:
         sleep: Callable[[float], None] = time_mod.sleep,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
+        """Hold the injected clock, the sleep recorder (tests), and the transport."""
         self._clock = clock
         self._sleep = sleep
         self._transport = transport
 
     def fetch_year(self, zone: str) -> list[PrayerDay]:
+        """Fetch and fully validate one calendar year; ``SyncError`` on rejection."""
         url = URL_TEMPLATE.format(zone=quote(zone, safe=""))
         last: Exception | None = None
         with httpx.Client(transport=self._transport) as client:
@@ -229,6 +243,17 @@ class HttpJAKIMClient:
                         exc,
                     )
                     last = exc
+                    if (
+                        isinstance(exc, httpx.HTTPStatusError)
+                        and 400 <= exc.response.status_code < 500
+                    ):
+                        # 4xx (incl. 429): fail fast — one request per sync
+                        # attempt; the scheduler tier's 5m/15m/1h spacing is
+                        # the retry path (in-client 2/4/8s bursts re-engage
+                        # the endpoint's WAF ban).
+                        raise SyncError(
+                            f"jakim fetch rejected with HTTP {status}", zone=zone
+                        ) from exc
                     if attempt < len(RETRY_DELAYS_S):
                         self._sleep(RETRY_DELAYS_S[attempt])
                     continue

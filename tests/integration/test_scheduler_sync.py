@@ -1,6 +1,6 @@
 """02:00 scheduler + FR-1.1 retry chain guards (slice 1A-6, Task 5).
 
-Pinned scope: 10 functions / 10 items (no parametrize). File-local doubles
+Pinned scope: 11 functions / 11 items (no parametrize). File-local doubles
 per TESTING_STRATEGY.md:19; every instant comes from the injected pinned
 clock (advance-by-assignment) — no wall-time anywhere.
 """
@@ -52,14 +52,21 @@ class FakeSettingsRepo:
 
 
 class FakePrayerRepo:
-    def __init__(self, days: list[PrayerDay] | None = None) -> None:
+    def __init__(
+        self,
+        days: list[PrayerDay] | None = None,
+        save_error: Exception | None = None,
+    ) -> None:
         self.stored: list[PrayerDay] = list(days or [])
         self.save_calls: list[PrayerDay] = []
+        self._save_error = save_error
 
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
         return next((d for d in self.stored if d.date == day and d.zone == zone), None)
 
     def save_day(self, prayer_day: PrayerDay) -> None:
+        if self._save_error is not None:
+            raise self._save_error
         self.save_calls.append(prayer_day)
         self.stored.append(prayer_day)
 
@@ -147,6 +154,8 @@ def test_build_scheduler_registers_daily_0200_cron() -> None:
     assert job.id == "jakim-sync"
     assert str(job.trigger) == "cron[hour='2', minute='0']"
     assert job.trigger.timezone == TZ
+    assert job.misfire_grace_time is None  # never skip a due run
+    assert job.coalesce is True  # collapse catch-up pile-ups to one run
     assert scheduler.running is False  # 1A-7 starts it; never here
 
 
@@ -178,6 +187,23 @@ def test_run_sync_before_setup_raises_config_error() -> None:
         _run_sync(settings_repo=FakeSettingsRepo(error=ConfigError("settings missing")))
 
 
+def test_repo_write_failure_schedules_retry() -> None:
+    # A repository failure (locked/full disk) must enter the retryable path:
+    # an uncaught exception here would escape sync_job and skip the whole chain.
+    clock = FakeClock(PINNED)
+    client = FakeJAKIMClient(days=[_day(date(2026, 9, 24))])
+    repo = FakePrayerRepo(save_error=OSError("disk full"))
+    scheduler = _build(client=client, prayer_repo=repo, clock=clock)
+    result = _sync_job(
+        scheduler=scheduler,
+        client=client,
+        prayer_repo=repo,
+        clock=clock,
+    )
+    assert result is None
+    assert scheduler.get_job("jakim-sync-retry-1") is not None
+
+
 # --- retry chain -----------------------------------------------------------
 
 
@@ -197,6 +223,8 @@ def test_failure_keeps_cache_and_schedules_first_retry() -> None:
     retry1 = scheduler.get_job("jakim-sync-retry-1")
     assert retry1 is not None
     assert retry1.trigger.run_date == clock.now() + timedelta(seconds=300)
+    assert retry1.misfire_grace_time is None  # a late wake still retries
+    assert retry1.coalesce is True
 
 
 def test_chained_failures_schedule_15m_then_1h() -> None:
@@ -225,7 +253,10 @@ def test_gives_up_after_three_retries(caplog: pytest.LogCaptureFixture) -> None:
         scheduler.get_job("jakim-sync-retry-2").func()
         scheduler.get_job("jakim-sync-retry-3").func()
     assert scheduler.get_job("jakim-sync-retry-4") is None
-    assert any("gave up" in r.getMessage() for r in _records(caplog))
+    messages = [r.getMessage() for r in _records(caplog)]
+    assert any("gave up" in m for m in messages)
+    # initial run + 3 retries = 4 attempts total (attempt=3 must not under-report)
+    assert any("after 4 attempts" in m for m in messages)
 
 
 def test_job_logs_config_error_without_retry(caplog: pytest.LogCaptureFixture) -> None:

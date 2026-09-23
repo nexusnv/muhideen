@@ -45,9 +45,10 @@ versioning follows [Semantic Versioning](https://semver.org/).
   (`SqliteDisplayRepo`); integration suite on tmp-file SQLite covering
   migration upgrade/downgrade round-trips and engine-over-SQLite wiring.
 - Schedule sources (slice 1A-6): defensive JAKIM e-solat client
-  (`period=year`, pinned UA/15s timeout, 2s/4s/8s in-client backoff,
-  adapter-side naming map, parse + ordering rejection keeping cache
-  intact); `MabimsCalcEngine` MABIMS fallback deriving all 8 markers per
+  (`period=year`, pinned UA/15s timeout, 2s/4s/8s in-client backoff for
+  5xx/transport failures — any 4xx incl. 429 fails fast, paced by the
+  02:00 chain —, adapter-side naming map, parse + ordering rejection
+  incl. empty payloads keeping cache intact); `MabimsCalcEngine` MABIMS fallback deriving all 8 markers per
   recorded research (golden-tested against captured JAKIM year tables);
   02:00 scheduler with FR-1.1 5m/15m/1h retry chain (injected `Clock`,
   APScheduler, never started in tests); `domain.ordering.ensure_ordered`;

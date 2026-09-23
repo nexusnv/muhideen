@@ -125,6 +125,14 @@ def test_rejects_row_missing_marker() -> None:
         _parse(payload)
 
 
+def test_rejects_empty_prayer_time() -> None:
+    # A 200/OK! payload with zero rows must not count as a successful sync.
+    payload = _payload()
+    payload["prayerTime"] = []
+    with pytest.raises(SyncError):
+        _parse(payload)
+
+
 @pytest.mark.parametrize("bad", ["5:55", "25:00", "05:5x"])
 def test_rejects_malformed_time(bad: str) -> None:
     payload = _payload()
@@ -137,10 +145,12 @@ def test_rejects_malformed_time(bad: str) -> None:
     "bad",
     [
         "31-Dez-2026",  # unknown month token
-        "2026-09-23",  # unknown month token (numeric)
-        None,  # non-string date (line 82)
-        "01-Jan",  # wrong field count (line 85)
-        "32-Jan-2026",  # impossible calendar day (lines 92-93)
+        "2026-09-23",  # wrong shape (not dd-Mmm-yyyy)
+        None,  # non-string date
+        "01-Jan",  # missing year field
+        "1-Jan-2026",  # unpadded day
+        "01-Jan-26",  # two-digit year
+        "32-Jan-2026",  # impossible calendar day
     ],
 )
 def test_rejects_malformed_date(bad: str | None) -> None:
@@ -226,19 +236,23 @@ def test_exhausted_failures_raise_sync_error_after_three_retries(
     assert calls["n"] == 4
 
 
-def test_client_error_statuses_use_same_backoff() -> None:
+@pytest.mark.parametrize("bad_status", [404, 429])
+def test_4xx_fails_fast_without_in_client_retry(bad_status: int) -> None:
+    # 4xx (incl. 429) cannot heal inside 14 s of bursts: the endpoint's WAF
+    # ban re-engages within seconds of a burst, so the scheduler tier's
+    # 5m/15m/1h spacing is the only retry path for request-level rejections.
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
         del request
         calls["n"] += 1
-        return httpx.Response(404)
+        return httpx.Response(bad_status)
 
     sleeps: list[float] = []
     with pytest.raises(SyncError):
         _client(handler, sleeps).fetch_year("SGR01")
-    assert sleeps == [2.0, 4.0, 8.0]
-    assert calls["n"] == 4
+    assert sleeps == []
+    assert calls["n"] == 1
 
 
 def test_parse_rejection_after_200_does_not_retry() -> None:

@@ -2,10 +2,16 @@
 
 One daily job (`jakim-sync`) fetches the configured zone's year and saves
 every returned day; on `SyncError` (nothing was saved — keep-cache,
-Decision 5) it schedules absolute retries against the **injected clock**:
-5 min, then 15 min, then 1 h — after the third failed retry it gives up
-until the next 02:00 run. `ConfigError` (first-boot setup incomplete)
-never retries: it logs and waits for the next daily run.
+Decision 5) — including repository write failures converted at the
+`run_sync` save boundary, so a locked/full database enters the same
+retry chain instead of escaping the job — it schedules absolute retries
+against the **injected clock**: 5 min, then 15 min, then 1 h — after the
+third failed retry it gives up until the next 02:00 run. `ConfigError`
+(first-boot setup incomplete) never retries: it logs and waits for the
+next daily run. Every registered job sets `misfire_grace_time=None`
+(+ `coalesce=True`): a late wake (GC pause, NTP step) still syncs —
+skipping the run would start no retry chain — and catch-up pile-ups
+collapse into one run.
 
 Every instant comes from `Clock.now()` — no wall-time anywhere (the
 purity gate). The scheduler is built but **not started** here: 1A-7 owns
@@ -52,6 +58,8 @@ class _AddJob(Protocol):
         *,
         id: str,
         replace_existing: bool,
+        misfire_grace_time: int | None,
+        coalesce: bool,
     ) -> object:
         """Register a job — implemented by the concrete scheduler."""
         ...
@@ -64,7 +72,22 @@ def _add_job(
     *,
     id: str,
 ) -> None:
-    cast(_AddJob, scheduler).add_job(func, trigger, id=id, replace_existing=True)
+    """Register a sync/retry job that never skips a due run.
+
+    `misfire_grace_time=None` (APScheduler's default is 1 second) means a
+    late wake still runs the job: both the daily sync and each absolute
+    retry are idempotent, and a skipped retry would silently break the
+    5m/15m/1h chain. `coalesce=True` collapses any pile-up of due runs
+    into one execution.
+    """
+    cast(_AddJob, scheduler).add_job(
+        func,
+        trigger,
+        id=id,
+        replace_existing=True,
+        misfire_grace_time=None,
+        coalesce=True,
+    )
 
 
 def run_sync(
@@ -77,12 +100,25 @@ def run_sync(
     """Fetch the configured zone's year and save every day; return the count.
 
     `ConfigError` from `settings_repo.load()` propagates to the caller —
-    first-boot setup has nothing to sync and must never retry.
+    first-boot setup has nothing to sync and must never retry. A
+    repository write failure during the save loop is converted to
+    `SyncError` (with the original chained): `sync_job` only schedules
+    retries for `SyncError`, so an uncaught backend error (locked/full
+    database) would otherwise escape the job and skip the whole 5m/15m/1h
+    chain. Each `save_day` is an independent upsert, so a partial write
+    is repaired by the next attempt, which rewrites the full year.
     """
     settings = settings_repo.load()
     days = client.fetch_year(settings.zone)
     for day in days:
-        prayer_repo.save_day(day)
+        try:
+            prayer_repo.save_day(day)
+        except (ConfigError, SyncError):
+            raise
+        except Exception as exc:
+            raise SyncError(
+                f"prayer repo write failed: {exc}", zone=settings.zone
+            ) from exc
     return len(days)
 
 
@@ -113,7 +149,7 @@ def sync_job(
         if attempt >= MAX_RETRIES:
             logger.warning(
                 "jakim sync gave up after %d attempts (zone=%s): %s",
-                attempt,
+                attempt + 1,
                 exc.zone,
                 exc,
             )

@@ -42,6 +42,7 @@ def _dhuha_offset_min(lat: float) -> int:
 
 
 def _params() -> CalculationParameters:
+    """Assemble the pinned MABIMS parameter set (angles, asr factor, tunes)."""
     params = CalculationParameters(
         fajr_angle=FAJR_ANGLE_DEG,
         isha_angle=ISHA_ANGLE_DEG,
@@ -60,10 +61,16 @@ class MabimsCalcEngine:
     """
 
     def __init__(self, *, clock: Clock, tz: ZoneInfo) -> None:
+        """Take the pinned clock and the injected display timezone."""
         self._clock = clock
         self._tz = tz
 
     def compute_day(self, day: date, lat: float, lon: float, method: str) -> PrayerDay:
+        """Compute one day's eight markers via adhanpy; `ValueError` if unsupported.
+
+        The result is stamped `ScheduleSource.CALC` with the pinned clock
+        and passed through `ensure_ordered` before anything returns.
+        """
         if method != _PINNED_METHOD:
             # engine.py converts ValueError to a cache miss, so an unknown
             # configured method degrades the chain instead of 500-ing.
