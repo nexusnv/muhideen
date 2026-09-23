@@ -38,6 +38,6 @@ uv run pytest --cov=muhideen --cov-report=term-missing
 
 **Time is testable.** The pinned-clock test (same `now` + snapshot + settings → identical next-event) is the most important test, equivalent to paxman's determinism test.
 
-**Negative cases first-class.** Stale banners, calc fallback, invalid contracts, and first-boot `ConfigError` are asserted today, not just happy paths. JAKIM payload-parse rejection and `TIME UNSYNCED` join when schedule sources and device integration land.
+**Negative cases first-class.** Stale banners, calc fallback, invalid contracts, and first-boot `ConfigError` are asserted today, not just happy paths. JAKIM payload-parse rejection, ordering validation, and sync retry/backoff are asserted since slice 1A-6; `TIME UNSYNCED` joins when device integration lands.
 
 **Provenance of schedules.** Every resolved time carries `source` (`jakim`/`calc`/`manual`) + `fetched_at`; tests assert the flag, not just the clock value.

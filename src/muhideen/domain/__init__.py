@@ -3,13 +3,16 @@
 from muhideen.domain.fallback import STALE_AFTER, FallbackResult, is_stale, resolve_day
 from muhideen.domain.hijri import apply_hijri_offset
 from muhideen.domain.iqamah import resolve_iqamah
+from muhideen.domain.ordering import ORDER, ensure_ordered
 from muhideen.domain.prayer_state import PRE_ADHAN_WINDOW, resolve_next_event
 
 __all__ = [
     "FallbackResult",
+    "ORDER",
     "PRE_ADHAN_WINDOW",
     "STALE_AFTER",
     "apply_hijri_offset",
+    "ensure_ordered",
     "is_stale",
     "resolve_day",
     "resolve_iqamah",

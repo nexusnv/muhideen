@@ -50,7 +50,9 @@ class DisplayRepo(Protocol):
 
 @runtime_checkable
 class JAKIMClient(Protocol):
-    def fetch_week(self, zone: str) -> list[PrayerDay]: ...
+    def fetch_year(self, zone: str) -> list[PrayerDay]:
+        """One ``period=year`` fetch: the whole calendar year, ~365 rows."""
+        ...
 
 
 @runtime_checkable

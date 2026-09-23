@@ -69,7 +69,7 @@ class PartialDisplayRepo:
 
 
 class FullJAKIMClient:
-    def fetch_week(self, zone: str) -> list[PrayerDay]:
+    def fetch_year(self, zone: str) -> list[PrayerDay]:
         raise NotImplementedError
 
 
