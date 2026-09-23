@@ -33,6 +33,17 @@ versioning follows [Semantic Versioning](https://semver.org/).
   (PRD FR-1.7); Imsak/Dhuha on `PrayerDay` + `prayers`/`boundaries` contract
   split; opt-in boundary countdown (`Settings.boundary_countdown`,
   `next_boundary`/`boundary_at` on next-event + state payloads).
+- SQLite persistence (slice 1A-5): hand-rolled migration runner on
+  `PRAGMA user_version` shipping the full PRD §6.2 v0.1 schema (all seven
+  tables) with FR-1.4 iqamah-rule, settings-default, and `Default`-group
+  seeds, plus idempotent down-migrations; `SqlitePrayerRepo` /
+  `SqliteSettingsRepo` behind the existing ports (WAL,
+  `synchronous=NORMAL`, single-connection/single-lock single-writer
+  discipline, first-boot `ConfigError` until the setup wizard runs,
+  `ValueError`→`ConfigError` translation at the load boundary);
+  `VACUUM INTO` backup primitive; 60s-batched heartbeat writes
+  (`SqliteDisplayRepo`); integration suite on tmp-file SQLite covering
+  migration upgrade/downgrade round-trips and engine-over-SQLite wiring.
 
 ### Changed
 
@@ -53,3 +64,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
   (was undocumented; additive, no version bump).
 - `tools/mock_api.py`: serves version and heartbeat responses from fixture
   files instead of inline literals, so the mock cannot drift from fixtures.
+- `core.ports` gains `DisplayRepo` (`record_seen` buffer + `flush`):
+  heartbeats are written in 60s batches, never per-call (PRD §5.2/§6.3);
+  display IDs that are not pre-registered are dropped at flush
+  (contract: IDs are pre-registered or pending-approval).

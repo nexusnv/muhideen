@@ -31,6 +31,24 @@ class SettingsRepo(Protocol):
 
 
 @runtime_checkable
+class DisplayRepo(Protocol):
+    def record_seen(self, display_id: str, ip: str | None) -> None:
+        """Buffer one heartbeat for a display.
+
+        Writes are batched (never per-heartbeat write-through, PRD §5.2
+        power-cut safety); unregistered IDs are dropped at flush.
+        """
+        ...
+
+    def flush(self) -> int:
+        """Write all buffered heartbeats in one short transaction.
+
+        Returns the number of rows updated.
+        """
+        ...
+
+
+@runtime_checkable
 class JAKIMClient(Protocol):
     def fetch_week(self, zone: str) -> list[PrayerDay]: ...
 

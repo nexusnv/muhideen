@@ -7,7 +7,7 @@ Date: 2026-09-22
 Need zero-admin single-file persistence on Pi with testable, swappable storage. Options: stdlib `sqlite3` + hand-rolled migrations, or SQLAlchemy 2.0 now.
 
 ## Decision
-Stdlib `sqlite3` (WAL, `synchronous=NORMAL`) behind `PrayerRepo`/`SettingsRepo` ports. Hand-rolled `migrations/*.sql` with `PRAGMA user_version`. In-memory fake repos for unit/contract tests; tmp-file SQLite for integration. Backup via `VACUUM INTO`.
+Stdlib `sqlite3` (WAL, `synchronous=NORMAL`) behind the repository ports (`PrayerRepo`, `SettingsRepo`, `DisplayRepo`). Hand-rolled `migrations/*.sql` with `PRAGMA user_version`. In-memory fake repos for unit/contract tests; tmp-file SQLite for integration. Backup via `VACUUM INTO`.
 
 ## Rationale
 * Zero extra deps and Pi wheels to manage; stdlib is always present.

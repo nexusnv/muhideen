@@ -8,6 +8,7 @@ import pytest
 from muhideen.core.ports import (
     CalcEngine,
     Clock,
+    DisplayRepo,
     EventBus,
     JAKIMClient,
     MediaStore,
@@ -51,6 +52,19 @@ class FullSettingsRepo:
 
 class PartialSettingsRepo:
     def load(self) -> Settings:
+        raise NotImplementedError
+
+
+class FullDisplayRepo:
+    def record_seen(self, display_id: str, ip: str | None) -> None:
+        raise NotImplementedError
+
+    def flush(self) -> int:
+        raise NotImplementedError
+
+
+class PartialDisplayRepo:
+    def record_seen(self, display_id: str, ip: str | None) -> None:
         raise NotImplementedError
 
 
@@ -110,6 +124,7 @@ class PartialMediaStore:
 ALL_PROTOCOLS = (
     PrayerRepo,
     SettingsRepo,
+    DisplayRepo,
     JAKIMClient,
     CalcEngine,
     Clock,
@@ -124,6 +139,7 @@ ALL_PROTOCOLS = (
     [
         (FullPrayerRepo(), PrayerRepo),
         (FullSettingsRepo(), SettingsRepo),
+        (FullDisplayRepo(), DisplayRepo),
         (FullJAKIMClient(), JAKIMClient),
         (FullCalcEngine(), CalcEngine),
         (FullClock(), Clock),
@@ -142,6 +158,7 @@ def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
         (PartialPrayerRepo(), PrayerRepo),
         (MissingLastKnownRepo(), PrayerRepo),
         (PartialSettingsRepo(), SettingsRepo),
+        (PartialDisplayRepo(), DisplayRepo),
         (PartialJAKIMClient(), JAKIMClient),
         (PartialCalcEngine(), CalcEngine),
         (PartialClock(), Clock),
