@@ -20,5 +20,15 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run lint-imports
+      - name: purity scans
+        run: |
+          if rg -n "fastapi|httpx|datetime\.now|time\.time" src/muhideen/domain/ src/muhideen/engine/ src/muhideen/core/; then
+            echo "::error::forbidden framework/wall-clock reference in domain/engine/core"
+            exit 1
+          fi
+          if rg -n "sqlite3" src/muhideen/domain/ src/muhideen/engine/ src/muhideen/core/ tests/unit/; then
+            echo "::error::sqlite3 referenced outside adapters/"
+            exit 1
+          fi
       - run: uv run pytest -q
       - run: uv run tools/lint_theme.py --theme classic-green

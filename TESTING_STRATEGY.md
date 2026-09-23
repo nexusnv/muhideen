@@ -14,7 +14,7 @@ Tests mirror `ARCHITECTURE.md` layers. Organized by scope, run with `uv`. No ski
 
 ## Shared Infrastructure
 
-* **Pinned time.** All domain/engine tests inject `FakeClock`; production will wire a `SystemClock` adapter (monotonic for countdowns), which does not exist yet. Wall-clock reads in `domain/`, `engine/`, `core/` fail the purity scan (`! rg` steps in the `CONTRIBUTING.md` quality gate).
+* **Pinned time.** All domain/engine tests inject `FakeClock`; production will wire a `SystemClock` adapter (monotonic for countdowns), which does not exist yet. Wall-clock reads in `domain/`, `engine/`, `core/` fail the purity scan (CI source-scan step, plus the `! rg` steps in the `CONTRIBUTING.md` quality gate).
 * **Test doubles stay local.** Each file defines its own fakes (`FakePrayerRepo`, `StubJAKIM`, `FakeClock`). No shared mock library.
 * **Isolation.** SQLite tests use tmp files; contract tests never touch the DB; e2e resets between tests.
 * **Hypothesis profile.** `tests/conftest.py` registers `ci` (`max_examples=100`, no deadline) matching paxman practice.
