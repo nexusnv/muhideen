@@ -10,6 +10,7 @@ from muhideen.core.errors import (
 from muhideen.core.ports import (
     CalcEngine,
     Clock,
+    DisplayRepo,
     EventBus,
     JAKIMClient,
     MediaStore,
@@ -35,6 +36,7 @@ __all__ = [
     "Clock",
     "ConfigError",
     "ContractError",
+    "DisplayRepo",
     "EventBus",
     "IqamahRule",
     "JAKIMClient",

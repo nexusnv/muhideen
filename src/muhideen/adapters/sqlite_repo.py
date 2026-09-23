@@ -17,6 +17,7 @@ from datetime import date, datetime, time
 from pathlib import Path
 
 from muhideen.core.errors import ConfigError
+from muhideen.core.ports import Clock
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
     IqamahRule,
@@ -259,3 +260,54 @@ class SqliteSettingsRepo:
                 " (prayer, mode, delay_minutes, fixed_time) VALUES (?, ?, ?, ?)",
                 rule_values,
             )
+
+
+class SqliteDisplayRepo:
+    """``DisplayRepo``: buffered heartbeats flushed in 60s batches.
+
+    The batch window is driven by the injected ``Clock.monotonic()`` — no
+    timer thread in this slice: the HTTP layer (1A-7) calls ``record_seen``
+    per heartbeat, and ``flush()`` on shutdown. Time reads never touch the
+    wall clock (``TESTING_STRATEGY.md:17``). Only pre-registered display
+    IDs are updated; unknown IDs buffer normally but match no row at flush
+    and are dropped (``docs/api-contract.md:60``).
+    """
+
+    def __init__(
+        self,
+        db: Database,
+        clock: Clock,
+        batch_interval_s: float = 60,
+    ) -> None:
+        self._db = db
+        self._clock = clock
+        self._batch_interval_s = batch_interval_s
+        self._buffer: list[tuple[str, str | None, datetime]] = []
+        self._last_flush: float = clock.monotonic()
+
+    def record_seen(self, display_id: str, ip: str | None) -> None:
+        with self._db.write() as conn:
+            self._buffer.append((display_id, ip, self._clock.now()))
+            if (
+                self._clock.monotonic() - self._last_flush
+                >= self._batch_interval_s
+            ):
+                self._flush_locked(conn)
+
+    def flush(self) -> int:
+        with self._db.write() as conn:
+            return self._flush_locked(conn)
+
+    def _flush_locked(self, conn: sqlite3.Connection) -> int:
+        rows, self._buffer = self._buffer, []
+        self._last_flush = self._clock.monotonic()
+        if not rows:
+            return 0
+        cursor = conn.executemany(
+            "UPDATE displays SET last_seen = ?, ip_address = ? WHERE id = ?",
+            [
+                (stamp.isoformat(), ip, display_id)
+                for display_id, ip, stamp in rows
+            ],
+        )
+        return cursor.rowcount
