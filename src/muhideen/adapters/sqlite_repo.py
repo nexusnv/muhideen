@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import date, datetime, time
 from pathlib import Path
@@ -47,13 +47,13 @@ class Database:
         self._lock = threading.Lock()
 
     @contextmanager
-    def read(self) -> Iterator[sqlite3.Connection]:
+    def read(self) -> Generator[sqlite3.Connection, None, None]:
         """Yield the connection under the lock (no transaction needed)."""
         with self._lock:
             yield self._conn
 
     @contextmanager
-    def write(self) -> Iterator[sqlite3.Connection]:
+    def write(self) -> Generator[sqlite3.Connection, None, None]:
         """Short transaction: commit on success, roll back on any error."""
         with self._lock:
             try:
@@ -96,8 +96,7 @@ class SqlitePrayerRepo:
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
         with self._db.read() as conn:
             row = conn.execute(
-                "SELECT * FROM prayer_times"
-                " WHERE date_gregorian = ? AND zone_code = ?",
+                "SELECT * FROM prayer_times WHERE date_gregorian = ? AND zone_code = ?",
                 (day.isoformat(), zone),
             ).fetchone()
         return _row_to_day(row) if row is not None else None
@@ -166,9 +165,7 @@ def _rules_from_rows(rows: list[sqlite3.Row]) -> tuple[IqamahRule, ...]:
                 prayer=MarkerName(row["prayer"]),
                 mode=row["mode"],
                 delay_minutes=row["delay_minutes"],
-                fixed_time=(
-                    time.fromisoformat(fixed) if fixed is not None else None
-                ),
+                fixed_time=(time.fromisoformat(fixed) if fixed is not None else None),
             )
         )
     return tuple(rules)
@@ -237,18 +234,14 @@ class SqliteSettingsRepo:
                 rule.prayer.value,
                 rule.mode,
                 rule.delay_minutes,
-                rule.fixed_time.isoformat()
-                if rule.fixed_time is not None
-                else None,
+                rule.fixed_time.isoformat() if rule.fixed_time is not None else None,
             )
             for rule in settings.iqamah_rules
         ]
         # One short transaction: a crash never yields half a settings write.
         with self._db.write() as conn:
             if settings.lat is None:
-                conn.execute(
-                    "DELETE FROM settings WHERE key IN (?, ?)", ("lat", "lon")
-                )
+                conn.execute("DELETE FROM settings WHERE key IN (?, ?)", ("lat", "lon"))
             conn.executemany(
                 "INSERT INTO settings (key, value) VALUES (?, ?)"
                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -288,10 +281,7 @@ class SqliteDisplayRepo:
     def record_seen(self, display_id: str, ip: str | None) -> None:
         with self._db.write() as conn:
             self._buffer.append((display_id, ip, self._clock.now()))
-            if (
-                self._clock.monotonic() - self._last_flush
-                >= self._batch_interval_s
-            ):
+            if self._clock.monotonic() - self._last_flush >= self._batch_interval_s:
                 self._flush_locked(conn)
 
     def flush(self) -> int:
@@ -305,10 +295,7 @@ class SqliteDisplayRepo:
             return 0
         cursor = conn.executemany(
             "UPDATE displays SET last_seen = ?, ip_address = ? WHERE id = ?",
-            [
-                (stamp.isoformat(), ip, display_id)
-                for display_id, ip, stamp in rows
-            ],
+            [(stamp.isoformat(), ip, display_id) for display_id, ip, stamp in rows],
         )
         return cursor.rowcount
 

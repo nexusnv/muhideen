@@ -91,8 +91,7 @@ def test_migrate_creates_all_prd_tables_and_index(tmp_path: Path) -> None:
             ).fetchall()
         }
         columns = [
-            row[1]
-            for row in conn.execute("PRAGMA table_info(prayer_times)").fetchall()
+            row[1] for row in conn.execute("PRAGMA table_info(prayer_times)").fetchall()
         ]
         unique_indexes = [
             row

@@ -17,11 +17,14 @@ pytestmark = pytest.mark.integration
 _ZONE = "SGR01"
 
 
+_FETCHED_AT = datetime.fromisoformat("2025-10-20T07:00:00+08:00")
+
+
 def _day(
     day: date,
     zone: str = _ZONE,
     fajr: time = time(5, 45),
-    fetched_at: datetime = datetime.fromisoformat("2025-10-20T07:00:00+08:00"),
+    fetched_at: datetime = _FETCHED_AT,
 ) -> PrayerDay:
     return PrayerDay(
         date=day,

@@ -19,9 +19,7 @@ _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
 def _up_files() -> list[Path]:
     return sorted(
-        path
-        for path in _MIGRATIONS_DIR.glob("*.sql")
-        if ".down." not in path.name
+        path for path in _MIGRATIONS_DIR.glob("*.sql") if ".down." not in path.name
     )
 
 

@@ -111,9 +111,7 @@ def test_engine_reflects_settings_saved_through_sqlite(tmp_path: Path) -> None:
     custom = replace(
         settings,
         iqamah_rules=tuple(
-            replace(rule, delay_minutes=15)
-            if rule.prayer is MarkerName.DHUHR
-            else rule
+            replace(rule, delay_minutes=15) if rule.prayer is MarkerName.DHUHR else rule
             for rule in settings.iqamah_rules
         ),
     )
