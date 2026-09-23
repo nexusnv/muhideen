@@ -289,15 +289,21 @@ class SqliteDisplayRepo:
             return self._flush_locked(conn)
 
     def _flush_locked(self, conn: sqlite3.Connection) -> int:
-        rows, self._buffer = self._buffer, []
+        # Buffer and window advance only after the writes succeed: a failed
+        # flush (I/O error on the Pi) rolls back the DB, keeps the rows, and
+        # retries on the next heartbeat instead of dropping a batch and
+        # re-arming the full 60s window.
+        rows = self._buffer
+        count = 0
+        if rows:
+            cursor = conn.executemany(
+                "UPDATE displays SET last_seen = ?, ip_address = ? WHERE id = ?",
+                [(stamp.isoformat(), ip, display_id) for display_id, ip, stamp in rows],
+            )
+            count = cursor.rowcount
+            self._buffer = []
         self._last_flush = self._clock.monotonic()
-        if not rows:
-            return 0
-        cursor = conn.executemany(
-            "UPDATE displays SET last_seen = ?, ip_address = ? WHERE id = ?",
-            [(stamp.isoformat(), ip, display_id) for display_id, ip, stamp in rows],
-        )
-        return cursor.rowcount
+        return count
 
 
 def backup_to(db: Database, dest: Path) -> Path:

@@ -8,6 +8,7 @@ import pytest
 
 from muhideen.adapters.migrate import current_version, migrate, migrate_down
 from muhideen.adapters.sqlite_repo import Database, connect
+from muhideen.core.errors import MuhideenError
 
 pytestmark = pytest.mark.integration
 
@@ -173,3 +174,27 @@ def test_down_then_up_round_trip_restores_seeds(tmp_path: Path) -> None:
     assert _table_names(db) == _TABLES
     assert _settings_kv(db) == _SEEDED_SETTINGS
     assert _rule_rows(db) == _FR_1_4_RULES
+
+
+def test_migrate_re_runs_script_when_version_bump_was_lost(tmp_path: Path) -> None:
+    # Crash window: the script committed but PRAGMA user_version never
+    # persisted (migrate.py:7). Re-running against the live schema must
+    # not raise and must not duplicate seeded rows (ADR-0003:18).
+    db = Database(tmp_path / "muhideen.db")
+    migrate(db)
+    with db.write() as conn:
+        conn.execute("PRAGMA user_version = 0")  # simulate the lost bump
+    assert migrate(db) == 1  # re-executes 0001 over already-present tables
+    assert current_version(db) == 1
+    assert _table_names(db) == _TABLES
+    assert _settings_kv(db) == _SEEDED_SETTINGS
+    assert _rule_rows(db) == _FR_1_4_RULES
+
+
+def test_migrate_down_without_matching_down_file_raises(tmp_path: Path) -> None:
+    db = Database(tmp_path / "muhideen.db")
+    migrate(db)
+    with db.write() as conn:
+        conn.execute("PRAGMA user_version = 42")  # corrupt/future version
+    with pytest.raises(MuhideenError, match="no down migration"):
+        migrate_down(db)
