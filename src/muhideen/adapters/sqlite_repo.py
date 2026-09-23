@@ -16,7 +16,15 @@ from contextlib import contextmanager
 from datetime import date, datetime, time
 from pathlib import Path
 
-from muhideen.core.values import PrayerDay, ScheduleSource
+from muhideen.core.errors import ConfigError
+from muhideen.core.values import (
+    DEFAULT_IQAMAH_RULES,
+    IqamahRule,
+    MarkerName,
+    PrayerDay,
+    ScheduleSource,
+    Settings,
+)
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -133,3 +141,121 @@ class SqlitePrayerRepo:
                 (zone, day.isoformat()),
             ).fetchone()
         return _row_to_day(row) if row is not None else None
+
+
+def _parse_bool(raw: str) -> bool:
+    """Parse a ``0|1`` settings value; anything else is corruption."""
+    if raw == "1":
+        return True
+    if raw == "0":
+        return False
+    raise ValueError(f"invalid boolean value: {raw!r}")
+
+
+def _parse_optional_float(raw: str | None) -> float | None:
+    return float(raw) if raw is not None else None
+
+
+def _rules_from_rows(rows: list[sqlite3.Row]) -> tuple[IqamahRule, ...]:
+    rules: list[IqamahRule] = []
+    for row in rows:
+        fixed = row["fixed_time"]
+        rules.append(
+            IqamahRule(
+                prayer=MarkerName(row["prayer"]),
+                mode=row["mode"],
+                delay_minutes=row["delay_minutes"],
+                fixed_time=(
+                    time.fromisoformat(fixed) if fixed is not None else None
+                ),
+            )
+        )
+    return tuple(rules)
+
+
+class SqliteSettingsRepo:
+    """``SettingsRepo`` over the settings key/value table + iqamah_rules.
+
+    ``load()`` is the boundary the ``values.py`` docstring reserves for
+    this slice: every ``ValueError`` from parsing or from the ``Settings``
+    construction guards becomes a ``ConfigError`` here, so callers see one
+    typed failure for "the database says something impossible".
+    """
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def load(self) -> Settings:
+        with self._db.read() as conn:
+            kv = {
+                row["key"]: row["value"]
+                for row in conn.execute("SELECT key, value FROM settings")
+            }
+            rule_rows = conn.execute(
+                "SELECT prayer, mode, delay_minutes, fixed_time"
+                " FROM iqamah_rules ORDER BY rowid"
+            ).fetchall()
+        if "masjid_name" not in kv or "zone_code" not in kv:
+            # FR-6.2 first boot: identity comes from the setup wizard.
+            raise ConfigError("settings not initialised — run the setup wizard")
+        try:
+            # Optional keys fall back to VO defaults; migration 0001 seeds
+            # the same values, and the seeded-defaults test pins both sides.
+            return Settings(
+                masjid_name=kv["masjid_name"],
+                zone=kv["zone_code"],
+                hijri_offset=int(kv["hijri_offset"]),
+                adhan_duration_s=int(kv.get("adhan_duration_s", "180")),
+                dim_minutes_default=int(kv.get("dim_minutes_default", "20")),
+                dim_minutes_jumuah=int(kv.get("dim_minutes_jumuah", "45")),
+                method=kv.get("method", "MABIMS"),
+                boundary_countdown=_parse_bool(kv.get("boundary_countdown", "0")),
+                lat=_parse_optional_float(kv.get("lat")),
+                lon=_parse_optional_float(kv.get("lon")),
+                iqamah_rules=_rules_from_rows(rule_rows) or DEFAULT_IQAMAH_RULES,
+            )
+        except (ValueError, KeyError) as exc:
+            raise ConfigError(str(exc)) from exc
+
+    def save(self, settings: Settings) -> None:
+        pairs: list[tuple[str, str]] = [
+            ("masjid_name", settings.masjid_name),
+            ("zone_code", settings.zone),
+            ("hijri_offset", str(settings.hijri_offset)),
+            ("adhan_duration_s", str(settings.adhan_duration_s)),
+            ("dim_minutes_default", str(settings.dim_minutes_default)),
+            ("dim_minutes_jumuah", str(settings.dim_minutes_jumuah)),
+            ("method", settings.method),
+            ("boundary_countdown", "1" if settings.boundary_countdown else "0"),
+        ]
+        if settings.lat is not None:  # both-or-neither, enforced by the VO guard
+            pairs.append(("lat", repr(settings.lat)))
+            pairs.append(("lon", repr(settings.lon)))
+        rule_values = [
+            (
+                rule.prayer.value,
+                rule.mode,
+                rule.delay_minutes,
+                rule.fixed_time.isoformat()
+                if rule.fixed_time is not None
+                else None,
+            )
+            for rule in settings.iqamah_rules
+        ]
+        # One short transaction: a crash never yields half a settings write.
+        with self._db.write() as conn:
+            if settings.lat is None:
+                conn.execute(
+                    "DELETE FROM settings WHERE key IN (?, ?)", ("lat", "lon")
+                )
+            conn.executemany(
+                "INSERT INTO settings (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                pairs,
+            )
+            conn.execute("DELETE FROM iqamah_rules")
+            conn.executemany(
+                "INSERT INTO iqamah_rules"
+                " (prayer, mode, delay_minutes, fixed_time) VALUES (?, ?, ?, ?)",
+                rule_values,
+            )
