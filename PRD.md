@@ -162,7 +162,7 @@ Backend-only RAM shown. Full kiosk system always adds 300–600MB for X11 + Chro
 Domain core is framework-free so a later Go rewrite (Option C) needs no display/theme changes:
 
 * `domain/`: `prayer_state` (§8 machine), `fallback_chain` (FR-1.2), `iqamah_calc`, `hijri` — no Flask/FastAPI/SQLite imports.
-* Ports: `JAKIMClient`, `PrayerRepo`, `EventBus`, `MediaStore`.
+* Ports: `JAKIMClient`, `PrayerRepo`, `SettingsRepo`, `DisplayRepo`, `EventBus`, `CalcEngine`, `MediaStore`, `Clock`.
 * Adapters: `adapters/jakim_esolat.py`, `adapters/sqlite_repo.py`, `adapters/sse.py`, `adapters/cec.py`.
 * Stable API contract: `GET /api/next-event`, `GET /api/events` (SSE), `POST /api/displays/heartbeat`, `GET /display?id=`. Use-case tests run with in-memory repos, no DB/network.
 

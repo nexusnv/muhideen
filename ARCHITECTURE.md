@@ -31,7 +31,7 @@ src/muhideen/
 ```
 
 ### Core
-Shared vocabulary and abstract ports: prayer/display/theme value objects (frozen) incl. marker vocabulary (`MarkerName`, `MarkerKind` + `marker_kind`), `PrayerRepo`, `SettingsRepo`, `JAKIMClient`, `CalcEngine`, `EventBus`, `MediaStore`, `Clock` ports, exception hierarchy (`MuhideenError`, `ContractError`, `ScheduleError`, `SyncError`). No framework, no SQLite, no HTTP.
+Shared vocabulary and abstract ports: prayer/display/theme value objects (frozen) incl. marker vocabulary (`MarkerName`, `MarkerKind` + `marker_kind`), `PrayerRepo`, `SettingsRepo`, `DisplayRepo`, `JAKIMClient`, `CalcEngine`, `EventBus`, `MediaStore`, `Clock` ports, exception hierarchy (`MuhideenError`, `ContractError`, `ScheduleError`, `SyncError`). No framework, no SQLite, no HTTP.
 
 ### Domain
 Pure functions over `(now, schedule, settings)`: state machine (§8 PRD), fallback chain, iqamah resolution, Hijri offset application, freshness flags. Frozen dataclasses (`slots=True`). A `Clock` is injected — never read wall time directly — so tests pin time exactly.
@@ -40,7 +40,7 @@ Pure functions over `(now, schedule, settings)`: state machine (§8 PRD), fallba
 Capability-agnostic orchestrator: load settings, resolve day schedule via fallback chain, compute next event, fan out SSE. Owns registry-free composition (no global mutable singletons except the single-writer DB handle created at startup).
 
 ### Adapters
-One module per port: `sqlite_repo`, `jakim_esolat`, `calc_mabims` (later MWL/ISNA/Egyptian), `system_clock`/`fake_clock`, `sse_bus`, `cec`. Data tables live beside logic (`adapters/data/`), never inside presentation.
+One module per port, plus the migration runner. Landed: `sqlite_repo` (connection, single-writer `Database`, the prayer/settings/display repos, `VACUUM INTO` backup) and `migrate`. Pending with their ports: `jakim_esolat`, `calc_mabims` (later MWL/ISNA/Egyptian), `system_clock`/`fake_clock`, `sse_bus`, `cec`. Data tables live beside logic (`adapters/data/`), never inside presentation.
 
 ### API
 FastAPI `def` sync handlers mapping HTTP ↔ engine. Pydantic DTOs are the executable contract. OpenAPI served LAN-only behind admin auth. No business logic here beyond parsing and status codes.
@@ -58,6 +58,6 @@ Jinja templates receiving DTOs only. `static/app.css` / `static/app.js` hand-wri
 
 * **Strict pyright** on `src/` — no `type: ignore`.
 * **Ruff** 88 cols — no `noqa` in `src/` (scoped per-file-ignores only).
-* **Import-linter** layers: `api → engine → adapters → domain → core`; `views` may use `core` types only; nothing imports `views`; capabilities/themes never import each other.
-* **Purity scans**: `domain/` must not reference `fastapi`, `sqlite3`, `httpx`, `datetime.now`, `time.time`; `views/` and `themes/` must not reference `domain/`; validation of prayer math never reads presentation flags. CI source-scan enforced.
+* **Import-linter** layers (single configured contract, CI-enforced): `api → engine → adapters → domain → core`. Convention, not yet contracted: `views` may use `core` types only, nothing imports `views`, capabilities/themes never import each other.
+* **Purity scans**: `domain/`, `engine/`, `core/` must not reference `fastapi`, `httpx`, `datetime.now`, `time.time`; `domain/` and `core/` must not reference `sqlite3` (`adapters/` is the sanctioned site); `views/` and `themes/` must not reference `domain/`; validation of prayer math never reads presentation flags. The textual scans run as `! rg` steps in the contributor quality gate (`CONTRIBUTING.md`); the layer graph is enforced separately by import-linter in CI.
 * **Coverage** `fail_under=95`, branch mode. Every new state transition ships a pinned-time test.

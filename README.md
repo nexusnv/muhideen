@@ -8,9 +8,9 @@ Open-source masjid digital display system for mosques and suraus. Offline-first 
 
 ## Status
 
-Proposed. Spec is in [`PRD.md`](PRD.md). No implementation yet.
+In active development. Landed: `core` vocabulary and ports, the pure `domain` state machine and fallback chain, the executable API contract (Pydantic DTOs, fixtures, OpenAPI), `engine` orchestration, and SQLite persistence — WAL, hand-rolled migrations on `PRAGMA user_version`, the repository adapters (prayer/settings/display), 60s heartbeat batching, and `VACUUM INTO` backup. Pending: HTTP handler bodies (every route currently answers 501), schedule sources, auth/admin endpoints, device integration, and the display/admin frontend — see the milestone roadmap in [`PRD.md`](PRD.md) §9.
 
-## What it does
+## What it will do
 
 * JAKIM E-Solat sync by zone with cached fallback + on-device calculation (MABIMS/MWL/ISNA/Egyptian).
 * Display: clock, Gregorian + Hijri dates, 5 prayer times (primary) + Imsak/Syuruq/Dhuha boundary markers (secondary), next-prayer hero, Iqamah countdown.
