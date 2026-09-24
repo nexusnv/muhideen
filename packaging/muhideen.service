@@ -1,0 +1,17 @@
+[Unit]
+Description=Muhideen backend HTTP service
+# Boot-time TIME UNSYNCED detection needs time-sync.target reached
+# (synced-or-failed) and the LAN up before uvicorn binds 0.0.0.0.
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=muhideen
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@VENV@/bin/muhideen --host 0.0.0.0 --port 8000 --db /var/lib/muhideen/muhideen.db
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

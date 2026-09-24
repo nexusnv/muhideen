@@ -1,0 +1,14 @@
+[Unit]
+Description=Muhideen mDNS advertisement (.local discovery)
+After=muhideen.service avahi-daemon.service
+
+[Service]
+Type=simple
+# %H (systemd hostname specifier) is the instance name — no config to keep.
+ExecStart=/usr/bin/avahi-publish-service %H _muhideen._tcp 8000
+Restart=always
+RestartSec=5
+PartOf=muhideen.service
+
+[Install]
+WantedBy=multi-user.target
