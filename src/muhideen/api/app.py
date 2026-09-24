@@ -35,6 +35,7 @@ from muhideen.adapters.sqlite_repo import (
 )
 from muhideen.adapters.sse_bus import SSEBus
 from muhideen.adapters.system_clock import SystemClock
+from muhideen.adapters.time_sync import SystemTimeSyncProbe
 from muhideen.api.auth import (
     ADMIN_USERNAME,
     AUTH_401_DETAIL,
@@ -66,6 +67,7 @@ from muhideen.core.ports import (
     JAKIMClient,
     PrayerRepo,
     SettingsRepo,
+    TimeSyncProbe,
     UserRepo,
 )
 from muhideen.engine import Engine
@@ -96,6 +98,7 @@ class AppDeps:
     database: Database | None = None
     run_background: bool = False
     jakim_client: JAKIMClient | None = None
+    time_sync: TimeSyncProbe | None = None
 
 
 class EventStreamResponse(StreamingResponse):
@@ -218,6 +221,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         clock=deps.clock,
         event_bus=deps.event_bus,
         calc=calc,
+        time_sync=deps.time_sync,
     )
     sessions = SessionStore(deps.clock)
     login_limiter = RateLimiter(deps.clock)
@@ -461,5 +465,6 @@ def create_production_app(
         database=database,
         run_background=run_background,
         jakim_client=HttpJAKIMClient(clock=clock),
+        time_sync=SystemTimeSyncProbe(clock=clock),
     )
     return create_app(deps)

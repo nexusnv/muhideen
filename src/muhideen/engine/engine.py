@@ -13,7 +13,14 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 from muhideen.core.errors import MuhideenError, ScheduleError
-from muhideen.core.ports import CalcEngine, Clock, EventBus, PrayerRepo, SettingsRepo
+from muhideen.core.ports import (
+    CalcEngine,
+    Clock,
+    EventBus,
+    PrayerRepo,
+    SettingsRepo,
+    TimeSyncProbe,
+)
 from muhideen.core.values import (
     MarkerName,
     NextEvent,
@@ -27,10 +34,18 @@ from muhideen.domain import resolve_day as resolve_fallback
 STATE_EVENT = "state"
 TICK_EVENT = "tick"
 
+# TIME UNSYNCED (FR-1.6): a wall-clock step larger than `_DRIFT_STEP_S`
+# that monotonic time did not observe latches the display unsynced for
+# `_DRIFT_LATCH_S` injected-monotonic seconds — long enough that an NTP
+# step or manual wall bump cannot masquerade as healthy on the next poll.
+_DRIFT_STEP_S = 5.0
+_DRIFT_LATCH_S = 300.0
+
 # Fan-out key: everything a client's render depends on, deliberately
 # excluding `event.now`, which changes on every call. The gated boundary
 # pointer is included so a `boundary_countdown` opt-in flip fans out as
 # `state` (FR-6.1 live-reload precedent), without ever changing state itself.
+# `time_synced` rides the same way: an NTP health flip fans out as `state`.
 _Fingerprint = tuple[
     PrayerState,
     MarkerName | None,
@@ -39,6 +54,7 @@ _Fingerprint = tuple[
     datetime | None,
     MarkerName | None,
     datetime | None,
+    bool,
     bool,
 ]
 _Minute = tuple[int, int, int, int, int]
@@ -55,12 +71,16 @@ class Engine:
         clock: Clock,
         event_bus: EventBus,
         calc: CalcEngine | None = None,
+        time_sync: TimeSyncProbe | None = None,
     ) -> None:
         self._settings_repo = settings_repo
         self._prayer_repo = prayer_repo
         self._clock = clock
         self._event_bus = event_bus
         self._calc = calc
+        self._time_sync = time_sync
+        self._drift_sample: tuple[datetime, float] | None = None
+        self._drift_latch_until: float | None = None
         self._last_fingerprint: _Fingerprint | None = None
         self._last_minute: _Minute | None = None
 
@@ -87,9 +107,10 @@ class Engine:
         today = self._resolve_day(now.date(), zone, now, settings)
         tomorrow = self._tomorrow(now.date() + timedelta(days=1), zone, settings)
         rules = {rule.prayer: rule for rule in settings.iqamah_rules}
-        return resolve_next_event(
+        event = resolve_next_event(
             now, today.day, tomorrow, rules, settings, today.stale
         )
+        return replace(event, time_synced=self._time_synced())
 
     def tick(self) -> NextEvent:
         """Recompute on the clock and publish `state`/`tick` when they change."""
@@ -104,6 +125,7 @@ class Engine:
             event.next_boundary,
             event.boundary_at,
             event.stale,
+            event.time_synced,
         )
         minute: _Minute = (now.year, now.month, now.day, now.hour, now.minute)
         if fingerprint != self._last_fingerprint:
@@ -113,6 +135,35 @@ class Engine:
             self._event_bus.publish(TICK_EVENT)
             self._last_minute = minute
         return event
+
+    def _time_synced(self) -> bool:
+        """NTP health for one `next_event` stamp: probe answer + drift latch.
+
+        No probe means synced (dev/contract defaults, FR-1.6 contract field
+        stays `true`). With a probe, a wall step the injected monotonic clock
+        did not observe (`|(Δwall − Δmono)| > 5.0s`) latches unsynced for
+        `_DRIFT_LATCH_S`; the latch clears only once it has aged out *and*
+        the probe still reports synced, so a single manual time bump cannot
+        flip the banner back on the next poll.
+        """
+        if self._time_sync is None:
+            return True
+        synced = self._time_sync.synchronized()
+        wall = self._clock.now()
+        mono = self._clock.monotonic()
+        if self._drift_sample is not None:
+            prev_wall, prev_mono = self._drift_sample
+            step = abs((wall - prev_wall).total_seconds() - (mono - prev_mono))
+            if step > _DRIFT_STEP_S:
+                self._drift_latch_until = mono + _DRIFT_LATCH_S
+        self._drift_sample = (wall, mono)
+        if (
+            self._drift_latch_until is not None
+            and mono >= self._drift_latch_until
+            and synced
+        ):
+            self._drift_latch_until = None
+        return synced and self._drift_latch_until is None
 
     def _resolve_day(
         self, requested: date, zone: str, now: datetime, settings: Settings

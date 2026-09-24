@@ -309,7 +309,7 @@ Migrations: integer `PRAGMA user_version` + `alembic`-free hand-rolled `migratio
 Single-repo logical split (§4.4). Backend implements first; frontend builds against fixtures.
 
 * `GET /api/prayer-day?date=&zone=` → day `prayers` (5 Prayer Time Markers) + `boundaries` (3 Boundary Time Markers) + `source` + `stale` flag (see `api/fixtures/prayer-day.json`).
-* `GET /api/next-event` → `{state, now, next_prayer, adhan_at, iqamah_at, dim_until, stale, next_boundary, boundary_at}` per §8 — `next_prayer` is always a Prayer Time Marker; `next_boundary`/`boundary_at` are populated only when `boundary_countdown` is enabled (see `api/fixtures/next-event.json`).
+* `GET /api/next-event` → `{state, now, next_prayer, adhan_at, iqamah_at, dim_until, stale, next_boundary, boundary_at, time_synced}` per §8 — `next_prayer` is always a Prayer Time Marker; `next_boundary`/`boundary_at` are populated only when `boundary_countdown` is enabled; `time_synced` is `false` when NTP is unsynced or a wall-clock step was detected (FR-1.6 `TIME UNSYNCED`) (see `api/fixtures/next-event.json`).
 * `GET /api/events` → SSE `text/event-stream` (`state`, `tick`, `config-update`); 60s poll of `next-event` is fallback (see `api/fixtures/events-stream.txt`).
 * `POST /api/displays/heartbeat` → `{id}` heartbeat; server batches `last_seen` writes every 60s.
 * `GET /api/settings` + `PUT /api/settings` → full installation settings (FR-6.1/FR-6.2/FR-1.7/FR-1.4 fields, admin session, live-reload via `config-update`); offline `calc_only` switch stops network fetch without reordering FR-1.2 (see `api/fixtures/settings.json`).

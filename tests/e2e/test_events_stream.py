@@ -108,6 +108,7 @@ def test_initial_state_frame(surface: SimpleNamespace, client: TestClient) -> No
         gen.close()
     event, data = _parse(frame)
     assert event == "state"
+    assert data["time_synced"] is True
     assert data["state"] in {
         "NORMAL",
         "PRE_ADHAN",

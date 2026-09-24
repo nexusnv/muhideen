@@ -115,6 +115,7 @@ class NextEvent:
     stale: bool
     next_boundary: MarkerName | None = None
     boundary_at: datetime | None = None
+    time_synced: bool = True
 
 
 @dataclass(frozen=True, slots=True)
