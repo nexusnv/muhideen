@@ -30,6 +30,7 @@ from muhideen.core.values import (
 )
 from muhideen.domain import FallbackResult, resolve_next_event
 from muhideen.domain import resolve_day as resolve_fallback
+from muhideen.domain.fallback import merge_days
 
 STATE_EVENT = "state"
 TICK_EVENT = "tick"
@@ -181,7 +182,8 @@ class Engine:
             if cached is None and calculated is None
             else None
         )
-        return resolve_fallback(requested, zone, now, cached, calculated, last_known)
+        merged = merge_days(cached, calculated)
+        return resolve_fallback(requested, zone, now, merged, None, last_known)
 
     def _calc_day(self, day: date, zone: str, settings: Settings) -> PrayerDay | None:
         """Computed day stamped with the requested zone, or None if unavailable."""
@@ -189,7 +191,12 @@ class Engine:
             return None
         try:
             computed = self._calc.compute_day(
-                day, settings.lat, settings.lon, settings.method
+                day,
+                settings.lat,
+                settings.lon,
+                settings.method,
+                imsak_offset_min=settings.imsak_offset_min,
+                dhuha_offset_min=settings.dhuha_offset_min,
             )
         except (MuhideenError, ValueError):
             return None  # a broken calculator is a cache miss, not a 500
