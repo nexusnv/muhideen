@@ -89,6 +89,6 @@ def test_backup_of_fresh_schema_succeeds(tmp_path: Path) -> None:
             ).fetchall()
         }
         assert "settings" in tables and "prayer_times" in tables
-        assert len(_settings_kv(conn)) == 6  # migration seeds only
+        assert len(_settings_kv(conn)) == 8  # migration seeds only (6 + 2 offsets)
     finally:
         conn.close()
