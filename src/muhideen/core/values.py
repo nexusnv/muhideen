@@ -160,6 +160,8 @@ class Settings:
     method: str = "MABIMS"
     boundary_countdown: bool = False
     calc_only: bool = False
+    imsak_offset_min: int = 10
+    dhuha_offset_min: int = 28
 
     def __post_init__(self) -> None:
         """Enforce offset/coordinate guards and non-empty rule coverage."""
@@ -171,6 +173,10 @@ class Settings:
             raise ValueError(f"latitude out of range: {self.lat}")
         if self.lon is not None and not -180 <= self.lon <= 180:
             raise ValueError(f"longitude out of range: {self.lon}")
+        if not 0 <= self.imsak_offset_min <= 10:
+            raise ValueError(f"imsak_offset_min out of range: {self.imsak_offset_min}")
+        if not 15 <= self.dhuha_offset_min <= 30:
+            raise ValueError(f"dhuha_offset_min out of range: {self.dhuha_offset_min}")
         seen: set[MarkerName] = set()
         for rule in self.iqamah_rules:
             if marker_kind(rule.prayer) is MarkerKind.BOUNDARY:
