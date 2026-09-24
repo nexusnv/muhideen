@@ -76,7 +76,7 @@ class PrayerState(StrEnum):
 
 
 class ScheduleSource(StrEnum):
-    """Where one prayer day came from: network table, calc, or last-known."""
+    """Source of a prayer day: JAKIM, CALC, or MANUAL."""
 
     JAKIM = "jakim"
     CALC = "calc"
@@ -162,7 +162,7 @@ class Settings:
     calc_only: bool = False
 
     def __post_init__(self) -> None:
-        """Enforce offset range, coordinate pairing, and full rule coverage."""
+        """Enforce offset/coordinate guards and non-empty rule coverage."""
         if not -2 <= self.hijri_offset <= 2:
             raise ValueError(f"hijri_offset out of range: {self.hijri_offset}")
         if (self.lat is None) != (self.lon is None):

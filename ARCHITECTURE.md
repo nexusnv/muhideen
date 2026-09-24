@@ -6,7 +6,7 @@ This document is the contributor's map: what the system looks like whole, why it
 
 ## System Overview (As Built, Plus Planned)
 
-One device serves two audiences from one backend. Everything below the contract line is landed (Phase 1A); everything above it is the planned frontend (Phase 1B+) building against the frozen contract.
+One device serves two audiences from one backend. The backend is landed (Phase 1A); the frontend is planned (Phase 1B+) and builds against the frozen contract.
 
 ```
 External world                    The device (one deployable)
