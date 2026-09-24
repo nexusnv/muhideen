@@ -26,7 +26,7 @@ it replaces ``DHUHR`` on Friday at the rule layer, never a 9th slot)."""
 
 
 def ensure_ordered(day: PrayerDay) -> PrayerDay:
-    """Return ``day`` unchanged when all eight markers are strictly increasing.
+    """Return ``day`` when ``imsak <= fajr`` and later markers increase.
 
     The first violated adjacent pair raises ``SyncError`` carrying the
     zone and date context plus both offending markers, so adapters can
