@@ -200,6 +200,9 @@ def test_seed_exit_3_tolerated_but_other_codes_die(tmp_path: Path) -> None:
     )
     assert tolerated.returncode == 0, tolerated.stderr
     assert "scheduler will retry" in tolerated.stdout
+    # The state dir is created before seeding: useradd's --create-home is
+    # skipped when muhideen already exists, so the dir can't ride on it.
+    assert f"mkdir -p {tmp_path / 'state-seed3'}" in tolerated.stdout
     assert "systemctl enable --now" in _shim_log(tmp_path, "seed3")
 
     # Any other seed failure still aborts loudly.

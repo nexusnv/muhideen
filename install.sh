@@ -125,6 +125,10 @@ else
   note "hostname: --hostname '' given, leaving the system hostname unchanged"
 fi
 
+# Don't rely on useradd's --create-home: when muhideen already exists that
+# command is skipped, and seed would then sqlite3.connect into a missing dir.
+maybe_run mkdir -p "$STATE_DIR"
+
 seed_args=(--db "${STATE_DIR}/muhideen.db")
 if [[ -n "$ZONE" ]]; then
   seed_args=(--zone "$ZONE" "${seed_args[@]}")

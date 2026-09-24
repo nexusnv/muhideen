@@ -165,10 +165,14 @@ async def _event_stream(
     holds one token of ``CapacityLimiter(40)`` — starving every sync ``def``
     endpoint at 40 concurrent streams — and the shielded block defers
     ``finally: unsubscribe`` until loop shutdown after a client disconnect.
+
+    ``next_event`` itself runs via ``asyncio.to_thread``: it may fire the
+    time-sync probe's subprocess (10s timeout each), which must never
+    execute on the event loop or every stream and async route stalls with it.
     """
     subscriber = bus.subscribe()
     try:
-        initial = engine.next_event(clock.now())
+        initial = await asyncio.to_thread(engine.next_event, clock.now())
         yield _frame(
             "state",
             StateEventDTO.from_domain(initial).model_dump_json(exclude_none=True),
@@ -187,7 +191,7 @@ async def _event_stream(
                 continue
             idle_since = loop.time()
             if name in ("state", "tick"):
-                current = engine.next_event(clock.now())
+                current = await asyncio.to_thread(engine.next_event, clock.now())
                 if name == "state":
                     payload = StateEventDTO.from_domain(current).model_dump_json(
                         exclude_none=True

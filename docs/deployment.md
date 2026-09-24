@@ -59,8 +59,9 @@ What each step does, in order:
    skipped for `--hostname ''`).
 7. **Seed** — runs `.venv/bin/muhideen-seed` against
    `--db /var/lib/muhideen/muhideen.db` with the configured zone and
-   name (configure-or-sync: an already-configured database keeps its
-   settings and just refreshes the year). If JAKIM is unreachable, seed
+   name (configure-or-sync: an already-configured database always
+   re-fetches the configured zone's year and never reconfigures
+   settings). If JAKIM is unreachable, seed
    warns and exits 3; the install continues, the services still enable,
    and the scheduler retries the fetch.
 8. **Ownership + NTP** — `chown`s the state directory to `muhideen` and
@@ -138,8 +139,10 @@ FR-1.6: NTP is required (`systemd-timesyncd` or `chrony`);
   reading "still synced" cannot clear the latch early.
 * **Checking by hand:**
   `timedatectl show -p NTPSynchronized` (or `chronyc tracking`), and
-  `curl -s http://127.0.0.1:8000/api/next-event | grep time_synced`.
-  The probe reads `timedatectl` first, falls back to `chronyc
+  `curl -sG http://127.0.0.1:8000/api/next-event \
+  --data-urlencode "now=$(date -Iseconds)" | grep -o '"time_synced":[a-z]*'`
+  (`now` is a required tz-aware parameter). The probe reads `timedatectl`
+  first, falls back to `chronyc
   tracking`, and caches answers for 30 s.
 * **Countdowns stay honest anyway:** state countdowns run on the
   monotonic clock, so a wrong wall clock shifts *which* prayer event
