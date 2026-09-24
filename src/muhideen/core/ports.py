@@ -76,7 +76,16 @@ class JAKIMClient(Protocol):
 class CalcEngine(Protocol):
     """On-device prayer-time calculator for configured coordinates."""
 
-    def compute_day(self, day: date, lat: float, lon: float, method: str) -> PrayerDay:
+    def compute_day(
+        self,
+        day: date,
+        lat: float,
+        lon: float,
+        method: str,
+        *,
+        imsak_offset_min: int = 10,
+        dhuha_offset_min: int = 28,
+    ) -> PrayerDay:
         """Compute one day's markers; raise ``ValueError`` for unknown methods."""
         ...
 
