@@ -100,3 +100,13 @@ versioning follows [Semantic Versioning](https://semver.org/).
   default empty, old publishers unaffected); `create_app` now takes required
   `AppDeps` (no module-level app).
 - Added `argon2-cffi>=23.1` (Argon2id password hashing for the admin user).
+
+### Fixed
+
+- `GET /api/prayer-day` with a `zone` other than the configured zone now
+  returns 404 (previously a configured calc result was served stamped with
+  the requested zone).
+- `PUT /api/settings` now rejects (422) rule sets that duplicate a prayer,
+  omit a prayer's rule, or declare a `fixed` rule without `fixed_time`;
+  previously these saved (or 500'd on duplicates) and later 503'd
+  `/api/next-event` and `/api/events`.

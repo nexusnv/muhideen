@@ -161,9 +161,35 @@ class Settings:
             raise ValueError(f"latitude out of range: {self.lat}")
         if self.lon is not None and not -180 <= self.lon <= 180:
             raise ValueError(f"longitude out of range: {self.lon}")
+        seen: set[MarkerName] = set()
         for rule in self.iqamah_rules:
             if marker_kind(rule.prayer) is MarkerKind.BOUNDARY:
                 raise ValueError(
                     f"boundary time marker cannot have an iqamah rule: "
                     f"{rule.prayer.value}"
+                )
+            if rule.mode == "fixed" and rule.fixed_time is None:
+                raise ValueError(
+                    f"fixed iqamah rule without time for prayer: {rule.prayer.value}"
+                )
+            if rule.prayer in seen:
+                raise ValueError(
+                    f"duplicate iqamah rule for prayer: {rule.prayer.value}"
+                )
+            seen.add(rule.prayer)
+        if self.iqamah_rules:
+            # A non-empty set must cover every Prayer Time Marker exactly once
+            # (FR-1.4): partial sets 503 every read endpoint at resolve time.
+            # Empty stays legal — the repo falls back to defaults and resolve
+            # raises ConfigError for deferred configuration.
+            prayer_markers = {
+                name
+                for name, kind in _MARKER_KINDS.items()
+                if kind is MarkerKind.PRAYER
+            }
+            missing = sorted(prayer_markers - seen, key=lambda name: name.value)
+            if missing:
+                raise ValueError(
+                    "missing iqamah rule for prayer: "
+                    + ", ".join(name.value for name in missing)
                 )

@@ -312,5 +312,54 @@ def test_settings_rejects_boundary_marker_iqamah_rule(marker: MarkerName) -> Non
 
 
 @pytest.mark.unit
+def test_settings_rejects_fixed_rule_without_time() -> None:
+    with pytest.raises(ValueError, match="fixed iqamah rule without time"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            iqamah_rules=(IqamahRule(prayer=MarkerName.FAJR, mode="fixed"),),
+        )
+
+
+@pytest.mark.unit
+def test_settings_rejects_duplicate_prayer_rules() -> None:
+    full = [
+        IqamahRule(prayer=MarkerName.FAJR, mode="delay"),
+        IqamahRule(prayer=MarkerName.DHUHR, mode="delay"),
+        IqamahRule(prayer=MarkerName.ASR, mode="delay"),
+        IqamahRule(prayer=MarkerName.MAGHRIB, mode="delay"),
+        IqamahRule(prayer=MarkerName.ISHA, mode="delay"),
+        IqamahRule(prayer=MarkerName.JUMUAH, mode="delay"),
+    ]
+    with pytest.raises(ValueError, match="duplicate iqamah rule for prayer: fajr"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            iqamah_rules=(*full, IqamahRule(prayer=MarkerName.FAJR, mode="delay")),
+        )
+
+
+@pytest.mark.unit
+def test_settings_rejects_partial_prayer_rules() -> None:
+    with pytest.raises(ValueError, match="missing iqamah rule for prayer"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            iqamah_rules=(IqamahRule(prayer=MarkerName.FAJR, mode="delay"),),
+        )
+
+
+@pytest.mark.unit
+def test_settings_allows_empty_rules_for_unconfigured_iqamah() -> None:
+    # Empty stays legal: resolve-time ConfigError owns it (domain/iqamah.py),
+    # and the settings repo falls back to defaults for an empty rules table.
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0, iqamah_rules=())
+    assert settings.iqamah_rules == ()
+
+
+@pytest.mark.unit
 def test_schedule_source_members() -> None:
     assert {s.value for s in ScheduleSource} == {"jakim", "calc", "manual"}

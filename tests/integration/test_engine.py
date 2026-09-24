@@ -205,6 +205,14 @@ def test_cache_miss_uses_calc_and_normalises_zone(returned_zone: str) -> None:
     assert harness.repo.last_known_calls == []
 
 
+def test_resolve_day_unknown_zone_raises_schedule_error() -> None:
+    calc = FakeCalc()
+    harness = _harness(settings=_settings(lat=3.1, lon=101.6), calc=calc)
+    with pytest.raises(ScheduleError, match="unknown zone"):
+        harness.engine.resolve_day(DAY, "ZZZ99", NOW)
+    assert calc.calls == []
+
+
 def test_cache_hit_fresh_skips_calc_and_last_known() -> None:
     seed = _day(DAY, fetched_at=NOW - timedelta(hours=1))
     calc = FakeCalc()

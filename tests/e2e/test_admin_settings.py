@@ -89,6 +89,45 @@ def test_boundary_marker_rule_is_422(
     assert client.put("/api/settings", json=payload).status_code == 422
 
 
+def test_duplicate_prayer_iqamah_rules_are_422(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    payload = _settings_payload()
+    assert client.put("/api/settings", json=payload).status_code == 200
+    duplicate = _settings_payload()
+    duplicate["iqamah_rules"][1] = dict(duplicate["iqamah_rules"][0])
+    assert client.put("/api/settings", json=duplicate).status_code == 422
+    # The rejected write must not corrupt the stored rules (was a 500).
+    stored = client.get("/api/settings").json()["iqamah_rules"]
+    assert stored == payload["iqamah_rules"]
+
+
+def test_fixed_rule_without_fixed_time_is_422(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    payload = _settings_payload()
+    payload["iqamah_rules"][0] = {
+        "prayer": "fajr",
+        "mode": "fixed",
+        "delay_minutes": 15,
+        "fixed_time": None,
+    }
+    # Was 200 here, then 503 on /api/next-event and /api/events.
+    assert client.put("/api/settings", json=payload).status_code == 422
+
+
+def test_partial_iqamah_rules_are_422(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    payload = _settings_payload()
+    payload["iqamah_rules"] = payload["iqamah_rules"][:1]
+    # Was 200 here, then 503 ("missing iqamah rule") on read endpoints.
+    assert client.put("/api/settings", json=payload).status_code == 422
+
+
 def test_unpaired_lat_lon_is_422(surface: SimpleNamespace, client: TestClient) -> None:
     _login(client)
     payload = _settings_payload(lat=3.07, lon=None)

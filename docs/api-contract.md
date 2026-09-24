@@ -165,7 +165,7 @@ Session status plus whether first-boot setup is still required. No auth required
 
 ## Errors
 
-Unknown schedules are 404 with a detail message. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
+Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, or set a `fixed` rule without `fixed_time`, leaving the stored settings unchanged. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
 
 ## Versioning
 Additive fields allowed without bump. Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.

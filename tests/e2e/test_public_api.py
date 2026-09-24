@@ -48,6 +48,18 @@ def test_prayer_day_without_resolvable_schedule_is_404(
     assert response.status_code == 404
 
 
+def test_prayer_day_unknown_zone_is_404(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    """An unconfigured zone must 404 even when calc coordinates exist."""
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    response = client.get(
+        "/api/prayer-day", params={"date": "2025-10-20", "zone": "ZZZ99"}
+    )
+    assert response.status_code == 404
+    assert "ZZZ99" in response.json()["detail"]
+
+
 def test_prayer_day_before_setup_is_503(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
