@@ -36,7 +36,7 @@ health_check() { # health_check <url> <retries> <interval-seconds>
     return 0
   fi
   while (( attempt <= retries )); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    if curl -fsS --connect-timeout 0.5 --max-time 0.5 "$url" >/dev/null 2>&1; then
       note "health: ${url} ok on attempt ${attempt}"
       return 0
     fi

@@ -114,7 +114,7 @@ sudo ./update.sh         # apply the newest local tag
   systemctl status muhideen; journalctl -u muhideen -n 100
   # revert the code:
   git checkout <previous tag>
-  uv sync --locked --offline --find-links vendor/wheels
+  uv sync --locked --offline --no-dev --find-links vendor/wheels
   sudo systemctl restart muhideen
   # only if the database itself is suspect (stop the service first):
   sudo systemctl stop muhideen
