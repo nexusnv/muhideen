@@ -99,6 +99,28 @@ def _parse(frame: str) -> tuple[str, dict[str, object]]:
     return event, data
 
 
+def test_stream_response_leaves_sync_body_alone() -> None:
+    # The teardown close only knows async generators: a non-async body
+    # iterator must pass through untouched while its error still propagates.
+    response = app_module.EventStreamResponse(content=iter([]))
+    response.body_iterator = ["sync-body"]
+    sent: list[object] = []
+
+    async def fake_send(message: object) -> None:
+        sent.append(message)
+
+    async def run() -> None:
+        await response.stream_response(fake_send)  # type: ignore[arg-type]
+
+    loop = asyncio.new_event_loop()
+    try:
+        with pytest.raises(TypeError):
+            loop.run_until_complete(run())
+    finally:
+        loop.close()
+    assert sent, "response start still goes out before the body fails"
+
+
 def test_initial_state_frame(surface: SimpleNamespace, client: TestClient) -> None:
     _seed_settings(surface, lat=3.07, lon=101.69)
     gen = _stream(surface)

@@ -161,10 +161,10 @@ Backend-only RAM shown. Full kiosk system always adds 300–600MB for X11 + Chro
 
 Domain core is framework-free so a later Go rewrite (Option C) needs no display/theme changes:
 
-* `domain/`: `prayer_state` (§8 machine), `fallback_chain` (FR-1.2), `iqamah_calc`, `hijri` — no Flask/FastAPI/SQLite imports.
-* Ports: `JAKIMClient`, `PrayerRepo`, `SettingsRepo`, `DisplayRepo`, `EventBus`, `CalcEngine`, `MediaStore`, `Clock`.
-* Adapters: `adapters/jakim_esolat.py`, `adapters/sqlite_repo.py`, `adapters/sse.py`, `adapters/cec.py`.
-* Stable API contract: `GET /api/next-event`, `GET /api/events` (SSE), `POST /api/displays/heartbeat`, `GET /display?id=`. Use-case tests run with in-memory repos, no DB/network.
+* `domain/`: `prayer_state` (§8 machine), `fallback` (FR-1.2), `iqamah`, `hijri`, `ordering` — no Flask/FastAPI/SQLite imports.
+* Ports: `JAKIMClient`, `PrayerRepo`, `SettingsRepo`, `DisplayRepo`, `UserRepo`, `EventBus`, `CalcEngine`, `MediaStore`, `Clock`, `TimeSyncProbe`.
+* Adapters: `adapters/jakim_esolat.py`, `adapters/calc_mabims.py`, `adapters/sqlite_repo.py`, `adapters/sse_bus.py`, `adapters/system_clock.py`, `adapters/time_sync.py`, `adapters/scheduler.py`, `adapters/migrate.py` (`cec` pending).
+* Stable API contract v1: `GET /api/prayer-day`, `GET /api/next-event`, `GET /api/events` (SSE), `POST /api/displays/heartbeat`, `GET /api/version`, `GET|PUT /api/settings`, `POST /api/auth/*` + `GET /api/auth/session` (`/display` and `/admin` pages land with the frontend slices). Use-case tests run with in-memory repos, no DB/network.
 
 ### 4.4 Development Constraints (API-first, backend-first, single repo)
 
@@ -173,10 +173,10 @@ Normative constraint to allow frontend-only and backend-only contributors to wor
 1. **Single repo, single deployable.** No split repos or separately deployed frontend/backend services. Logical split only (§4.3, ARCHITECTURE.md).
 2. **Ownership boundaries:**
    * Backend-owned: `src/muhideen/core/`, `domain/`, `engine/`, `adapters/`, `api/`, `migrations/`.
-   * Frontend-owned: `src/muhideen/views/display/`, `views/admin/`, `static/app.css`, `static/app.js`, `themes/`, `api/fixtures/`.
+   * Frontend-owned: `src/muhideen/views/display/`, `views/admin/`, `static/app.css`, `static/app.js`, `themes/`, `api/fixtures/` (view/static paths land with the 1B frontend slices).
    * Cross-boundary change = API contract change (§6.3, `docs/api-contract.md`). Frontend must never import `domain/`; backend must never embed presentation logic beyond Jinja context DTOs. Enforced by import-linter + purity scans (ARCHITECTURE.md).
 3. **Backend-first, frontend-independent:** backend lands `api/` + OpenAPI + fixtures first. Frontend builds against fixtures/mock without a live DB or JAKIM access.
-4. **Fixtures are normative:** `api/fixtures/next-event.json`, `api/fixtures/prayer-day.json`, `api/fixtures/events-stream.txt` (SSE sample) must be committed with every contract change. `uv run tools/mock_api.py` serves fixtures on `:8001` for frontend-only dev (stdlib only, no backend deps).
+4. **Fixtures are normative:** `api/fixtures/` (`prayer-day.json`, `next-event.json`, `events-stream.txt` SSE sample, `heartbeat-request.json`, `heartbeat-response.json`, `version.json`, `settings.json`, `auth-request.json`, `auth-response.json`, `session.json`) must be committed with every contract change. `uv run tools/mock_api.py` serves fixtures on `:8001` for frontend-only dev (stdlib only, no backend deps).
 5. **No frontend toolchain:** frontend-only path requires browser + `uv run tools/mock_api.py` only. No Node/npm. CSS/JS hand-written; `themes/` validated by `uv run tools/lint_theme.py --theme <slug>`.
 
 ```
@@ -344,7 +344,7 @@ NORMAL --(T-5m to Adhan)--> PRE_ADHAN [hide carousel+QR]
 PRE_ADHAN --(Adhan time)--> ADHAN [fullscreen overlay, duration adhan_duration_s, default 180s]
 ADHAN --(timeout)--> IQAMAH_COUNTDOWN [hero countdown to iqamah_rules target]
 IQAMAH_COUNTDOWN --(Iqamah time)--> SALAH_DIM [dim/blackout, dim_minutes_default/jumuah]
-SALAHT_DIM --(timeout or admin skip)--> NORMAL
+SALAH_DIM --(timeout or admin skip)--> NORMAL
 ```
 
 Edge rules: Boundary Time Markers (Imsak, Syuruq, Dhuha) never trigger PRE_ADHAN/ADHAN/IQAMAH/SALAH_DIM — no Adhan, no Iqamah, no auto-dim; they render at secondary level and may show a countdown only when `boundary_countdown` is enabled, which never changes state. Jumuah replaces Dhuhr Friday (Khutbah time = Dhuhr Adhan). Midnight crossover: after Isha `SALAH_DIM`, next prayer is next-day Fajr. All transitions server-computed (`/api/next-event`) and SSE-pushed; client never hardcodes times.

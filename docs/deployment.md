@@ -13,12 +13,18 @@ in `PRD.md`; the API surface in `docs/api-contract.md`.
   `uv` (<https://docs.astral.sh/uv/>), plus network for the first
   install's `apt` step.
 * **Vendored wheels:** the device never touches a package index
-  (PRD §4.2.5). On a networked machine, from a checkout of the release
+  (PRD §4.2, item 5: offline installer). On a networked machine, from a checkout of the release
   tag, run `tools/build_vendor.sh` and ship the resulting `vendor/`
   directory (requirements + wheels) with the repo. It downloads the
   locked dependency set for the build host and cross wheels for
   `manylinux_2_28_aarch64` (Pi 4/5) and `manylinux_2_28_x86_64`;
   other architectures need a matching run of its `--platform` loop.
+  32-bit `armv7l` offline installs are unsupported: four locked
+  compiled dependencies (`argon2-cffi-bindings`, `cffi`, `markupsafe`,
+  `pillow`) publish no `armv7l` wheels, and the vendor loop resolves
+  `--only-binary`, so there is nothing to download. On a Pi 3B+ run
+  64-bit Raspberry Pi OS (covered by the `aarch64` wheels) or use the
+  thin-client/headless tiers.
 
 ## Install
 

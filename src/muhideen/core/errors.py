@@ -21,6 +21,7 @@ class ScheduleError(MuhideenError):
     """A schedule could not be resolved; carries context for banners."""
 
     def __init__(self, message: str, zone: str = "", date: str = "") -> None:
+        """Carry the failing zone/date alongside the schedule message."""
         self.zone = zone
         self.date = date
         super().__init__(message)
@@ -30,6 +31,7 @@ class SyncError(MuhideenError):
     """A schedule source fetch failed; carries context for retries."""
 
     def __init__(self, message: str, zone: str = "", date: str = "") -> None:
+        """Carry the failing zone/date alongside the sync message."""
         self.zone = zone
         self.date = date
         super().__init__(message)

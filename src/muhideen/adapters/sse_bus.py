@@ -16,26 +16,31 @@ class SSEBus:
     """
 
     def __init__(self) -> None:
+        """Start with no subscribers and one lock for the list."""
         self._lock = threading.Lock()
         self._subscribers: list[queue.Queue[tuple[str, tuple[str, ...]]]] = []
 
     @property
     def subscriber_count(self) -> int:
+        """Return the current number of subscribed queues."""
         with self._lock:
             return len(self._subscribers)
 
     def subscribe(self) -> queue.Queue[tuple[str, tuple[str, ...]]]:
+        """Register a new queue and return it to the caller."""
         subscriber: queue.Queue[tuple[str, tuple[str, ...]]] = queue.Queue()
         with self._lock:
             self._subscribers.append(subscriber)
         return subscriber
 
     def unsubscribe(self, subscriber: queue.Queue[tuple[str, tuple[str, ...]]]) -> None:
+        """Remove a queue; unknown queues are a no-op."""
         with self._lock:
             if subscriber in self._subscribers:
                 self._subscribers.remove(subscriber)
 
     def publish(self, event: str, changed: Sequence[str] = ()) -> None:
+        """Fan out one event tuple to every subscribed queue."""
         payload = (event, tuple(changed))
         with self._lock:
             targets = list(self._subscribers)

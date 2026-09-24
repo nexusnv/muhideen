@@ -155,6 +155,26 @@ def test_configured_db_syncs_configured_zone_and_never_overwrites(
     assert settings.hijri_offset == 2
 
 
+def test_corrupt_settings_exits_2_without_sync(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A settings row the value objects reject (hijri_offset 99) surfaces as
+    # ConfigError at the load boundary: reported, never silently defaulted.
+    db = tmp_path / "muhideen.db"
+    database = Database(db)
+    migrate(database)
+    with database.write() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES"
+            " ('masjid_name', 'X'), ('zone_code', 'SGR01')"
+        )
+        conn.execute("UPDATE settings SET value = '99' WHERE key = 'hijri_offset'")
+
+    assert seed.main(["--db", str(db)]) == 2
+    assert "invalid settings" in capsys.readouterr().err
+
+
 def test_sync_failure_returns_3_and_keeps_configuration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

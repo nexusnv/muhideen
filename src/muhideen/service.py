@@ -16,6 +16,7 @@ from muhideen.api.app import create_production_app
 
 
 def _parser() -> argparse.ArgumentParser:
+    """Build the serve CLI: database path plus bind host and port."""
     parser = argparse.ArgumentParser(
         prog="muhideen", description="Serve the Muhideen backend HTTP API."
     )

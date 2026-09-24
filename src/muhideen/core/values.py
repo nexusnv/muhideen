@@ -66,6 +66,8 @@ def marker_kind(name: MarkerName) -> MarkerKind:
 
 
 class PrayerState(StrEnum):
+    """Display overlay state driven by Prayer Time Markers only."""
+
     NORMAL = "normal"
     PRE_ADHAN = "pre_adhan"
     ADHAN = "adhan"
@@ -74,6 +76,8 @@ class PrayerState(StrEnum):
 
 
 class ScheduleSource(StrEnum):
+    """Source of a prayer day: JAKIM, CALC, or MANUAL."""
+
     JAKIM = "jakim"
     CALC = "calc"
     MANUAL = "manual"
@@ -120,6 +124,8 @@ class NextEvent:
 
 @dataclass(frozen=True, slots=True)
 class IqamahRule:
+    """One prayer-only iqamah rule: delay minutes or a fixed clock time."""
+
     prayer: MarkerName
     mode: Literal["delay", "fixed"]
     delay_minutes: int = 10
@@ -140,6 +146,8 @@ Jumuah its own rule. Boundary Time Markers have no iqamah, so no rule."""
 
 @dataclass(frozen=True, slots=True)
 class Settings:
+    """Installation identity, display tuning, and schedule-source switches."""
+
     masjid_name: str
     zone: str
     hijri_offset: int
@@ -154,6 +162,7 @@ class Settings:
     calc_only: bool = False
 
     def __post_init__(self) -> None:
+        """Enforce offset/coordinate guards and non-empty rule coverage."""
         if not -2 <= self.hijri_offset <= 2:
             raise ValueError(f"hijri_offset out of range: {self.hijri_offset}")
         if (self.lat is None) != (self.lon is None):

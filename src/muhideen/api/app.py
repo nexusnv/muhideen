@@ -80,6 +80,7 @@ _PROD_TZ = ZoneInfo("Asia/Kuala_Lumpur")
 
 
 def _require_tz_aware(value: datetime) -> datetime:
+    """Reject naive datetimes; require a UTC offset on ``now``."""
     if value.tzinfo is None:
         raise ValueError("now must include a UTC offset (tz-aware ISO8601)")
     return value
@@ -124,6 +125,7 @@ class EventStreamResponse(StreamingResponse):
 
 
 def _frame(event: str, payload_json: str) -> str:
+    """Render one SSE frame as ``event:`` + ``data:`` + blank line."""
     return f"event: {event}\ndata: {payload_json}\n\n"
 
 
@@ -140,10 +142,13 @@ class _Background:
 class _Startable(Protocol):
     """Typed view of BlockingScheduler.start (untyped upstream)."""
 
-    def start(self) -> None: ...
+    def start(self) -> None:
+        """Block serving scheduled jobs until shutdown."""
+        ...
 
 
 def _run_ticker(engine: Engine, clock: Clock, stop: threading.Event) -> None:
+    """Tick every second until ``stop``; skip pre-setup errors, log the rest."""
     while not stop.is_set():
         try:
             engine.tick()
@@ -234,6 +239,7 @@ def create_app(deps: AppDeps) -> FastAPI:
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+        """Migrate at boot, optionally run ticker+scheduler, flush on exit."""
         if deps.database is not None:
             migrate(deps.database)
         background: _Background | None = None
@@ -288,6 +294,7 @@ def create_app(deps: AppDeps) -> FastAPI:
 
     @app.middleware("http")
     async def _docs_gate(request: Request, call_next: Any) -> Any:
+        """Allow docs only from LAN hosts presenting a valid admin session."""
         if request.url.path in (
             "/docs",
             "/redoc",
@@ -306,10 +313,12 @@ def create_app(deps: AppDeps) -> FastAPI:
 
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:
+        """Map missing/invalid configuration to HTTP 503."""
         return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     @app.exception_handler(ScheduleError)
     async def _schedule_error(request: Request, exc: ScheduleError) -> JSONResponse:
+        """Map an unresolvable date+zone schedule to HTTP 404."""
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
     @app.get("/api/prayer-day", response_model=PrayerDayDTO)
@@ -317,6 +326,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         date: date,
         zone: Annotated[str, Query(min_length=1, max_length=32)],
     ) -> PrayerDayDTO:
+        """Resolve one day's schedule with its staleness flag."""
         result = engine.resolve_day(date, zone, deps.clock.now())
         return PrayerDayDTO.from_domain(result.day, result.stale)
 
@@ -324,6 +334,7 @@ def create_app(deps: AppDeps) -> FastAPI:
     def next_event(
         now: Annotated[datetime, AfterValidator(_require_tz_aware)],
     ) -> NextEventDTO:
+        """Compute the display state for the pinned tz-aware ``now``."""
         return NextEventDTO.from_domain(engine.next_event(now))
 
     @app.get(
@@ -365,18 +376,21 @@ def create_app(deps: AppDeps) -> FastAPI:
     def heartbeat(
         payload: HeartbeatRequestDTO, request: Request
     ) -> HeartbeatResponseDTO:
+        """Buffer one display heartbeat with its source IP."""
         ip = request.client.host if request.client else None
         deps.display_repo.record_seen(payload.id, ip)
         return HeartbeatResponseDTO(ok=True)
 
     @app.get("/api/version", response_model=VersionDTO)
     def version() -> VersionDTO:
+        """Report the installed package version and contract generation."""
         return VersionDTO(version=package_version("muhideen"), api="v1")
 
     @app.post("/api/auth/setup", response_model=AuthResponseDTO)
     def auth_setup(
         payload: AuthRequestDTO, request: Request, response: Response
     ) -> AuthResponseDTO:
+        """Create the initial admin and issue its first session cookie."""
         ip = request.client.host if request.client else "unknown"
         if not setup_limiter.allow(ip):
             raise HTTPException(status_code=429, detail="rate limit exceeded")
@@ -399,6 +413,7 @@ def create_app(deps: AppDeps) -> FastAPI:
     def auth_login(
         payload: AuthRequestDTO, request: Request, response: Response
     ) -> AuthResponseDTO:
+        """Verify the admin password and issue a session cookie."""
         ip = request.client.host if request.client else "unknown"
         if not login_limiter.allow(ip):
             raise HTTPException(status_code=429, detail="rate limit exceeded")
@@ -417,6 +432,7 @@ def create_app(deps: AppDeps) -> FastAPI:
 
     @app.post("/api/auth/logout", response_model=AuthResponseDTO)
     def auth_logout(request: Request, response: Response) -> AuthResponseDTO:
+        """Revoke the presented session and clear its cookie."""
         token = request.cookies.get(SESSION_COOKIE)
         if token is not None:
             sessions.revoke(token)
@@ -425,6 +441,7 @@ def create_app(deps: AppDeps) -> FastAPI:
 
     @app.get("/api/auth/session", response_model=SessionStatusDTO)
     def auth_session(request: Request) -> SessionStatusDTO:
+        """Report session validity plus whether first-boot setup is pending."""
         token = request.cookies.get(SESSION_COOKIE)
         authenticated = token is not None and sessions.validate(token)
         return SessionStatusDTO(
@@ -434,10 +451,12 @@ def create_app(deps: AppDeps) -> FastAPI:
 
     @app.get("/api/settings", response_model=SettingsDTO, dependencies=[Depends(admin)])
     def get_settings() -> SettingsDTO:
+        """Return the full installed settings (admin session required)."""
         return SettingsDTO.from_domain(deps.settings_repo.load())
 
     @app.put("/api/settings", response_model=SettingsDTO, dependencies=[Depends(admin)])
     def put_settings(payload: SettingsDTO) -> SettingsDTO:
+        """Replace settings atomically and fan out a config-update event."""
         try:
             settings = payload.to_domain()
         except ValueError as exc:

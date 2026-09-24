@@ -78,6 +78,7 @@ class ContractDTO(BaseModel):
     @field_validator("*", mode="after")
     @classmethod
     def _reject_naive_datetimes(cls, value: object) -> object:
+        """Reject naive datetimes on every DTO field (contract rule)."""
         if isinstance(value, datetime) and value.tzinfo is None:
             raise ValueError("datetime fields must be tz-aware (ISO8601 offset)")
         return value
@@ -102,6 +103,8 @@ class BoundaryTimesDTO(ContractDTO):
 
 
 class PrayerDayDTO(ContractDTO):
+    """GET /api/prayer-day payload: one day split into prayers+boundaries."""
+
     date: date
     zone: str
     prayers: PrayerTimesDTO
@@ -111,6 +114,7 @@ class PrayerDayDTO(ContractDTO):
 
     @classmethod
     def from_domain(cls, day: PrayerDay, stale: bool) -> PrayerDayDTO:
+        """Map a PrayerDay to HH:MM wire groups plus the staleness flag."""
         return cls(
             date=day.date,
             zone=day.zone,
@@ -132,6 +136,8 @@ class PrayerDayDTO(ContractDTO):
 
 
 class NextEventDTO(ContractDTO):
+    """GET /api/next-event payload: state plus prayer/boundary pointers."""
+
     state: StateLiteral
     now: datetime
     next_prayer: PrayerLiteral | None
@@ -145,6 +151,7 @@ class NextEventDTO(ContractDTO):
 
     @classmethod
     def from_domain(cls, event: NextEvent) -> NextEventDTO:
+        """Map a NextEvent, narrowing markers to their wire literals."""
         return cls(
             state=event.state.name,
             now=event.now,
@@ -187,6 +194,7 @@ class StateEventDTO(ContractDTO):
 
     @classmethod
     def from_domain(cls, event: NextEvent) -> StateEventDTO:
+        """Map a NextEvent to the state frame (None fields omitted on dump)."""
         return cls(
             state=event.state.name,
             time_synced=event.time_synced,
@@ -215,6 +223,7 @@ class TickEventDTO(ContractDTO):
 
     @classmethod
     def from_domain(cls, event: NextEvent) -> TickEventDTO:
+        """Map a NextEvent to the per-minute tick frame (now + state)."""
         return cls(now=event.now, state=event.state.name)
 
 
@@ -260,6 +269,7 @@ class IqamahRuleDTO(ContractDTO):
 
     @classmethod
     def from_domain(cls, rule: IqamahRule) -> IqamahRuleDTO:
+        """Map one domain rule to its wire shape (time as HH:MM)."""
         return cls(
             prayer=cast(PrayerLiteral, rule.prayer.value),
             mode=rule.mode,
@@ -272,6 +282,7 @@ class IqamahRuleDTO(ContractDTO):
         )
 
     def to_domain(self) -> IqamahRule:
+        """Map the wire rule back to the domain value object."""
         return IqamahRule(
             prayer=MarkerName(self.prayer),
             mode=self.mode,
@@ -302,6 +313,7 @@ class SettingsDTO(ContractDTO):
 
     @classmethod
     def from_domain(cls, settings: Settings) -> SettingsDTO:
+        """Map installed settings to the full-replace wire shape."""
         return cls(
             masjid_name=settings.masjid_name,
             zone=settings.zone,
@@ -320,6 +332,7 @@ class SettingsDTO(ContractDTO):
         )
 
     def to_domain(self) -> Settings:
+        """Map the wire settings back to the validated domain object."""
         return Settings(
             masjid_name=self.masjid_name,
             zone=self.zone,

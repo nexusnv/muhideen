@@ -46,6 +46,7 @@ class Database:
     """One connection + one lock: every access is serialised."""
 
     def __init__(self, path: str | Path) -> None:
+        """Open the connection and create the serialising lock."""
         self._conn = connect(path)
         self._lock = threading.Lock()
 
@@ -94,9 +95,11 @@ class SqlitePrayerRepo:
     """
 
     def __init__(self, db: Database) -> None:
+        """Hold the shared single-writer database handle."""
         self._db = db
 
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
+        """Return the stored day for date+zone, else None."""
         with self._db.read() as conn:
             row = conn.execute(
                 "SELECT * FROM prayer_times WHERE date_gregorian = ? AND zone_code = ?",
@@ -105,6 +108,7 @@ class SqlitePrayerRepo:
         return _row_to_day(row) if row is not None else None
 
     def save_day(self, prayer_day: PrayerDay) -> None:
+        """Upsert one day keyed by (date_gregorian, zone_code)."""
         values = (
             prayer_day.date.isoformat(),
             prayer_day.zone,
@@ -135,6 +139,7 @@ class SqlitePrayerRepo:
             )
 
     def last_known(self, day: date, zone: str) -> PrayerDay | None:
+        """Return the newest saved day on or before ``day``, else None."""
         # ISO date text sorts lexicographically == chronologically.
         with self._db.read() as conn:
             row = conn.execute(
@@ -156,10 +161,12 @@ def _parse_bool(raw: str) -> bool:
 
 
 def _parse_optional_float(raw: str | None) -> float | None:
+    """Parse an optional coordinate string; None stays None."""
     return float(raw) if raw is not None else None
 
 
 def _rules_from_rows(rows: list[sqlite3.Row]) -> tuple[IqamahRule, ...]:
+    """Map iqamah_rows to domain rules in stored order."""
     rules: list[IqamahRule] = []
     for row in rows:
         fixed = row["fixed_time"]
@@ -184,9 +191,11 @@ class SqliteSettingsRepo:
     """
 
     def __init__(self, db: Database) -> None:
+        """Hold the shared database for the settings tables."""
         self._db = db
 
     def load(self) -> Settings:
+        """Load settings; raise ConfigError on missing or corrupt rows."""
         with self._db.read() as conn:
             kv = {
                 row["key"]: row["value"]
@@ -222,6 +231,7 @@ class SqliteSettingsRepo:
             raise ConfigError(str(exc)) from exc
 
     def save(self, settings: Settings) -> None:
+        """Write settings keys plus the full iqamah rule set atomically."""
         pairs: list[tuple[str, str]] = [
             ("masjid_name", settings.masjid_name),
             ("zone_code", settings.zone),
@@ -279,6 +289,7 @@ class SqliteDisplayRepo:
         clock: Clock,
         batch_interval_s: float = 60,
     ) -> None:
+        """Hold the database, clock, batch window, and heartbeat buffer."""
         self._db = db
         self._clock = clock
         self._batch_interval_s = batch_interval_s
@@ -286,16 +297,19 @@ class SqliteDisplayRepo:
         self._last_flush: float = clock.monotonic()
 
     def record_seen(self, display_id: str, ip: str | None) -> None:
+        """Buffer one heartbeat; flush when the batch window has elapsed."""
         with self._db.write() as conn:
             self._buffer.append((display_id, ip, self._clock.now()))
             if self._clock.monotonic() - self._last_flush >= self._batch_interval_s:
                 self._flush_locked(conn)
 
     def flush(self) -> int:
+        """Write every buffered heartbeat; return rows updated."""
         with self._db.write() as conn:
             return self._flush_locked(conn)
 
     def _flush_locked(self, conn: sqlite3.Connection) -> int:
+        """Apply the buffer in one transaction; caller holds the lock."""
         # Buffer and window advance only after the writes succeed: a failed
         # flush (I/O error on the Pi) rolls back the DB, keeps the rows, and
         # retries on the next heartbeat instead of dropping a batch and
@@ -328,15 +342,18 @@ class SqliteUserRepo:
     """``UserRepo`` over the ``users`` table with Argon2id hashes."""
 
     def __init__(self, db: Database) -> None:
+        """Hold the database and prepare the Argon2id hasher."""
         self._db = db
         self._hasher = PasswordHasher()
 
     def has_users(self) -> bool:
+        """Return True when at least one admin row exists."""
         with self._db.read() as conn:
             row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
         return int(row["n"]) > 0
 
     def create_user(self, username: str, password: str) -> bool:
+        """Store an Argon2id hash; False on duplicate username."""
         digest = self._hasher.hash(password)
         try:
             with self._db.write() as conn:
@@ -349,6 +366,7 @@ class SqliteUserRepo:
         return True
 
     def verify(self, username: str, password: str) -> bool:
+        """Verify a password; False for unknown users or bad hashes."""
         with self._db.read() as conn:
             row = conn.execute(
                 "SELECT password_hash FROM users WHERE username = ?",

@@ -37,6 +37,14 @@ def test_unsubscribe_stops_delivery() -> None:
     assert queue.empty()
 
 
+def test_unsubscribe_unknown_queue_is_noop() -> None:
+    import queue
+
+    bus = SSEBus()
+    bus.unsubscribe(queue.Queue())
+    assert bus.subscriber_count == 0
+
+
 def test_each_subscriber_receives_every_publish() -> None:
     bus = SSEBus()
     first = bus.subscribe()

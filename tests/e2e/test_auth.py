@@ -8,9 +8,28 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from muhideen.api.app import AppDeps, create_app
+
 pytestmark = pytest.mark.e2e
 
 _PASSWORD = "password123"
+
+
+class _RaceUserRepo:
+    """UserRepo double: nobody home, yet creation always loses (file-local).
+
+    Pins the setup-vs-setup race window between `has_users` and
+    `create_user`: whoever commits first wins, the loser gets 409.
+    """
+
+    def has_users(self) -> bool:
+        return False
+
+    def create_user(self, username: str, password: str) -> bool:
+        return False
+
+    def verify(self, username: str, password: str) -> bool:
+        return False
 
 
 def _setup(client: TestClient, password: str = _PASSWORD) -> Any:
@@ -33,6 +52,29 @@ def test_setup_issues_session_cookie_with_flags(
 def test_setup_twice_is_409(surface: SimpleNamespace, client: TestClient) -> None:
     assert _setup(client).status_code == 200
     assert _setup(client).status_code == 409
+
+
+def test_setup_loses_race_with_409(surface: SimpleNamespace) -> None:
+    deps = AppDeps(
+        settings_repo=surface.settings_repo,
+        prayer_repo=surface.prayer_repo,
+        display_repo=surface.display_repo,
+        user_repo=_RaceUserRepo(),  # type: ignore[arg-type]
+        clock=surface.clock,
+        event_bus=surface.bus,
+    )
+    with TestClient(create_app(deps)) as raced:
+        response = raced.post("/api/auth/setup", json={"password": _PASSWORD})
+        assert response.status_code == 409
+
+
+def test_setup_rate_limit_429_on_sixth_attempt(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    assert _setup(client).status_code == 200
+    for _ in range(4):
+        assert _setup(client).status_code == 409
+    assert _setup(client).status_code == 429
 
 
 def test_short_password_is_422(surface: SimpleNamespace, client: TestClient) -> None:
