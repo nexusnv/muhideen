@@ -43,7 +43,7 @@ Python 3.11+ FastAPI-sync + Uvicorn 1 worker + SQLite WAL + Jinja2 + HTMX/Alpine
 * `src/muhideen/` — `core/ domain/ engine/ adapters/ api/ views/ migrations/`.
 * `themes/classic-green/` — MVP theme scaffold. `tools/` — `mock_api.py`, `new_theme.py`, `lint_theme.py`.
 * `preview.jpg` — non-binding display mockup.
-* `install.sh` / `update.sh` — planned.
+* `install.sh` / `update.sh` / `packaging/` — device install and OTA update (`sudo ./install.sh --zone SGR01`); guide: `docs/deployment.md`.
 
 ## Contribute
 

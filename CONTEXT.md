@@ -59,6 +59,9 @@ Ordered schedule resolution: cached schedule, then on-device calculation, then l
 ### Stale
 A schedule older than 48 hours or produced by a degraded fallback step. Shown as a banner, never silent.
 
+### TIME UNSYNCED
+The device clock cannot be trusted: NTP reported unsynchronised at boot, or a wall-clock step greater than 5 seconds against the monotonic clock was detected. Shown as a banner, never silent. A boot-time unsync clears when NTP confirms sync again; a detected step additionally latches the warning for five minutes, and the latch clears only after it ages out **and** the probe confirms sync — a probe reading "still synced" cannot clear it early. Surfaces contract-side as `time_synced: false` on next-event and SSE `state`.
+
 ### Display
 A Chromium kiosk screen showing the public view. Identified by a stable registration ID, not an IP address.
 
