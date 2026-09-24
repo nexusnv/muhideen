@@ -6,11 +6,11 @@ Tests mirror `ARCHITECTURE.md` layers. Organized by scope, run with `uv`. No ski
 
 | Directory | Marker | What it covers |
 |-----------|--------|----------------|
-| `tests/unit/` | `unit` | Pure domain: state machine, fallback chain, iqamah resolution, Hijri offset. Pinned `FakeClock`, in-memory fakes. No DB, no HTTP, no network. |
+| `tests/unit/` | `unit` | Pure domain + core: state machine, fallback chain, iqamah resolution, Hijri offset, value-object guards, ports presence, auth primitives. Pinned `FakeClock`, in-memory fakes. No DB, no HTTP, no network. |
 | `tests/contract/` | `contract` | API schema vs fixtures: Pydantic DTOs serialize to `api/fixtures/*.json`, SSE sample parses, OpenAPI matches handlers. Fails on drift. |
-| `tests/integration/` | `integration` | Engine + real SQLite (tmp file, WAL) + fake JAKIM/calc: seeding, fallback ordering, heartbeat batching, migration `user_version`. |
+| `tests/integration/` | `integration` | Engine + real adapters over tmp-file SQLite (WAL): seeding, fallback ordering, heartbeat batching, migration `user_version`, scheduler/sync, SSE bus, system clock, time-sync probe, calc golden fit. Fake JAKIM/calc where the network would be. |
 | `tests/property/` | `property` | Hypothesis invariants: monotonic countdown targets, no overlapping states, Boundary Time Markers never adhan/iqamah/dim/leave NORMAL, opt-in pointer gates exactly, midnight crossover always resolves next-day Fajr, re-render idempotence. |
-| `tests/e2e/` | `e2e` | Public surface via ASGI test client: landed slice 1A-7 (API surface, SSE, auth/rate limits, docs gate); `/display` and `/admin` join with their frontend slices. No Chromium. |
+| `tests/e2e/` | `e2e` | Served surface: landed slice 1A-7 (API surface, SSE, auth/rate limits, docs gate) plus slice 1A-8 lifespan/production wiring — ASGI test client, plus 2 live-TCP stream tests (disconnect + 40-stream starvation); `/display` and `/admin` join with their frontend slices. No Chromium. |
 | `tests/device/` | `device` | Deployment surface: systemd unit files, `install.sh`/`update.sh`/`tools/build_vendor.sh` behaviour, spawned-entrypoint boot (`service`/`seed` mains). PATH shims over system tools; no network, no Chromium. |
 
 ## Shared Infrastructure

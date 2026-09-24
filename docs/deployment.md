@@ -13,7 +13,7 @@ in `PRD.md`; the API surface in `docs/api-contract.md`.
   `uv` (<https://docs.astral.sh/uv/>), plus network for the first
   install's `apt` step.
 * **Vendored wheels:** the device never touches a package index
-  (PRD §4.2.5). On a networked machine, from a checkout of the release
+  (PRD §4.2, item 5: offline installer). On a networked machine, from a checkout of the release
   tag, run `tools/build_vendor.sh` and ship the resulting `vendor/`
   directory (requirements + wheels) with the repo. It downloads the
   locked dependency set for the build host and cross wheels for

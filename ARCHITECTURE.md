@@ -31,22 +31,22 @@ src/muhideen/
 ```
 
 ### Core
-Shared vocabulary and abstract ports: prayer/display/theme value objects (frozen) incl. marker vocabulary (`MarkerName`, `MarkerKind` + `marker_kind`), `PrayerRepo`, `SettingsRepo`, `DisplayRepo`, `UserRepo`, `JAKIMClient`, `CalcEngine`, `EventBus`, `MediaStore`, `Clock`, `TimeSyncProbe` (probe-of-system-state: reports whether the OS clock is NTP-synced, beside `Clock`'s wall time) ports, exception hierarchy (`MuhideenError`, `ContractError`, `ScheduleError`, `SyncError`). No framework, no SQLite, no HTTP.
+Shared vocabulary and abstract ports: prayer/display/theme value objects (frozen) incl. marker vocabulary (`MarkerName`, `MarkerKind` + `marker_kind`), `PrayerRepo`, `SettingsRepo`, `DisplayRepo`, `UserRepo`, `JAKIMClient`, `CalcEngine`, `EventBus`, `MediaStore`, `Clock`, `TimeSyncProbe` (probe-of-system-state: reports whether the OS clock is NTP-synced, beside `Clock`'s wall time) ports, exception hierarchy (`MuhideenError`, `ContractError`, `ConfigError`, `SettingsNotInitializedError`, `ScheduleError`, `SyncError`). No framework, no SQLite, no HTTP.
 
 ### Domain
-Pure functions over `(now, schedule, settings)`: state machine (§8 PRD), fallback chain, iqamah resolution, Hijri offset application, freshness flags. Frozen dataclasses (`slots=True`). A `Clock` is injected — never read wall time directly — so tests pin time exactly.
+Pure functions over `(now, schedule, settings)`: state machine (§8 PRD), fallback chain, iqamah resolution, Hijri offset application, freshness flags. Frozen dataclasses (`slots=True`). Time arrives as an explicit `now` parameter — never read wall time directly — so tests pin time exactly (the `Clock` port itself is held by `engine/` and `adapters/`).
 
 ### Engine
 Capability-agnostic orchestrator: load settings, resolve day schedule via fallback chain, compute next event, fan out SSE. Owns registry-free composition (no global mutable singletons except the single-writer DB handle created at startup).
 
 ### Adapters
-One module per port, plus the migration runner. Landed: `sqlite_repo` (connection, single-writer `Database`, the prayer/settings/display/user repos, `VACUUM INTO` backup), `migrate`, `jakim_esolat` (defensive `period=year` client: pinned UA/timeout, in-client backoff, adapter-side naming map, parse + ordering rejection, keep-cache on fail), `calc_mabims` (MABIMS fallback behind `CalcEngine`, golden-tested against recorded JAKIM tables), `scheduler` (02:00 cron + 5m/15m/1h retries over APScheduler, injected `Clock`, started by the app lifespan under background wiring), `system_clock` (production `Clock`), `time_sync` (`SystemTimeSyncProbe` behind `TimeSyncProbe`: `timedatectl show` with `chronyc tracking` fallback, 30s TTL cache, fail-closed), `sse_bus` (queue-per-subscriber `EventBus` fan-out). Package entrypoints sit outside the layer contract like `views`/`migrations`: `muhideen/service.py` (`muhideen` console script) and `muhideen/seed.py` (`muhideen-seed`), with repo-root `install.sh`/`update.sh` + `packaging/` driving device deployment. Pending with their ports: `cec`, and the MWL/ISNA/Egyptian calc methods (FR-1.3). Data tables live beside logic (`adapters/data/`), never inside presentation.
+One module per port, plus the migration runner. Landed: `sqlite_repo` (connection, single-writer `Database`, the prayer/settings/display/user repos, `VACUUM INTO` backup), `migrate`, `jakim_esolat` (defensive `period=year` client: pinned UA/timeout, in-client backoff, adapter-side naming map, parse + ordering rejection, keep-cache on fail), `calc_mabims` (MABIMS fallback behind `CalcEngine`, golden-tested against recorded JAKIM tables), `scheduler` (02:00 cron + 5m/15m/1h retries over APScheduler, injected `Clock`, started by the app lifespan under background wiring), `system_clock` (production `Clock`), `time_sync` (`SystemTimeSyncProbe` behind `TimeSyncProbe`: `timedatectl show` with `chronyc tracking` fallback, 30s TTL cache, fail-closed), `sse_bus` (queue-per-subscriber `EventBus` fan-out). `muhideen/service.py` (`muhideen` console script) and `muhideen/seed.py` (`muhideen-seed`), with repo-root `install.sh`/`update.sh` + `packaging/` driving device deployment, sit outside the layer contract like `views`/`migrations`. Pending with their ports: `cec`, and the MWL/ISNA/Egyptian calc methods (FR-1.3, contract-named only).
 
 ### API
 FastAPI `def` sync handlers mapping HTTP ↔ engine. Pydantic DTOs are the executable contract. OpenAPI served LAN-only behind admin auth. No business logic here beyond parsing and status codes.
 
 ### Views + Themes
-Jinja templates receiving DTOs only. `static/app.css` / `static/app.js` hand-written. Community themes render in `<iframe sandbox="allow-scripts">` with CSP, fed read-only JSON via `postMessage`. Themes never import backend code.
+Jinja contexts will receive DTOs only (frontend slices 1B-1/1B-2). `themes/classic-green/` scaffold exists; hand-written `static/` assets land with the frontend. Community themes render in `<iframe sandbox="allow-scripts">` with CSP, fed read-only JSON via `postMessage`. Themes never import backend code.
 
 ## Ownership Boundaries
 

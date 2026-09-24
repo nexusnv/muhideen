@@ -8,11 +8,11 @@ Open-source masjid digital display system for mosques and suraus. Offline-first 
 
 ## Status
 
-In active development. Landed: `core` vocabulary and ports, the pure `domain` state machine and fallback chain, the executable API contract (Pydantic DTOs, fixtures, OpenAPI), `engine` orchestration, and SQLite persistence — WAL, hand-rolled migrations on `PRAGMA user_version`, the repository adapters (prayer/settings/display), 60s heartbeat batching, and `VACUUM INTO` backup. Pending: HTTP handler bodies (every route currently answers 501), schedule sources, auth/admin endpoints, device integration, and the display/admin frontend — see the milestone roadmap in [`PRD.md`](PRD.md) §9.
+In active development. Phase 1A (backend core) has landed: `core` vocabulary and ports, the pure `domain` state machine and fallback chain, the executable API contract (Pydantic DTOs, fixtures, OpenAPI), `engine` orchestration, SQLite persistence — WAL, hand-rolled migrations on `PRAGMA user_version`, the repository adapters (prayer/settings/display/user), 60s heartbeat batching, and `VACUUM INTO` backup — plus JAKIM e-solat sync with MABIMS calc fallback and scheduler, real HTTP handlers with SSE/auth/admin settings, and device integration (`muhideen`/`muhideen-seed` entrypoints, `install.sh`/`update.sh`, NTP health). Pending: the display/admin frontend (Phase 1B) and content/management (Phase 2) — see the milestone roadmap in [`PRD.md`](PRD.md) §9.
 
 ## What it will do
 
-* JAKIM E-Solat sync by zone with cached fallback + on-device calculation (MABIMS/MWL/ISNA/Egyptian).
+* JAKIM E-Solat sync by zone with cached fallback + on-device calculation (MABIMS live; MWL/ISNA/Egyptian are contract-named with behavior pending).
 * Display: clock, Gregorian + Hijri dates, 5 prayer times (primary) + Imsak/Syuruq/Dhuha boundary markers (secondary), next-prayer hero, Iqamah countdown.
 * Prayer state machine: `NORMAL → PRE_ADHAN → ADHAN → IQAMAH_COUNTDOWN → SALAH_DIM`.
 * Carousel for announcements (auto-hidden around prayer), sandboxed community themes, display groups.
