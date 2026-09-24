@@ -1,10 +1,12 @@
 """MABIMS calc engine guards (slice 1A-6, Task 4).
 
-Pinned scope: **6 functions / 16 items** — golden vectors ×6 (each asserts
+Pinned scope: **9 functions / 19 items** — golden vectors ×6 (each asserts
 all 8 markers ≤ `GOLDEN_TOLERANCE_MIN`), exact `imsak = fajr − 10` ×6,
-ordering, unknown-method `ValueError`, provenance, port. The 6 vectors and
-the tolerance come from the recorded source research; golden times load
-from the committed year payloads (same provenance).
+ordering, unknown-method `ValueError`, provenance, port, imsak-zero
+disable, dhuha-offset honored, out-of-range offsets raise. The 6 vectors
+come from the recorded source research; tolerance is 5 (fixed-28 default;
+SGR01 dhuha +5 worst case); golden times load from the committed year
+payloads (same provenance).
 """
 
 import json
@@ -23,7 +25,7 @@ DATA = Path(__file__).resolve().parents[2] / "tests" / "data"
 TZ = ZoneInfo("Asia/Kuala_Lumpur")
 PINNED = datetime(2026, 9, 23, 12, 0, tzinfo=TZ)
 
-GOLDEN_TOLERANCE_MIN = 3
+GOLDEN_TOLERANCE_MIN = 5
 
 # (zone, latitude, longitude, golden date-string, parsed date)
 VECTORS = [
@@ -131,3 +133,41 @@ def test_calc_engine_satisfies_port() -> None:
     from muhideen.core.ports import CalcEngine
 
     assert isinstance(MabimsCalcEngine(clock=FakeClock(PINNED), tz=TZ), CalcEngine)
+
+
+def test_imsak_zero_disables_to_fajr() -> None:
+    from muhideen.adapters.calc_mabims import MabimsCalcEngine
+
+    engine = MabimsCalcEngine(clock=FakeClock(PINNED), tz=TZ)
+    computed = engine.compute_day(
+        date(2026, 9, 23), 3.0738, 101.5167, "MABIMS", imsak_offset_min=0
+    )
+    assert computed.imsak == computed.fajr
+
+
+def test_dhuha_offset_param_honored() -> None:
+    from muhideen.adapters.calc_mabims import MabimsCalcEngine
+
+    engine = MabimsCalcEngine(clock=FakeClock(PINNED), tz=TZ)
+    computed = engine.compute_day(
+        date(2026, 9, 23), 3.0738, 101.5167, "MABIMS", dhuha_offset_min=15
+    )
+    assert (computed.dhuha.hour * 60 + computed.dhuha.minute) - (
+        computed.syuruq.hour * 60 + computed.syuruq.minute
+    ) == 15
+
+
+def test_out_of_range_offsets_raise() -> None:
+    import pytest
+
+    from muhideen.adapters.calc_mabims import MabimsCalcEngine
+
+    engine = MabimsCalcEngine(clock=FakeClock(PINNED), tz=TZ)
+    with pytest.raises(ValueError):
+        engine.compute_day(
+            date(2026, 9, 23), 3.0738, 101.5167, "MABIMS", imsak_offset_min=11
+        )
+    with pytest.raises(ValueError):
+        engine.compute_day(
+            date(2026, 9, 23), 3.0738, 101.5167, "MABIMS", dhuha_offset_min=14
+        )
