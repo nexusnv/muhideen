@@ -1,10 +1,11 @@
 """Chronological ordering invariant for a day's eight markers (PRD §6.1).
 
 One pure validator shared by both schedule sources: parsed JAKIM rows and
-calc-produced days must satisfy the same strict chain
-``Imsak < Fajr < Syuruq < Dhuha < Dhuhr < Asr < Maghrib < Isha``
-(``PRD.md`` §6.1). The repo still stores whatever it is given (1A-5
-contract); rejection happens at the source adapters, before any write.
+calc-produced days must satisfy ``Imsak <= Fajr < Syuruq < Dhuha < Dhuhr
+< Asr < Maghrib < Isha``. Equality on the first pair only is the imsak
+disabled signal (calc ``imsak_offset_min=0`` yields ``imsak == fajr``;
+JAKIM rows are strict in practice). The repo still stores whatever it is
+given; rejection happens at the source adapters, before any write.
 """
 
 from muhideen.core.errors import SyncError
@@ -41,13 +42,14 @@ def ensure_ordered(day: PrayerDay) -> PrayerDay:
         (MarkerName.MAGHRIB, day.maghrib),
         (MarkerName.ISHA, day.isha),
     )
-    for (left_name, left_value), (right_name, right_value) in zip(
-        slots, slots[1:], strict=False
+    for index, ((left_name, left_value), (right_name, right_value)) in enumerate(
+        zip(slots, slots[1:], strict=False)
     ):
-        if not left_value < right_value:
+        ok = left_value <= right_value if index == 0 else left_value < right_value
+        if not ok:
             raise SyncError(
                 f"time order violated: {left_name.value} {left_value} "
-                f"!< {right_name.value} {right_value}",
+                f"!<{'' if index else '='} {right_name.value} {right_value}",
                 zone=day.zone,
                 date=day.date.isoformat(),
             )

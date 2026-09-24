@@ -85,3 +85,11 @@ def test_error_carries_zone_and_date_context() -> None:
     assert exc.date == "2026-09-23"
     assert "imsak" in str(exc)
     assert "fajr" in str(exc)
+
+
+def test_imsak_equal_fajr_passes_as_disabled_signal() -> None:
+    from muhideen.domain.ordering import ensure_ordered
+
+    base = _day()
+    disabled = replace(base, imsak=base.fajr)
+    assert ensure_ordered(disabled) is disabled
