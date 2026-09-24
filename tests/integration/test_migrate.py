@@ -32,6 +32,8 @@ _SEEDED_SETTINGS = {
     "adhan_duration_s": "180",
     "dim_minutes_default": "20",
     "dim_minutes_jumuah": "45",
+    "imsak_offset_min": "10",
+    "dhuha_offset_min": "28",
     "boundary_countdown": "0",
     "method": "MABIMS",
 }
