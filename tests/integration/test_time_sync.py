@@ -270,6 +270,28 @@ def test_probe_fails_closed_when_no_tool_reports_sync() -> None:
     assert probe.synchronized() is False
 
 
+def test_default_runner_shells_out_to_timedatectl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The stdlib-subprocess default (used when no runner is injected).
+    import subprocess
+
+    from muhideen.adapters import time_sync as time_sync_module
+
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["cmd"] = cmd
+        captured["timeout"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(cmd, 0, stdout="yes\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    probe = SystemTimeSyncProbe(clock=DriftingClock(NOW), runner=None)
+    assert probe.synchronized() is True
+    assert captured["cmd"] == time_sync_module._TIMECTL_CMD
+    assert captured["timeout"] == time_sync_module._TIMEOUT_S
+
+
 # --- Engine stamp + drift latch -------------------------------------------
 
 

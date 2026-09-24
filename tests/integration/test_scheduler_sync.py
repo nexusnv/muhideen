@@ -187,6 +187,22 @@ def test_run_sync_before_setup_raises_config_error() -> None:
         _run_sync(settings_repo=FakeSettingsRepo(error=ConfigError("settings missing")))
 
 
+def test_repo_config_error_reraises_unwrapped() -> None:
+    # Typed repo failures are not sync failures: ConfigError must reach the
+    # caller as-is so the job logs it without scheduling a retry.
+    client = FakeJAKIMClient(days=[_day(date(2026, 9, 24))])
+    repo = FakePrayerRepo(save_error=ConfigError("bad row"))
+    with pytest.raises(ConfigError, match="bad row"):
+        _run_sync(client=client, prayer_repo=repo)
+
+
+def test_repo_sync_error_reraises_unwrapped() -> None:
+    client = FakeJAKIMClient(days=[_day(date(2026, 9, 24))])
+    repo = FakePrayerRepo(save_error=SyncError("stale lock"))
+    with pytest.raises(SyncError, match="stale lock"):
+        _run_sync(client=client, prayer_repo=repo)
+
+
 def test_repo_write_failure_schedules_retry() -> None:
     # A repository failure (locked/full disk) must enter the retryable path:
     # an uncaught exception here would escape sync_job and skip the whole chain.
