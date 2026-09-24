@@ -31,6 +31,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/nexusnv/muhideen"
 
+[project.scripts]
+muhideen = "muhideen.service:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/muhideen"]
 
@@ -41,6 +44,7 @@ markers = [
     "integration: engine plus sqlite",
     "property: hypothesis invariants",
     "e2e: served surface",
+    "device: spawned entrypoint, scripts, packaging units",
 ]
 testpaths = ["tests"]
 

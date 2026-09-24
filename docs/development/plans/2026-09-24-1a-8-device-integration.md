@@ -31,7 +31,8 @@
 
 > **Amendments during execution:** if a pinned test count or design below drifts, re-pin it here with rationale (1A-6 precedent).
 >
-> - (expected: `uv.lock` regeneration if `--locked` objects to `[project.scripts]` — amend with diff summary if so)
+> - (expected: `uv.lock` regeneration if `--locked` objects to `[project.scripts]` — amend with diff summary if so — **did not fire**: `uv sync --locked --all-extras` exited 0, lock untouched)
+> - Task 2 teardown re-pinned (no count change, still 4 device): the SIGTERM check asserts *prompt graceful shutdown* — exit within 5s **and** child log contains `Finished server process` **and** `returncode in (0, -SIGTERM)` — instead of `returncode == 0`. uvicorn 0.53's `capture_signals` (`uvicorn/server.py:345-349`) restores the pre-run handler after a signal-initiated graceful shutdown and then **re-raises the captured signal**, so a clean SIGTERM stop reports `-15`, never `0`. The log line proves lifespan shutdown completed; the 5s wait proves no hang.
 
 ## File Structure
 
