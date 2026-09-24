@@ -87,3 +87,10 @@ class UserRepo(Protocol):
     def create_user(self, username: str, password: str) -> bool: ...
 
     def verify(self, username: str, password: str) -> bool: ...
+
+
+@runtime_checkable
+class TimeSyncProbe(Protocol):
+    """Whether the system clock agrees with a network time source (FR-1.6)."""
+
+    def synchronized(self) -> bool: ...

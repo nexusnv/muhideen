@@ -73,16 +73,18 @@ def test_stream_covers_all_three_event_names() -> None:
 def test_state_event_omitted_targets_dump_without_null_keys() -> None:
     event = StateEventDTO(
         state="PRE_ADHAN",
+        time_synced=True,
         next_prayer="dhuhr",
         adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=KL),
     )
     dump = event.model_dump(mode="json", exclude_none=True)
-    assert set(dump) == {"state", "next_prayer", "adhan_at"}
+    assert set(dump) == {"state", "time_synced", "next_prayer", "adhan_at"}
 
 
 def test_state_event_includes_boundary_targets_when_set() -> None:
     event = StateEventDTO(
         state="PRE_ADHAN",
+        time_synced=True,
         next_prayer="dhuhr",
         adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=KL),
         next_boundary="imsak",
@@ -91,6 +93,7 @@ def test_state_event_includes_boundary_targets_when_set() -> None:
     dump = event.model_dump(mode="json", exclude_none=True)
     assert set(dump) == {
         "state",
+        "time_synced",
         "next_prayer",
         "adhan_at",
         "next_boundary",

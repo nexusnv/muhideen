@@ -11,6 +11,7 @@ Tests mirror `ARCHITECTURE.md` layers. Organized by scope, run with `uv`. No ski
 | `tests/integration/` | `integration` | Engine + real SQLite (tmp file, WAL) + fake JAKIM/calc: seeding, fallback ordering, heartbeat batching, migration `user_version`. |
 | `tests/property/` | `property` | Hypothesis invariants: monotonic countdown targets, no overlapping states, Boundary Time Markers never adhan/iqamah/dim/leave NORMAL, opt-in pointer gates exactly, midnight crossover always resolves next-day Fajr, re-render idempotence. |
 | `tests/e2e/` | `e2e` | Public surface via ASGI test client: landed slice 1A-7 (API surface, SSE, auth/rate limits, docs gate); `/display` and `/admin` join with their frontend slices. No Chromium. |
+| `tests/device/` | `device` | Deployment surface: systemd unit files, `install.sh`/`update.sh`/`tools/build_vendor.sh` behaviour, spawned-entrypoint boot (`service`/`seed` mains). PATH shims over system tools; no network, no Chromium. |
 
 ## Shared Infrastructure
 
@@ -29,6 +30,7 @@ uv run pytest -m contract
 uv run pytest -m integration
 uv run pytest -m property
 uv run pytest -m e2e
+uv run pytest -m device
 uv run pytest --cov=muhideen --cov-report=term-missing
 ```
 
@@ -38,6 +40,6 @@ uv run pytest --cov=muhideen --cov-report=term-missing
 
 **Time is testable.** The pinned-clock test (same `now` + snapshot + settings → identical next-event) is the most important test, equivalent to paxman's determinism test.
 
-**Negative cases first-class.** Stale banners, calc fallback, invalid contracts, and first-boot `ConfigError` are asserted today, not just happy paths. JAKIM payload-parse rejection, ordering validation, and sync retry/backoff are asserted since slice 1A-6; `TIME UNSYNCED` joins when device integration lands.
+**Negative cases first-class.** Stale banners, calc fallback, invalid contracts, and first-boot `ConfigError` are asserted today, not just happy paths. JAKIM payload-parse rejection, ordering validation, and sync retry/backoff are asserted since slice 1A-6; `TIME UNSYNCED` (NTP probe + drift latch) is asserted since slice 1A-8.
 
 **Provenance of schedules.** Every resolved time carries `source` (`jakim`/`calc`/`manual`) + `fetched_at`; tests assert the flag, not just the clock value.

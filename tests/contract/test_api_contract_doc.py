@@ -114,3 +114,22 @@ def test_doc_examples_match_fixtures() -> None:
         assert len(blocks) == len(fixture_names)
         for block, name in zip(blocks, fixture_names, strict=True):
             assert block == json.loads((FIXTURES / name).read_text()), name
+
+
+def test_time_synced_documented_in_next_event_and_state_examples() -> None:
+    """FR-1.6 (slice 1A-8): the NTP flag rides next-event and every state frame."""
+    example = _json_blocks(_body_for("GET /api/next-event"))[0]
+    fixture = json.loads((FIXTURES / "next-event.json").read_text())
+    assert example["time_synced"] is True
+    assert fixture["time_synced"] is True
+    stream = (FIXTURES / "events-stream.txt").read_text()
+    state_data = [
+        json.loads(line.removeprefix("data:").strip())
+        for block in stream.split("\n\n")
+        if "event: state" in block
+        for line in block.splitlines()
+        if line.startswith("data:")
+    ]
+    assert state_data, "events-stream.txt must sample SSE state frames"
+    assert all(payload["time_synced"] is True for payload in state_data)
+    assert "time_synced" in _body_for("GET /api/events")

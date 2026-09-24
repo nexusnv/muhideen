@@ -141,6 +141,7 @@ class NextEventDTO(ContractDTO):
     stale: bool
     next_boundary: BoundaryLiteral | None
     boundary_at: datetime | None
+    time_synced: bool
 
     @classmethod
     def from_domain(cls, event: NextEvent) -> NextEventDTO:
@@ -162,13 +163,19 @@ class NextEventDTO(ContractDTO):
                 else None
             ),
             boundary_at=event.boundary_at,
+            time_synced=event.time_synced,
         )
 
 
 class StateEventDTO(ContractDTO):
-    """SSE `state` event payload; absent targets omitted via exclude_none."""
+    """SSE `state` event payload; absent targets omitted via exclude_none.
+
+    `time_synced` (FR-1.6) is required and never omitted — the
+    `TIME UNSYNCED` banner must survive every state transition.
+    """
 
     state: StateLiteral
+    time_synced: bool
     now: datetime | None = None
     next_prayer: PrayerLiteral | None = None
     adhan_at: datetime | None = None
@@ -182,6 +189,7 @@ class StateEventDTO(ContractDTO):
     def from_domain(cls, event: NextEvent) -> StateEventDTO:
         return cls(
             state=event.state.name,
+            time_synced=event.time_synced,
             now=event.now,
             next_prayer=cast(PrayerLiteral, event.next_prayer.value)
             if event.next_prayer

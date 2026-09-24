@@ -35,6 +35,7 @@ from muhideen.adapters.sqlite_repo import (
 )
 from muhideen.adapters.sse_bus import SSEBus
 from muhideen.adapters.system_clock import SystemClock
+from muhideen.adapters.time_sync import SystemTimeSyncProbe
 from muhideen.api.auth import (
     ADMIN_USERNAME,
     AUTH_401_DETAIL,
@@ -66,6 +67,7 @@ from muhideen.core.ports import (
     JAKIMClient,
     PrayerRepo,
     SettingsRepo,
+    TimeSyncProbe,
     UserRepo,
 )
 from muhideen.engine import Engine
@@ -96,6 +98,7 @@ class AppDeps:
     database: Database | None = None
     run_background: bool = False
     jakim_client: JAKIMClient | None = None
+    time_sync: TimeSyncProbe | None = None
 
 
 class EventStreamResponse(StreamingResponse):
@@ -162,10 +165,14 @@ async def _event_stream(
     holds one token of ``CapacityLimiter(40)`` — starving every sync ``def``
     endpoint at 40 concurrent streams — and the shielded block defers
     ``finally: unsubscribe`` until loop shutdown after a client disconnect.
+
+    ``next_event`` itself runs via ``asyncio.to_thread``: it may fire the
+    time-sync probe's subprocess (10s timeout each), which must never
+    execute on the event loop or every stream and async route stalls with it.
     """
     subscriber = bus.subscribe()
     try:
-        initial = engine.next_event(clock.now())
+        initial = await asyncio.to_thread(engine.next_event, clock.now())
         yield _frame(
             "state",
             StateEventDTO.from_domain(initial).model_dump_json(exclude_none=True),
@@ -184,7 +191,7 @@ async def _event_stream(
                 continue
             idle_since = loop.time()
             if name in ("state", "tick"):
-                current = engine.next_event(clock.now())
+                current = await asyncio.to_thread(engine.next_event, clock.now())
                 if name == "state":
                     payload = StateEventDTO.from_domain(current).model_dump_json(
                         exclude_none=True
@@ -218,6 +225,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         clock=deps.clock,
         event_bus=deps.event_bus,
         calc=calc,
+        time_sync=deps.time_sync,
     )
     sessions = SessionStore(deps.clock)
     login_limiter = RateLimiter(deps.clock)
@@ -461,5 +469,6 @@ def create_production_app(
         database=database,
         run_background=run_background,
         jakim_client=HttpJAKIMClient(clock=clock),
+        time_sync=SystemTimeSyncProbe(clock=clock),
     )
     return create_app(deps)

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from importlib.metadata import version as package_version
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+
+from muhideen.api.app import create_app
 
 pytestmark = pytest.mark.e2e
 
@@ -93,6 +96,39 @@ def test_next_event_rejects_naive_now_with_422(
     response = client.get("/api/next-event", params={"now": "2025-10-20T12:20:00"})
     assert response.status_code == 422
     assert "offset" in response.text.lower()
+
+
+def test_next_event_reports_time_synced_true_by_default(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    """FR-1.6: an app with no probe wired reports synced (dev default)."""
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    response = client.get(
+        "/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"}
+    )
+    assert response.status_code == 200
+    assert response.json()["time_synced"] is True
+
+
+class _UnsyncedProbe:
+    """File-local TimeSyncProbe double: NTP reports unsynchronised."""
+
+    def synchronized(self) -> bool:
+        return False
+
+
+def test_unsynced_probe_reports_time_synced_false(
+    surface: SimpleNamespace,
+) -> None:
+    """TIME UNSYNCED path: a probe saying no flows to the next-event payload."""
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    app = create_app(replace(surface.deps, time_sync=_UnsyncedProbe()))
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"}
+        )
+    assert response.status_code == 200
+    assert response.json()["time_synced"] is False
 
 
 @pytest.mark.parametrize(

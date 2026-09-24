@@ -14,6 +14,7 @@ from muhideen.core.ports import (
     MediaStore,
     PrayerRepo,
     SettingsRepo,
+    TimeSyncProbe,
     UserRepo,
 )
 from muhideen.core.values import PrayerDay, Settings
@@ -102,6 +103,16 @@ class PartialClock:
         raise NotImplementedError
 
 
+class FullTimeSyncProbe:
+    def synchronized(self) -> bool:
+        raise NotImplementedError
+
+
+class PartialTimeSyncProbe:
+    def is_synchronized(self) -> bool:
+        raise NotImplementedError
+
+
 class FullEventBus:
     def publish(self, event: str) -> None:
         raise NotImplementedError
@@ -145,6 +156,7 @@ ALL_PROTOCOLS = (
     JAKIMClient,
     CalcEngine,
     Clock,
+    TimeSyncProbe,
     EventBus,
     MediaStore,
     UserRepo,
@@ -161,6 +173,7 @@ ALL_PROTOCOLS = (
         (FullJAKIMClient(), JAKIMClient),
         (FullCalcEngine(), CalcEngine),
         (FullClock(), Clock),
+        (FullTimeSyncProbe(), TimeSyncProbe),
         (FullEventBus(), EventBus),
         (FullMediaStore(), MediaStore),
         (FullUserRepo(), UserRepo),
@@ -181,6 +194,7 @@ def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
         (PartialJAKIMClient(), JAKIMClient),
         (PartialCalcEngine(), CalcEngine),
         (PartialClock(), Clock),
+        (PartialTimeSyncProbe(), TimeSyncProbe),
         (PartialEventBus(), EventBus),
         (PartialMediaStore(), MediaStore),
         (PartialUserRepo(), UserRepo),

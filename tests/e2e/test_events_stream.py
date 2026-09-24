@@ -108,6 +108,7 @@ def test_initial_state_frame(surface: SimpleNamespace, client: TestClient) -> No
         gen.close()
     event, data = _parse(frame)
     assert event == "state"
+    assert data["time_synced"] is True
     assert data["state"] in {
         "NORMAL",
         "PRE_ADHAN",
@@ -115,6 +116,50 @@ def test_initial_state_frame(surface: SimpleNamespace, client: TestClient) -> No
         "IQAMAH_COUNTDOWN",
         "SALAH_DIM",
     }
+
+
+def test_sse_frames_run_next_event_off_the_event_loop(
+    surface: SimpleNamespace,
+) -> None:
+    # next_event may probe the OS clock (timedatectl/chronyc, 10s timeouts):
+    # executed on the asyncio loop inside the generator, one slow probe would
+    # stall every open stream and async route at once.
+    class _LoopWatchProbe:
+        """TimeSyncProbe double: records which thread called it (file-local)."""
+
+        def __init__(self) -> None:
+            self.saw_running_loop = False
+
+        def synchronized(self) -> bool:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass  # worker thread — no loop here: the safe path
+            else:
+                self.saw_running_loop = True
+            return True
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    probe = _LoopWatchProbe()
+    tz = surface.clock.now().tzinfo
+    assert tz is not None
+    engine = Engine(
+        settings_repo=surface.settings_repo,
+        prayer_repo=surface.prayer_repo,
+        clock=surface.clock,
+        event_bus=surface.bus,
+        calc=MabimsCalcEngine(clock=surface.clock, tz=cast(ZoneInfo, tz)),
+        time_sync=probe,
+    )
+    gen = _Driver(app_module._event_stream(engine, surface.clock, surface.bus))
+    try:
+        frame = next(gen)
+    finally:
+        gen.close()
+    event, data = _parse(frame)
+    assert event == "state"
+    assert data["time_synced"] is True
+    assert probe.saw_running_loop is False  # must run off the loop
 
 
 def test_published_state_frame(surface: SimpleNamespace, client: TestClient) -> None:

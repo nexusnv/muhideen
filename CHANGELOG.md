@@ -65,6 +65,23 @@ versioning follows [Semantic Versioning](https://semver.org/).
   wiring with `create_production_app` factory; 4 fixtures
   (`settings.json`, `auth-request.json`, `auth-response.json`,
   `session.json`) + 6 contract sections.
+- Device integration (slice 1A-8): package entrypoints `muhideen`
+  (uvicorn service main) and `muhideen-seed` (headless configure-or-sync
+  seed); NTP health via the `TimeSyncProbe` port + `time_sync` adapter
+  (30s-TTL `timedatectl`/`chronyc` probe, fail-closed) surfaced as the
+  additive `time_synced` field on `GET /api/next-event` and SSE `state`
+  (FR-1.6 `TIME UNSYNCED` banner + >5s wall-vs-monotonic drift latch);
+  `install.sh` (RAM preflight with `--force`, apt deps, offline
+  vendored-wheel `uv sync --no-dev`, systemd units, hostname, seed, NTP
+  enable, health check, `--dry-run`; first-boot `--zone` gate before any
+  mutation; a seed year-fetch failure warns + exits 3 so an offline
+  first boot still finishes installing), `update.sh` (dirty-tree refusal,
+  `VACUUM INTO` backup before tag checkout, health-verified upgrade +
+  `--check`, recovery message instead of auto-rollback), `packaging/`
+  units incl. the mDNS advertiser (`muhideen-mdns`,
+  `_muhideen._tcp` :8000) and shared `packaging/lib.sh`;
+  `tools/build_vendor.sh` (locked `uv export` + host and
+  aarch64/x86_64 cross wheels); shipped guide `docs/deployment.md`.
 
 ### Changed
 
@@ -100,6 +117,9 @@ versioning follows [Semantic Versioning](https://semver.org/).
   default empty, old publishers unaffected); `create_app` now takes required
   `AppDeps` (no module-level app).
 - Added `argon2-cffi>=23.1` (Argon2id password hashing for the admin user).
+- `GET /api/next-event` and SSE `state` payloads gain a required
+  `time_synced` boolean (FR-1.6 NTP health; additive — api stays `v1`,
+  existing clients ignore the extra key).
 
 ### Fixed
 
