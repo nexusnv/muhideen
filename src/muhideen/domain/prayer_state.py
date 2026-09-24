@@ -24,6 +24,7 @@ PRE_ADHAN_WINDOW = timedelta(minutes=5)
 
 
 def _adhan_dt(day_date: date, slot: time, tz: tzinfo | None) -> datetime:
+    """Combine a schedule clock time with its calendar date and zone."""
     return datetime.combine(day_date, slot, tzinfo=tz)
 
 
@@ -116,6 +117,7 @@ def resolve_next_event(
         iqamah_at: datetime | None,
         dim_until: datetime | None,
     ) -> NextEvent:
+        """Assemble one NextEvent with the shared boundary pointer attached."""
         return NextEvent(
             now=now,
             state=state,

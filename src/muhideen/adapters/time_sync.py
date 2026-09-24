@@ -46,6 +46,7 @@ class SystemTimeSyncProbe:
         runner: Callable[[list[str]], str] | None = None,
         ttl_s: float = _TTL_S,
     ) -> None:
+        """Hold the clock, subprocess runner, TTL, and empty cache."""
         self._clock = clock
         self._runner: Callable[[list[str]], str] = runner if runner else _run
         self._ttl_s = ttl_s
@@ -74,6 +75,7 @@ class SystemTimeSyncProbe:
             return value
 
     def _read(self) -> bool:
+        """Probe timedatectl, else chrony; fail closed to False."""
         try:
             out = self._runner(_TIMECTL_CMD).strip().lower()
         except (OSError, subprocess.SubprocessError):
@@ -88,6 +90,7 @@ class SystemTimeSyncProbe:
 
     @staticmethod
     def _chrony_synced(tracking: str) -> bool:
+        """Return True only when chrony reports a Normal leap status."""
         for line in tracking.splitlines():
             if "Leap status" in line:
                 return line.rsplit(":", 1)[-1].strip() == "Normal"

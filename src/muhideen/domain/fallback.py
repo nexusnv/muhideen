@@ -13,6 +13,8 @@ STALE_AFTER = timedelta(hours=48)
 
 @dataclass(frozen=True, slots=True)
 class FallbackResult:
+    """Resolved schedule plus whether it came from a degraded source."""
+
     day: PrayerDay
     stale: bool
 

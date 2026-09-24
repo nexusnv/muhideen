@@ -73,6 +73,7 @@ class Engine:
         calc: CalcEngine | None = None,
         time_sync: TimeSyncProbe | None = None,
     ) -> None:
+        """Hold the injected repos, clock, bus, and optional calc/sync."""
         self._settings_repo = settings_repo
         self._prayer_repo = prayer_repo
         self._clock = clock
@@ -168,6 +169,7 @@ class Engine:
     def _resolve_day(
         self, requested: date, zone: str, now: datetime, settings: Settings
     ) -> FallbackResult:
+        """Walk cache, then calc, then last-known; miss only when all miss."""
         # Lazy chain: calc and last-known are queried only when every
         # cheaper source already missed.
         cached = self._prayer_repo.get_day(requested, zone)
@@ -198,6 +200,7 @@ class Engine:
         return computed
 
     def _tomorrow(self, day: date, zone: str, settings: Settings) -> PrayerDay | None:
+        """Fetch tomorrow from cache or calc; never from last-known."""
         # `last_known` is deliberately never used for tomorrow: a past
         # template day must not seed tomorrow's Fajr.
         cached = self._prayer_repo.get_day(day, zone)

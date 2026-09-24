@@ -18,12 +18,14 @@ _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
 
 def _up_files() -> list[Path]:
+    """List pending up-migration files in version order."""
     return sorted(
         path for path in _MIGRATIONS_DIR.glob("*.sql") if ".down." not in path.name
     )
 
 
 def _version_of(path: Path) -> int:
+    """Parse the integer version prefix from a migration filename."""
     return int(path.name.split("_", 1)[0])
 
 

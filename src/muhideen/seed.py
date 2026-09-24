@@ -30,6 +30,7 @@ _PROD_TZ = ZoneInfo("Asia/Kuala_Lumpur")
 
 
 def _parser() -> argparse.ArgumentParser:
+    """Build the seed CLI: database path plus first-boot zone options."""
     parser = argparse.ArgumentParser(
         prog="muhideen-seed",
         description="Seed a Muhideen database: configure the zone, sync the year.",
