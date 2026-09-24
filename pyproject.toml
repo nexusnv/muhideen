@@ -33,6 +33,7 @@ Homepage = "https://github.com/nexusnv/muhideen"
 
 [project.scripts]
 muhideen = "muhideen.service:main"
+muhideen-seed = "muhideen.seed:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/muhideen"]
