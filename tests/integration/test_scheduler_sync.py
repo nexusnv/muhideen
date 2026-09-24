@@ -277,3 +277,15 @@ def test_failure_logs_zone_and_attempt(caplog: pytest.LogCaptureFixture) -> None
         _sync_job(scheduler=scheduler, client=client)
     messages = [r.getMessage() for r in _records(caplog)]
     assert any("zone=SGR01" in m and "attempt=1" in m for m in messages)
+
+
+def test_calc_only_mode_skips_fetch() -> None:
+    from dataclasses import replace
+
+    settings_repo = FakeSettingsRepo()
+    settings_repo.settings = replace(settings_repo.settings, calc_only=True)
+    client = FakeJAKIMClient(days=[_day(date(2026, 9, 24))])
+    repo = FakePrayerRepo()
+    assert _run_sync(client=client, prayer_repo=repo, settings_repo=settings_repo) == 0
+    assert client.last_zone is None
+    assert repo.save_calls == []

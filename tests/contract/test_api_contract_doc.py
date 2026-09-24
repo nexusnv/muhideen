@@ -14,10 +14,14 @@ import pytest
 from pydantic import BaseModel
 
 from muhideen.api.dto import (
+    AuthRequestDTO,
+    AuthResponseDTO,
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
     NextEventDTO,
     PrayerDayDTO,
+    SessionStatusDTO,
+    SettingsDTO,
     VersionDTO,
 )
 
@@ -33,6 +37,12 @@ SECTION_DTOS: dict[str, list[type[BaseModel]]] = {
     "GET /api/events": [],
     "POST /api/displays/heartbeat": [HeartbeatRequestDTO, HeartbeatResponseDTO],
     "GET /api/version": [VersionDTO],
+    "GET /api/settings": [SettingsDTO],
+    "PUT /api/settings": [SettingsDTO],
+    "POST /api/auth/setup": [AuthRequestDTO, AuthResponseDTO],
+    "POST /api/auth/login": [AuthRequestDTO, AuthResponseDTO],
+    "POST /api/auth/logout": [AuthResponseDTO],
+    "GET /api/auth/session": [SessionStatusDTO],
 }
 SECTION_FIXTURES: dict[str, list[str]] = {
     "GET /api/prayer-day": ["prayer-day.json"],
@@ -43,6 +53,12 @@ SECTION_FIXTURES: dict[str, list[str]] = {
         "heartbeat-response.json",
     ],
     "GET /api/version": ["version.json"],
+    "GET /api/settings": ["settings.json"],
+    "PUT /api/settings": ["settings.json"],
+    "POST /api/auth/setup": ["auth-request.json", "auth-response.json"],
+    "POST /api/auth/login": ["auth-request.json", "auth-response.json"],
+    "POST /api/auth/logout": ["auth-response.json"],
+    "GET /api/auth/session": ["session.json"],
 }
 
 

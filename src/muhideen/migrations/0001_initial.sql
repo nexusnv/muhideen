@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
   -- keys: masjid_name, zone_code|lat,lon,method, hijri_offset(-2..2),
   -- adhan_duration_s, dim_minutes_default, dim_minutes_jumuah,
-  -- boundary_countdown(0|1), carousel_enabled, theme_default,
+  -- boundary_countdown(0|1), calc_only(0|1), carousel_enabled, theme_default,
   -- qr_visible_default
 );
 

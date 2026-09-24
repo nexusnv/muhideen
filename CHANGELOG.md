@@ -55,6 +55,16 @@ versioning follows [Semantic Versioning](https://semver.org/).
   captured payloads `tests/data/` plus the recorded source research
   pinning the MABIMS params, the dhuha latitude rule, and the golden
   tolerance.
+- HTTP surface (slice 1A-7): real FastAPI `def` sync handlers replacing the
+  501 stubs (tz-aware `now` validation with 422 on naive input, `date`/`zone`
+  input handling, `ScheduleError`→404 and `ConfigError`→503 mapping), SSE
+  stream with `sse_bus` fan-out plus `system_clock` injection, settings API
+  with `boundary_countdown`/`calc_only` (live-reload via `config-update`),
+  Argon2id single-admin auth with 30-min expiring sessions and 5/min/IP rate
+  limits, LAN+admin-gated `/docs`, and lifespan migrate/ticker/scheduler
+  wiring with `create_production_app` factory; 4 fixtures
+  (`settings.json`, `auth-request.json`, `auth-response.json`,
+  `session.json`) + 6 contract sections.
 
 ### Changed
 
@@ -86,3 +96,17 @@ versioning follows [Semantic Versioning](https://semver.org/).
   client needs it at runtime; already in the lockfile).
 - Added `adhanpy==1.0.5` (MIT, zero runtime deps) as the MABIMS calc
   engine library.
+- `EventBus.publish` gains an optional `changed` tuple (config-update groups;
+  default empty, old publishers unaffected); `create_app` now takes required
+  `AppDeps` (no module-level app).
+- Added `argon2-cffi>=23.1` (Argon2id password hashing for the admin user).
+
+### Fixed
+
+- `GET /api/prayer-day` with a `zone` other than the configured zone now
+  returns 404 (previously a configured calc result was served stamped with
+  the requested zone).
+- `PUT /api/settings` now rejects (422) rule sets that duplicate a prayer,
+  omit a prayer's rule, or declare a `fixed` rule without `fixed_time`;
+  previously these saved (or 500'd on duplicates) and later 503'd
+  `/api/next-event` and `/api/events`.

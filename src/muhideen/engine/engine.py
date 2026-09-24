@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
-from muhideen.core.errors import MuhideenError
+from muhideen.core.errors import MuhideenError, ScheduleError
 from muhideen.core.ports import CalcEngine, Clock, EventBus, PrayerRepo, SettingsRepo
 from muhideen.core.values import (
     MarkerName,
@@ -65,8 +65,14 @@ class Engine:
         self._last_minute: _Minute | None = None
 
     def resolve_day(self, requested: date, zone: str, now: datetime) -> FallbackResult:
-        """Resolve one day through the FR-1.2 chain: cache, calc, last-known."""
+        """Resolve one day through the FR-1.2 chain: cache, calc, last-known.
+
+        Only the configured zone resolves; anything else is an unknown
+        schedule (404 at the API), never a calc result stamped as requested.
+        """
         settings = self._settings_repo.load()
+        if zone != settings.zone:
+            raise ScheduleError(f"unknown zone: {zone}", zone, requested.isoformat())
         return self._resolve_day(requested, zone, now, settings)
 
     def next_event(self, now: datetime) -> NextEvent:

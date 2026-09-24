@@ -15,10 +15,14 @@ import pytest
 from pydantic import ValidationError
 
 from muhideen.api.dto import (
+    AuthRequestDTO,
+    AuthResponseDTO,
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
     NextEventDTO,
     PrayerDayDTO,
+    SessionStatusDTO,
+    SettingsDTO,
     VersionDTO,
 )
 from muhideen.core.values import (
@@ -176,6 +180,27 @@ def test_version_rejects_unknown_api_value() -> None:
         VersionDTO.model_validate({"version": "0.1.0", "api": "v2"})
 
 
+def test_settings_fixture_round_trips() -> None:
+    payload = _load("settings.json")
+    dto = SettingsDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
+def test_auth_fixtures_round_trip() -> None:
+    request_payload = _load("auth-request.json")
+    request_dto = AuthRequestDTO.model_validate(request_payload)
+    assert request_dto.model_dump(mode="json") == request_payload
+    response_payload = _load("auth-response.json")
+    response_dto = AuthResponseDTO.model_validate(response_payload)
+    assert response_dto.model_dump(mode="json") == response_payload
+
+
+def test_session_fixture_round_trips() -> None:
+    payload = _load("session.json")
+    dto = SessionStatusDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
 def test_all_contract_surfaces_have_fixtures() -> None:
     for name in (
         "prayer-day.json",
@@ -183,6 +208,10 @@ def test_all_contract_surfaces_have_fixtures() -> None:
         "heartbeat-request.json",
         "heartbeat-response.json",
         "version.json",
+        "settings.json",
+        "auth-request.json",
+        "auth-response.json",
+        "session.json",
     ):
         _load(name)
     assert (FIXTURES / "events-stream.txt").read_text().strip()

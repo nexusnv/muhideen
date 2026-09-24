@@ -16,7 +16,7 @@ pointer (``Settings.boundary_countdown``, default off).
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Annotated, Literal, cast
 
 from pydantic import (
@@ -28,15 +28,46 @@ from pydantic import (
 )
 
 from muhideen.core.values import (
+    IqamahRule,
+    MarkerName,
     NextEvent,
     PrayerDay,
     ScheduleSource,
+    Settings,
 )
 
 StateLiteral = Literal["NORMAL", "PRE_ADHAN", "ADHAN", "IQAMAH_COUNTDOWN", "SALAH_DIM"]
 PrayerLiteral = Literal["fajr", "dhuhr", "asr", "maghrib", "isha", "jumuah"]
 BoundaryLiteral = Literal["imsak", "syuruq", "dhuha"]
+MethodLiteral = Literal["MABIMS", "MWL", "ISNA", "Egyptian"]
+IqamahModeLiteral = Literal["delay", "fixed"]
 TimeHHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
+
+__all__ = [
+    "AuthRequestDTO",
+    "AuthResponseDTO",
+    "BoundaryLiteral",
+    "BoundaryTimesDTO",
+    "ConfigUpdateEventDTO",
+    "ContractDTO",
+    "HeartbeatRequestDTO",
+    "HeartbeatResponseDTO",
+    "IqamahModeLiteral",
+    "IqamahRuleDTO",
+    "MethodLiteral",
+    "NextEventDTO",
+    "PrayerDayDTO",
+    "PrayerLiteral",
+    "PrayerTimesDTO",
+    "SessionStatusDTO",
+    "SettingsDTO",
+    "SSE_PAYLOAD_MODELS",
+    "StateEventDTO",
+    "StateLiteral",
+    "TickEventDTO",
+    "TimeHHMM",
+    "VersionDTO",
+]
 
 
 class ContractDTO(BaseModel):
@@ -209,3 +240,108 @@ class VersionDTO(ContractDTO):
 
     version: str
     api: Literal["v1"]
+
+
+class IqamahRuleDTO(ContractDTO):
+    """One iqamah rule: Prayer Time Marker only, delay or fixed clock time."""
+
+    prayer: PrayerLiteral
+    mode: IqamahModeLiteral
+    delay_minutes: Annotated[int, Field(ge=0)]
+    fixed_time: TimeHHMM | None
+
+    @classmethod
+    def from_domain(cls, rule: IqamahRule) -> IqamahRuleDTO:
+        return cls(
+            prayer=cast(PrayerLiteral, rule.prayer.value),
+            mode=rule.mode,
+            delay_minutes=rule.delay_minutes,
+            fixed_time=(
+                rule.fixed_time.strftime("%H:%M")
+                if rule.fixed_time is not None
+                else None
+            ),
+        )
+
+    def to_domain(self) -> IqamahRule:
+        return IqamahRule(
+            prayer=MarkerName(self.prayer),
+            mode=self.mode,
+            delay_minutes=self.delay_minutes,
+            fixed_time=(
+                time.fromisoformat(self.fixed_time)
+                if self.fixed_time is not None
+                else None
+            ),
+        )
+
+
+class SettingsDTO(ContractDTO):
+    """Full-replace admin settings body and response (all fields required)."""
+
+    masjid_name: Annotated[str, Field(min_length=1, max_length=200)]
+    zone: Annotated[str, Field(min_length=1, max_length=32)]
+    hijri_offset: Annotated[int, Field(ge=-2, le=2)]
+    adhan_duration_s: Annotated[int, Field(gt=0)]
+    dim_minutes_default: Annotated[int, Field(ge=5, le=60)]
+    dim_minutes_jumuah: Annotated[int, Field(ge=5, le=60)]
+    iqamah_rules: Annotated[list[IqamahRuleDTO], Field(min_length=1)]
+    lat: Annotated[float | None, Field(ge=-90, le=90)]
+    lon: Annotated[float | None, Field(ge=-180, le=180)]
+    method: MethodLiteral
+    boundary_countdown: bool
+    calc_only: bool
+
+    @classmethod
+    def from_domain(cls, settings: Settings) -> SettingsDTO:
+        return cls(
+            masjid_name=settings.masjid_name,
+            zone=settings.zone,
+            hijri_offset=settings.hijri_offset,
+            adhan_duration_s=settings.adhan_duration_s,
+            dim_minutes_default=settings.dim_minutes_default,
+            dim_minutes_jumuah=settings.dim_minutes_jumuah,
+            iqamah_rules=[
+                IqamahRuleDTO.from_domain(rule) for rule in settings.iqamah_rules
+            ],
+            lat=settings.lat,
+            lon=settings.lon,
+            method=cast(MethodLiteral, settings.method),
+            boundary_countdown=settings.boundary_countdown,
+            calc_only=settings.calc_only,
+        )
+
+    def to_domain(self) -> Settings:
+        return Settings(
+            masjid_name=self.masjid_name,
+            zone=self.zone,
+            hijri_offset=self.hijri_offset,
+            adhan_duration_s=self.adhan_duration_s,
+            dim_minutes_default=self.dim_minutes_default,
+            dim_minutes_jumuah=self.dim_minutes_jumuah,
+            iqamah_rules=tuple(rule.to_domain() for rule in self.iqamah_rules),
+            lat=self.lat,
+            lon=self.lon,
+            method=self.method,
+            boundary_countdown=self.boundary_countdown,
+            calc_only=self.calc_only,
+        )
+
+
+class AuthRequestDTO(ContractDTO):
+    """Password-only admin credential body for setup and login."""
+
+    password: Annotated[str, Field(min_length=8, max_length=256)]
+
+
+class AuthResponseDTO(ContractDTO):
+    """Auth acknowledgement: setup, login, and logout share this shape."""
+
+    ok: bool
+
+
+class SessionStatusDTO(ContractDTO):
+    """GET /api/auth/session payload: session state plus setup flag."""
+
+    authenticated: bool
+    setup_required: bool

@@ -14,6 +14,7 @@ from muhideen.core.ports import (
     MediaStore,
     PrayerRepo,
     SettingsRepo,
+    UserRepo,
 )
 from muhideen.core.values import PrayerDay, Settings
 
@@ -121,6 +122,22 @@ class PartialMediaStore:
         raise NotImplementedError
 
 
+class FullUserRepo:
+    def has_users(self) -> bool:
+        raise NotImplementedError
+
+    def create_user(self, username: str, password: str) -> bool:
+        raise NotImplementedError
+
+    def verify(self, username: str, password: str) -> bool:
+        raise NotImplementedError
+
+
+class PartialUserRepo:
+    def has_users(self) -> bool:
+        raise NotImplementedError
+
+
 ALL_PROTOCOLS = (
     PrayerRepo,
     SettingsRepo,
@@ -130,6 +147,7 @@ ALL_PROTOCOLS = (
     Clock,
     EventBus,
     MediaStore,
+    UserRepo,
 )
 
 
@@ -145,6 +163,7 @@ ALL_PROTOCOLS = (
         (FullClock(), Clock),
         (FullEventBus(), EventBus),
         (FullMediaStore(), MediaStore),
+        (FullUserRepo(), UserRepo),
     ],
 )
 def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
@@ -164,6 +183,7 @@ def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
         (PartialClock(), Clock),
         (PartialEventBus(), EventBus),
         (PartialMediaStore(), MediaStore),
+        (PartialUserRepo(), UserRepo),
     ],
 )
 def test_incomplete_stub_fails_isinstance(stub: Any, protocol: type) -> None:
