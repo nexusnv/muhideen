@@ -23,7 +23,7 @@ from muhideen.adapters.sqlite_repo import (
     SqliteSettingsRepo,
 )
 from muhideen.adapters.system_clock import SystemClock
-from muhideen.core.errors import ConfigError, SyncError
+from muhideen.core.errors import ConfigError, SettingsNotInitializedError, SyncError
 from muhideen.core.values import Settings
 
 _PROD_TZ = ZoneInfo("Asia/Kuala_Lumpur")
@@ -43,7 +43,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Configure-or-sync, then one full-year sync.
 
-    Exit codes: ``0`` success, ``2`` unconfigured without ``--zone``,
+    Exit codes: ``0`` success, ``2`` unconfigured without ``--zone`` or
+    persisted settings are invalid (reported, defaults never saved),
     ``3`` configured but the year-sync failed (warned — the installer
     keeps going and the scheduler retries, so an offline first boot
     never aborts a half-finished install).
@@ -55,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     prayer_repo = SqlitePrayerRepo(database)
     try:
         settings = settings_repo.load()
-    except ConfigError:
+    except SettingsNotInitializedError:
         if args.zone is None:
             print(
                 "error: --zone is required on an unconfigured installation",
@@ -68,6 +69,9 @@ def main(argv: list[str] | None = None) -> int:
             hijri_offset=0,
         )
         settings_repo.save(settings)
+    except ConfigError as exc:
+        print(f"error: invalid settings: {exc}", file=sys.stderr)
+        return 2
     else:
         if args.zone is not None and args.zone != settings.zone:
             print(

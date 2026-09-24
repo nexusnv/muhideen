@@ -17,7 +17,7 @@ in `PRD.md`; the API surface in `docs/api-contract.md`.
   tag, run `tools/build_vendor.sh` and ship the resulting `vendor/`
   directory (requirements + wheels) with the repo. It downloads the
   locked dependency set for the build host and cross wheels for
-  `manylinux_2_17_aarch64` (Pi 4/5) and `manylinux_2_17_x86_64`;
+  `manylinux_2_28_aarch64` (Pi 4/5) and `manylinux_2_28_x86_64`;
   other architectures need a matching run of its `--platform` loop.
 
 ## Install

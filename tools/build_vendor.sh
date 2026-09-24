@@ -45,7 +45,7 @@ maybe_run python -m pip download hatchling -d "$WHEELS"
 # Cross wheels for the devices: Pi OS Bookworm ships Python 3.11, and
 # requires-python is >=3.11 — cp311 covers aarch64 (Pi 4/5) and x86_64
 # (dev VMs). Other tiers are tracked outside this script.
-for plat in manylinux_2_17_aarch64 manylinux_2_17_x86_64; do
+for plat in manylinux_2_28_aarch64 manylinux_2_28_x86_64; do
   note "download: cross wheels ${plat}"
   maybe_run python -m pip download -r "$REQS" -d "$WHEELS" \
     --python-version 3.11 --abi cp311 --only-binary=:all: --platform "$plat"

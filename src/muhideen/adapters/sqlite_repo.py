@@ -19,7 +19,7 @@ from pathlib import Path
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerificationError
 
-from muhideen.core.errors import ConfigError
+from muhideen.core.errors import ConfigError, SettingsNotInitializedError
 from muhideen.core.ports import Clock
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
@@ -198,7 +198,9 @@ class SqliteSettingsRepo:
             ).fetchall()
         if "masjid_name" not in kv or "zone_code" not in kv:
             # FR-6.2 first boot: identity comes from the setup wizard.
-            raise ConfigError("settings not initialised — run the setup wizard")
+            raise SettingsNotInitializedError(
+                "settings not initialised — run the setup wizard"
+            )
         try:
             # Optional keys fall back to VO defaults; migration 0001 seeds
             # the same values, and the seeded-defaults test pins both sides.

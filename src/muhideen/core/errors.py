@@ -13,6 +13,10 @@ class ConfigError(MuhideenError):
     """Invalid installation settings (zone, offsets, durations)."""
 
 
+class SettingsNotInitializedError(ConfigError):
+    """Identity settings are missing (first boot, setup wizard not run)."""
+
+
 class ScheduleError(MuhideenError):
     """A schedule could not be resolved; carries context for banners."""
 

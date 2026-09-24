@@ -200,8 +200,8 @@ def test_build_vendor_dry_run_lists_locked_steps(tmp_path: Path) -> None:
     out = result.stdout
     assert "uv export --no-dev --no-hashes" in out
     assert "pip download hatchling" in out  # decision 8: backend offline too
-    assert "manylinux_2_17_aarch64" in out
-    assert "manylinux_2_17_x86_64" in out
+    assert "manylinux_2_28_aarch64" in out
+    assert "manylinux_2_28_x86_64" in out
     assert "armv7l" not in out  # Pi 3 tier deferred to a follow-up issue
 
     # --dry-run executed nothing at all (no shim was ever called).
