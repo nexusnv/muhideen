@@ -8,6 +8,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=packaging/lib.sh
 source "$ROOT_DIR/packaging/lib.sh"
 
+# Anchor every relative path (git ops, backups/) to this checkout, never the
+# caller's cwd — admins run `sudo /path/to/update.sh` from anywhere.
+cd "$ROOT_DIR"
+
 CHECK=0
 MUHIDEEN_DRY_RUN=0
 DB="/var/lib/muhideen/muhideen.db"
@@ -55,9 +59,10 @@ fi
 
 current="$(current_tag)"
 ts="$(date +%Y%m%dT%H%M%S)"
-backup_path="backups/${current}-${ts}.db"
+backup_root="${MUHIDEEN_BACKUP_DIR:-$ROOT_DIR/backups}"
+backup_path="${backup_root}/${current}-${ts}.db"
 
-maybe_run mkdir -p backups
+maybe_run mkdir -p "$backup_root"
 maybe_run "$ROOT_DIR/.venv/bin/python" -c \
   'import sys; from pathlib import Path; from muhideen.adapters.sqlite_repo import Database, backup_to; backup_to(Database(sys.argv[1]), Path(sys.argv[2]))' \
   "$DB" "$backup_path"

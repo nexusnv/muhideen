@@ -28,6 +28,7 @@ SHIM_NAMES = (
     "timedatectl",
     "hostnamectl",
     "curl",
+    "muhideen-seed",
 )
 _LOG_LINE = 'printf \'%s %s\\n\' "${0##*/}" "$*" >> "$SHIM_LOG"\n'
 _DF_TABLE = (
@@ -42,22 +43,39 @@ def _run_install(
     *,
     mem_kb: int,
     tag: str,
+    state_db: bool = False,
+    seed_exit: int = 0,
 ) -> subprocess.CompletedProcess[str]:
     """Run install.sh with shims + seams; a fresh shim set per call."""
     shim_dir = tmp_path / f"bin-{tag}"
     shim_dir.mkdir()
     shim_log = tmp_path / f"shim-{tag}.log"
     for name in SHIM_NAMES:
+        body = _LOG_LINE
+        if name == "df":
+            body += _DF_TABLE
+        elif name == "muhideen-seed":
+            body += 'exit "${SHIM_SEED_EXIT:-0}"\n'
         shim = shim_dir / name
-        shim.write_text("#!/bin/sh\n" + _LOG_LINE + (_DF_TABLE if name == "df" else ""))
+        shim.write_text("#!/bin/sh\n" + body)
         shim.chmod(0o755)
     meminfo = tmp_path / f"meminfo-{tag}"
     meminfo.write_text(f"MemTotal:       {mem_kb} kB\nMemFree:         1234 kB\n")
+    state_dir = tmp_path / f"state-{tag}"
+    state_dir.mkdir()
+    if state_db:
+        (state_dir / "muhideen.db").write_bytes(b"")  # existing installation
+    wheels_dir = tmp_path / f"wheels-{tag}"
+    wheels_dir.mkdir()  # vendored wheels present (release checkouts ship them)
     env = {
         **os.environ,
         "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
         "MUHIDEEN_MEMINFO": str(meminfo),
         "MUHIDEEN_SYSTEMD_DIR": str(tmp_path / "systemd"),
+        "MUHIDEEN_STATE_DIR": str(state_dir),
+        "MUHIDEEN_SEED": str(shim_dir / "muhideen-seed"),
+        "MUHIDEEN_VENDOR_DIR": str(wheels_dir),
+        "SHIM_SEED_EXIT": str(seed_exit),
         "SHIM_LOG": str(shim_log),
     }
     return subprocess.run(
@@ -95,7 +113,7 @@ def test_dry_run_logs_ordered_steps_and_sources_lib(tmp_path: Path) -> None:
     markers = [
         "preflight",
         "apt-get install -y avahi-daemon avahi-utils git curl",
-        "uv sync --locked --offline --find-links vendor/wheels",
+        "uv sync --locked --offline --no-dev --find-links vendor/wheels",
         f"muhideen.service -> {unit_dir}",
         f"muhideen-mdns.service -> {unit_dir}",
         "muhideen-seed --zone SGR01",
@@ -154,3 +172,38 @@ def test_hostname_flag_controls_hostnamectl_step(tmp_path: Path) -> None:
     )
     assert skipped.returncode == 0, skipped.stderr
     assert "hostnamectl" not in skipped.stdout
+
+
+def test_first_boot_without_zone_refuses_before_any_step(tmp_path: Path) -> None:
+    # First boot (no state db) without --zone: die before apt/useradd/units,
+    # so a mistyped invocation never leaves a half-installed device.
+    refused = _run_install(tmp_path, [], mem_kb=2_000_000, tag="nozone")
+    assert refused.returncode == 1
+    combined = refused.stdout + refused.stderr
+    assert "--zone" in combined
+    log = _shim_log(tmp_path, "nozone")
+    assert "apt-get" not in log and "useradd" not in log  # nothing mutated
+
+    # An existing installation needs no --zone: every step proceeds.
+    installed = _run_install(
+        tmp_path, ["--dry-run"], mem_kb=2_000_000, tag="reinstall", state_db=True
+    )
+    assert installed.returncode == 0, installed.stderr
+    assert "apt-get install -y avahi-daemon avahi-utils git curl" in installed.stdout
+
+
+def test_seed_exit_3_tolerated_but_other_codes_die(tmp_path: Path) -> None:
+    # Seed's own year-fetch failure (exit 3, configured-but-unsynced) must not
+    # abort the install: services still enable and the scheduler retries.
+    tolerated = _run_install(
+        tmp_path, ["--zone", "SGR01"], mem_kb=2_000_000, tag="seed3", seed_exit=3
+    )
+    assert tolerated.returncode == 0, tolerated.stderr
+    assert "scheduler will retry" in tolerated.stdout
+    assert "systemctl enable --now" in _shim_log(tmp_path, "seed3")
+
+    # Any other seed failure still aborts loudly.
+    failed = _run_install(
+        tmp_path, ["--zone", "SGR01"], mem_kb=2_000_000, tag="seed1", seed_exit=1
+    )
+    assert failed.returncode == 1

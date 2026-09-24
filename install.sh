@@ -15,7 +15,9 @@ NEW_HOSTNAME="muhideen"
 FORCE=0
 MUHIDEEN_DRY_RUN=0
 MUHIDEEN_SYSTEMD_DIR="${MUHIDEEN_SYSTEMD_DIR:-/etc/systemd/system}"
-STATE_DIR="/var/lib/muhideen"
+STATE_DIR="${MUHIDEEN_STATE_DIR:-/var/lib/muhideen}"
+SEED_BIN="${MUHIDEEN_SEED:-$ROOT_DIR/.venv/bin/muhideen-seed}"
+VENDOR_WHEELS="${MUHIDEEN_VENDOR_DIR:-$ROOT_DIR/vendor/wheels}"
 HEALTH_URL="http://127.0.0.1:8000/api/version"
 
 usage() {
@@ -81,6 +83,12 @@ install_unit() { # install_unit <name> — @VENV@ placeholder → this checkout'
 
 preflight
 
+if [[ -z "$ZONE" && ! -f "${STATE_DIR}/muhideen.db" ]]; then
+  # Fail before apt/venv/units/user: first boot has no zone to seed, and a
+  # late failure would leave a half-installed device.
+  die "--zone is required on first boot (no database at ${STATE_DIR}/muhideen.db) — re-run with --zone <ZONE>"
+fi
+
 note "deps: avahi + curl + git via apt"
 maybe_run apt-get install -y avahi-daemon avahi-utils git curl
 maybe_run apt-get install -y systemd-timesyncd \
@@ -94,7 +102,7 @@ if ! command -v uv >/dev/null 2>&1; then
   fi
 fi
 
-if [[ ! -d "$ROOT_DIR/vendor/wheels" ]]; then
+if [[ ! -d "$VENDOR_WHEELS" ]]; then
   if [[ "$MUHIDEEN_DRY_RUN" == "1" ]]; then
     note "warn: vendor/wheels missing — build it with ./tools/build_vendor.sh"
   else
@@ -124,7 +132,15 @@ fi
 if [[ -n "$MASJID_NAME" ]]; then
   seed_args+=(--masjid-name "$MASJID_NAME")
 fi
-maybe_run "$ROOT_DIR/.venv/bin/muhideen-seed" "${seed_args[@]}"
+seed_rc=0
+maybe_run "$SEED_BIN" "${seed_args[@]}" || seed_rc=$?
+if (( seed_rc == 3 )); then
+  # Configured-but-unsynced (JAKIM unreachable): the service still enables
+  # and the scheduler retries — an offline first boot must not abort here.
+  note "warn: seed sync failed (exit 3) — configured but unsynced; the scheduler will retry"
+elif (( seed_rc != 0 )); then
+  die "seed failed with exit ${seed_rc} — see its message above"
+fi
 
 if ! maybe_run chown -R muhideen "$STATE_DIR"; then
   note "warn: chown ${STATE_DIR} failed — ensure User=muhideen can write it"

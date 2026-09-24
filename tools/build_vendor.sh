@@ -9,6 +9,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=packaging/lib.sh
 source "$ROOT_DIR/packaging/lib.sh"
 
+# Anchor vendor/ + uv build outputs to the checkout, not the caller's cwd.
+cd "$ROOT_DIR"
+
 MUHIDEEN_DRY_RUN=0
 REQS="vendor/requirements.txt"
 WHEELS="vendor/wheels"

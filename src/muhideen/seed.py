@@ -23,7 +23,7 @@ from muhideen.adapters.sqlite_repo import (
     SqliteSettingsRepo,
 )
 from muhideen.adapters.system_clock import SystemClock
-from muhideen.core.errors import ConfigError
+from muhideen.core.errors import ConfigError, SyncError
 from muhideen.core.values import Settings
 
 _PROD_TZ = ZoneInfo("Asia/Kuala_Lumpur")
@@ -41,7 +41,13 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Configure-or-sync, then one full-year sync; 0 on success (decision 3)."""
+    """Configure-or-sync, then one full-year sync.
+
+    Exit codes: ``0`` success, ``2`` unconfigured without ``--zone``,
+    ``3`` configured but the year-sync failed (warned — the installer
+    keeps going and the scheduler retries, so an offline first boot
+    never aborts a half-finished install).
+    """
     args = _parser().parse_args(argv)
     database = Database(args.db)
     migrate(database)
@@ -70,11 +76,19 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
     clock = SystemClock(_PROD_TZ)
-    count = run_sync(
-        client=HttpJAKIMClient(clock=clock),
-        prayer_repo=prayer_repo,
-        settings_repo=settings_repo,
-        clock=clock,
-    )
+    try:
+        count = run_sync(
+            client=HttpJAKIMClient(clock=clock),
+            prayer_repo=prayer_repo,
+            settings_repo=settings_repo,
+            clock=clock,
+        )
+    except SyncError as exc:
+        print(
+            f"warning: sync failed for zone {settings.zone}: {exc}; "
+            "the scheduler will retry",
+            file=sys.stderr,
+        )
+        return 3
     print(f"synced {count} days for zone {settings.zone}")
     return 0

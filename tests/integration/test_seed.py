@@ -20,7 +20,7 @@ from muhideen.adapters.sqlite_repo import (
     SqlitePrayerRepo,
     SqliteSettingsRepo,
 )
-from muhideen.core.errors import ConfigError
+from muhideen.core.errors import ConfigError, SyncError
 from muhideen.core.values import PrayerDay, ScheduleSource, Settings
 
 pytestmark = pytest.mark.integration
@@ -153,3 +153,28 @@ def test_configured_db_syncs_configured_zone_and_never_overwrites(
     assert settings.zone == "SGR01"
     assert settings.masjid_name == "Masjid Original"
     assert settings.hijri_offset == 2
+
+
+def test_sync_failure_returns_3_and_keeps_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Offline/unreachable JAKIM: configured but unsynced — a distinct exit
+    # code (3) so install.sh can continue while the scheduler retries.
+    class _FailingClient:
+        """JAKIMClient double: fetch_year always fails (file-local)."""
+
+        def fetch_year(self, zone: str) -> list[PrayerDay]:
+            raise SyncError("network down")
+
+    monkeypatch.setattr(seed, "HttpJAKIMClient", lambda *, clock: _FailingClient())
+    monkeypatch.setattr(seed, "SystemClock", _FakeClock)
+    db = tmp_path / "muhideen.db"
+
+    assert seed.main(["--db", str(db), "--zone", "SGR01"]) == 3
+
+    err = capsys.readouterr().err
+    assert "warning" in err and "SGR01" in err and "retry" in err
+    # The configuration made it to disk: the installation is ready to retry.
+    assert SqliteSettingsRepo(Database(db)).load().zone == "SGR01"

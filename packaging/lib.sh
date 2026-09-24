@@ -22,7 +22,10 @@ maybe_run() { # trace argv always; execute it only outside --dry-run
 sync_venv() { # sync_venv <repo-root> — the only uv sync invocation (decision 9)
   local root="$1"
   note "venv: locked offline sync from vendor wheels"
-  (cd "$root" && maybe_run uv sync --locked --offline --find-links vendor/wheels)
+  # --no-dev: the device never needs the dev group (pytest/ruff/pyright...),
+  # and build_vendor.sh exports --no-dev — syncing without it would demand
+  # dev wheels that offline vendor/ does not carry.
+  (cd "$root" && maybe_run uv sync --locked --offline --no-dev --find-links vendor/wheels)
 }
 
 health_check() { # health_check <url> <retries> <interval-seconds>

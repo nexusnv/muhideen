@@ -31,6 +31,7 @@ SHIM_NAMES = (
     "sleep",
 )
 _LOG_LINE = 'printf \'%s %s\\n\' "${0##*/}" "$*" >> "$SHIM_LOG"\n'
+_GIT_LOG_LINE = 'printf \'%s %s (pwd=%s)\\n\' "${0##*/}" "$*" "$PWD" >> "$SHIM_LOG"\n'
 _GIT_CASE = """case "$1" in
   status)
     if [ -n "${SHIM_GIT_DIRTY:-}" ]; then printf '%s\\n' "$SHIM_GIT_DIRTY"; fi
@@ -55,7 +56,7 @@ def _shim_env(
     shim_dir = tmp_path / f"bin-{tag}"
     shim_dir.mkdir()
     for name in SHIM_NAMES:
-        body = _LOG_LINE
+        body = _GIT_LOG_LINE if name == "git" else _LOG_LINE
         if name == "git":
             body += _GIT_CASE
         elif name == "curl":
@@ -68,6 +69,7 @@ def _shim_env(
         "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
         "SHIM_LOG": str(tmp_path / f"shim-{tag}.log"),
         "SHIM_CURL_EXIT": str(curl_exit),
+        "MUHIDEEN_BACKUP_DIR": str(tmp_path / "backups"),
     }
     if git_dirty:
         env["SHIM_GIT_DIRTY"] = git_dirty
@@ -82,16 +84,19 @@ def _run_update(
     git_dirty: str = "",
     curl_exit: int = 0,
     db: Path | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run update.sh from a throwaway cwd; a fresh shim set per call."""
     env = _shim_env(tmp_path, tag, git_dirty=git_dirty, curl_exit=curl_exit)
     argv = ["bash", str(UPDATE), *args]
     if db is not None:
         argv += ["--db", str(db)]
+    workdir = cwd if cwd is not None else tmp_path
+    workdir.mkdir(exist_ok=True)
     return subprocess.run(
         argv,
         env=env,
-        cwd=tmp_path,
+        cwd=workdir,
         capture_output=True,
         text=True,
     )
@@ -130,6 +135,9 @@ def test_dry_run_backs_up_before_checkout(tmp_path: Path) -> None:
     # before the fetch and the tag checkout (PRD §7.2 OTA, decision 5).
     assert idx("backup_to") < idx("git fetch --tags") < idx("git checkout")
 
+    # Every git command runs against this checkout, not the caller's cwd.
+    assert f"pwd={REPO}" in _shim_log(tmp_path, "dry")
+
 
 def test_check_reports_versions_without_mutating(tmp_path: Path) -> None:
     result = _run_update(tmp_path, ["--check"], tag="check")
@@ -155,12 +163,17 @@ def test_dirty_tree_refuses_with_stash_hint(tmp_path: Path) -> None:
 
     # Refused before any other command: status is the only one logged.
     log_lines = _shim_log(tmp_path, "dirty").splitlines()
-    assert log_lines == ["git status --porcelain"], log_lines
+    assert len(log_lines) == 1, log_lines
+    assert log_lines[0].startswith("git status --porcelain")
 
 
 def test_health_failure_reports_recovery_details(tmp_path: Path) -> None:
     db = tmp_path / "muhideen.db"
-    result = _run_update(tmp_path, [], tag="health", curl_exit=1, db=db)
+    # Invoked from a *different* directory than the checkout: the backup
+    # must still land in MUHIDEEN_BACKUP_DIR, not the caller's cwd.
+    result = _run_update(
+        tmp_path, [], tag="health", curl_exit=1, db=db, cwd=tmp_path / "work"
+    )
     assert result.returncode == 1
 
     combined = result.stdout + result.stderr

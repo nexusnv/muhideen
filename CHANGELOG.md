@@ -72,8 +72,10 @@ versioning follows [Semantic Versioning](https://semver.org/).
   additive `time_synced` field on `GET /api/next-event` and SSE `state`
   (FR-1.6 `TIME UNSYNCED` banner + >5s wall-vs-monotonic drift latch);
   `install.sh` (RAM preflight with `--force`, apt deps, offline
-  vendored-wheel `uv sync`, systemd units, hostname, seed, NTP enable,
-  health check, `--dry-run`), `update.sh` (dirty-tree refusal,
+  vendored-wheel `uv sync --no-dev`, systemd units, hostname, seed, NTP
+  enable, health check, `--dry-run`; first-boot `--zone` gate before any
+  mutation; a seed year-fetch failure warns + exits 3 so an offline
+  first boot still finishes installing), `update.sh` (dirty-tree refusal,
   `VACUUM INTO` backup before tag checkout, health-verified upgrade +
   `--check`, recovery message instead of auto-rollback), `packaging/`
   units incl. the mDNS advertiser (`muhideen-mdns`,

@@ -47,7 +47,9 @@ What each step does, in order:
    simply skips it).
 3. **Offline sync** — refuses to continue if `uv` or `vendor/wheels` is
    missing (warns instead under `--dry-run`), then runs
-   `uv sync --locked --offline --find-links vendor/wheels` into `.venv`.
+   `uv sync --locked --offline --no-dev --find-links vendor/wheels` into
+   `.venv` (`--no-dev`: the device never needs the dev tools the offline
+   wheels don't carry).
 4. **Service user** — creates the system user `muhideen` with home
    `/var/lib/muhideen`.
 5. **Units** — copies `packaging/muhideen.service` and
@@ -57,8 +59,10 @@ What each step does, in order:
    skipped for `--hostname ''`).
 7. **Seed** — runs `.venv/bin/muhideen-seed` against
    `--db /var/lib/muhideen/muhideen.db` with the configured zone and
-   name (configure-or-sync: an already-configured database is fetched
-   only if stale, never reconfigured).
+   name (configure-or-sync: an already-configured database keeps its
+   settings and just refreshes the year). If JAKIM is unreachable, seed
+   warns and exits 3; the install continues, the services still enable,
+   and the scheduler retries the fetch.
 8. **Ownership + NTP** — `chown`s the state directory to `muhideen` and
    runs `timedatectl set-ntp true` (warn-only).
 9. **Enable** — `systemctl daemon-reload` +
@@ -94,9 +98,12 @@ sudo ./update.sh         # apply the newest local tag
 * If git reports a "dubious ownership" error under `sudo`, mark the
   checkout trusted once:
   `git config --global --add safe.directory /path/to/checkout`.
-* **Backups** live in `backups/` next to `update.sh`. Names are
-  timestamped and `VACUUM INTO` refuses to overwrite an existing file,
-  so no backup is ever clobbered. Prune old ones manually.
+* **Backups** live in `backups/` next to `update.sh` (anchor: the script
+  `cd`s to its own directory, so this holds however you invoke it —
+  override the location with `MUHIDEEN_BACKUP_DIR`, e.g. to keep them on
+  the state volume). Names are timestamped and `VACUUM INTO` refuses to
+  overwrite an existing file, so no backup is ever clobbered. Prune old
+  ones manually.
 * **Failure — no automatic rollback.** If the health check fails after
   an update, `update.sh` exits 1 with a recovery message naming the
   backup path, the previous tag, and the `systemctl` commands. Manual
