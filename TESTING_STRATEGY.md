@@ -10,11 +10,11 @@ Tests mirror `ARCHITECTURE.md` layers. Organized by scope, run with `uv`. No ski
 | `tests/contract/` | `contract` | API schema vs fixtures: Pydantic DTOs serialize to `api/fixtures/*.json`, SSE sample parses, OpenAPI matches handlers. Fails on drift. |
 | `tests/integration/` | `integration` | Engine + real SQLite (tmp file, WAL) + fake JAKIM/calc: seeding, fallback ordering, heartbeat batching, migration `user_version`. |
 | `tests/property/` | `property` | Hypothesis invariants: monotonic countdown targets, no overlapping states, Boundary Time Markers never adhan/iqamah/dim/leave NORMAL, opt-in pointer gates exactly, midnight crossover always resolves next-day Fajr, re-render idempotence. |
-| `tests/e2e/` | `e2e` | Public surface via ASGI test client: `/display`, `/admin` (auth), `/api/next-event`, SSE stream head. No Chromium. **Suite not started — route handlers are stubs (501) until the HTTP surface lands.** |
+| `tests/e2e/` | `e2e` | Public surface via ASGI test client: landed slice 1A-7 (API surface, SSE, auth/rate limits, docs gate); `/display` and `/admin` join with their frontend slices. No Chromium. |
 
 ## Shared Infrastructure
 
-* **Pinned time.** All domain/engine tests inject `FakeClock`; production will wire a `SystemClock` adapter (monotonic for countdowns), which does not exist yet. Wall-clock reads in `domain/`, `engine/`, `core/` fail the purity scan (CI source-scan step, plus the `! rg` steps in the `CONTRIBUTING.md` quality gate).
+* **Pinned time.** All domain/engine tests inject `FakeClock`; production wires the `SystemClock` adapter (`adapters/system_clock.py`, via `create_production_app`) for wall time and monotonic countdowns. Wall-clock reads in `domain/`, `engine/`, `core/` fail the purity scan (CI source-scan step, plus the `! rg` steps in the `CONTRIBUTING.md` quality gate).
 * **Test doubles stay local.** Each file defines its own fakes (`FakePrayerRepo`, `StubJAKIM`, `FakeClock`). No shared mock library.
 * **Isolation.** SQLite tests use tmp files; contract tests never touch the DB; e2e resets between tests.
 * **Hypothesis profile.** `tests/conftest.py` registers `ci` (`max_examples=100`, no deadline) matching paxman practice.

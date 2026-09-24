@@ -6,6 +6,7 @@ All protocols are runtime-checkable so registries can verify wiring.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
@@ -71,9 +72,18 @@ class Clock(Protocol):
 
 @runtime_checkable
 class EventBus(Protocol):
-    def publish(self, event: str) -> None: ...
+    def publish(self, event: str, changed: Sequence[str] = ()) -> None: ...
 
 
 @runtime_checkable
 class MediaStore(Protocol):
     def list_enabled(self) -> list[str]: ...
+
+
+@runtime_checkable
+class UserRepo(Protocol):
+    def has_users(self) -> bool: ...
+
+    def create_user(self, username: str, password: str) -> bool: ...
+
+    def verify(self, username: str, password: str) -> bool: ...

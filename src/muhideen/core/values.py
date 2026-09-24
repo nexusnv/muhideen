@@ -150,6 +150,7 @@ class Settings:
     lon: float | None = None
     method: str = "MABIMS"
     boundary_countdown: bool = False
+    calc_only: bool = False
 
     def __post_init__(self) -> None:
         if not -2 <= self.hijri_offset <= 2:

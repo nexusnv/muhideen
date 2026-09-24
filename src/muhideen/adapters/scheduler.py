@@ -111,6 +111,8 @@ def run_sync(
     repaired by the next attempt, which rewrites the full year.
     """
     settings = settings_repo.load()
+    if settings.calc_only:
+        return 0
     days = client.fetch_year(settings.zone)
     for day in days:
         try:

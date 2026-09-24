@@ -246,7 +246,7 @@ CREATE TABLE settings (
   value TEXT NOT NULL
   -- keys: masjid_name, zone_code|lat,lon,method, hijri_offset(-2..2),
   -- adhan_duration_s, dim_minutes_default, dim_minutes_jumuah,
-  -- boundary_countdown(0|1), carousel_enabled, theme_default,
+  -- boundary_countdown(0|1), calc_only(0|1), carousel_enabled, theme_default,
   -- qr_visible_default
 );
 
@@ -312,6 +312,8 @@ Single-repo logical split (§4.4). Backend implements first; frontend builds aga
 * `GET /api/next-event` → `{state, now, next_prayer, adhan_at, iqamah_at, dim_until, stale, next_boundary, boundary_at}` per §8 — `next_prayer` is always a Prayer Time Marker; `next_boundary`/`boundary_at` are populated only when `boundary_countdown` is enabled (see `api/fixtures/next-event.json`).
 * `GET /api/events` → SSE `text/event-stream` (`state`, `tick`, `config-update`); 60s poll of `next-event` is fallback (see `api/fixtures/events-stream.txt`).
 * `POST /api/displays/heartbeat` → `{id}` heartbeat; server batches `last_seen` writes every 60s.
+* `GET /api/settings` + `PUT /api/settings` → full installation settings (FR-6.1/FR-6.2/FR-1.7/FR-1.4 fields, admin session, live-reload via `config-update`); offline `calc_only` switch stops network fetch without reordering FR-1.2 (see `api/fixtures/settings.json`).
+* `POST /api/auth/setup|login|logout` + `GET /api/auth/session` → Argon2id single-admin auth with 5/min/IP rate limits, 30-min expiring sessions, and first-boot setup gating (see `api/fixtures/auth-request.json`, `api/fixtures/auth-response.json`, `api/fixtures/session.json`).
 * Breaking changes require major version bump (`/api/v2/...`) + fixtures + changelog; additive fields allowed without bump.
 
 ---

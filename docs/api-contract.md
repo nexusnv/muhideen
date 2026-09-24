@@ -41,7 +41,7 @@ Server-computed state per PRD §8. Client never computes. All timestamps ISO8601
 
 ## `GET /api/events` (SSE `text/event-stream`)
 
-Events: `state` (on transition), `tick` (1/min heartbeat with server `now`), `config-update` (settings/theme/carousel changed → refetch). `state` payloads carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`.
+Events: `state` (on transition), `tick` (1/min heartbeat with server `now`), `config-update` (settings/theme/carousel changed → refetch). `state` payloads carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`. OpenAPI documents the three payload schemas inline as an `anyOf` (under `type: object`) beneath the `text/event-stream` content.
 
 ## `POST /api/displays/heartbeat`
 
@@ -64,6 +64,108 @@ Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-onl
 ```json
 {"version": "0.1.0", "api": "v1"}
 ```
+
+## `GET /api/settings`
+
+Admin session required. Full installation settings including the `boundary_countdown` opt-in and `calc_only` offline mode.
+
+```json
+{
+  "masjid_name": "Masjid Test",
+  "zone": "SGR01",
+  "hijri_offset": 0,
+  "adhan_duration_s": 180,
+  "dim_minutes_default": 20,
+  "dim_minutes_jumuah": 45,
+  "iqamah_rules": [
+    {"prayer": "fajr", "mode": "delay", "delay_minutes": 15, "fixed_time": null},
+    {"prayer": "dhuhr", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
+    {"prayer": "asr", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
+    {"prayer": "maghrib", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
+    {"prayer": "isha", "mode": "delay", "delay_minutes": 15, "fixed_time": null},
+    {"prayer": "jumuah", "mode": "delay", "delay_minutes": 10, "fixed_time": null}
+  ],
+  "lat": 3.07,
+  "lon": 101.69,
+  "method": "MABIMS",
+  "boundary_countdown": false,
+  "calc_only": false
+}
+```
+
+## `PUT /api/settings`
+
+Admin session required. Full-replace body; the response echoes the stored settings. A successful write publishes a `config-update` event with the `settings` group.
+
+```json
+{
+  "masjid_name": "Masjid Test",
+  "zone": "SGR01",
+  "hijri_offset": 0,
+  "adhan_duration_s": 180,
+  "dim_minutes_default": 20,
+  "dim_minutes_jumuah": 45,
+  "iqamah_rules": [
+    {"prayer": "fajr", "mode": "delay", "delay_minutes": 15, "fixed_time": null},
+    {"prayer": "dhuhr", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
+    {"prayer": "asr", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
+    {"prayer": "maghrib", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
+    {"prayer": "isha", "mode": "delay", "delay_minutes": 15, "fixed_time": null},
+    {"prayer": "jumuah", "mode": "delay", "delay_minutes": 10, "fixed_time": null}
+  ],
+  "lat": 3.07,
+  "lon": 101.69,
+  "method": "MABIMS",
+  "boundary_countdown": false,
+  "calc_only": false
+}
+```
+
+## `POST /api/auth/setup`
+
+First-boot only: allowed while no admin exists, otherwise 409. Creates the admin and issues a session cookie. Rate limited to 5/min/IP.
+
+```json
+{"password": "password123"}
+```
+
+```json
+{"ok": true}
+```
+
+Short passwords are 422, a second setup is 409, and the 6th attempt inside the window is 429.
+
+## `POST /api/auth/login`
+
+Password-only admin login. Issues a session cookie on success. Rate limited to 5/min/IP; wrong passwords are 401.
+
+```json
+{"password": "password123"}
+```
+
+```json
+{"ok": true}
+```
+
+## `POST /api/auth/logout`
+
+Clears the session cookie. Idempotent: always 200, even without a session.
+
+```json
+{"ok": true}
+```
+
+## `GET /api/auth/session`
+
+Session status plus whether first-boot setup is still required. No auth required.
+
+```json
+{"authenticated": true, "setup_required": false}
+```
+
+## Errors
+
+Unknown schedules are 404 with a detail message. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
 
 ## Versioning
 Additive fields allowed without bump. Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.

@@ -16,6 +16,9 @@ from contextlib import contextmanager
 from datetime import date, datetime, time
 from pathlib import Path
 
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHash, VerificationError
+
 from muhideen.core.errors import ConfigError
 from muhideen.core.ports import Clock
 from muhideen.core.values import (
@@ -208,6 +211,7 @@ class SqliteSettingsRepo:
                 dim_minutes_jumuah=int(kv.get("dim_minutes_jumuah", "45")),
                 method=kv.get("method", "MABIMS"),
                 boundary_countdown=_parse_bool(kv.get("boundary_countdown", "0")),
+                calc_only=_parse_bool(kv.get("calc_only", "0")),
                 lat=_parse_optional_float(kv.get("lat")),
                 lon=_parse_optional_float(kv.get("lon")),
                 iqamah_rules=_rules_from_rows(rule_rows) or DEFAULT_IQAMAH_RULES,
@@ -225,6 +229,7 @@ class SqliteSettingsRepo:
             ("dim_minutes_jumuah", str(settings.dim_minutes_jumuah)),
             ("method", settings.method),
             ("boundary_countdown", "1" if settings.boundary_countdown else "0"),
+            ("calc_only", "1" if settings.calc_only else "0"),
         ]
         if settings.lat is not None:  # both-or-neither, enforced by the VO guard
             pairs.append(("lat", repr(settings.lat)))
@@ -315,3 +320,41 @@ def backup_to(db: Database, dest: Path) -> Path:
     with db.write() as conn:
         conn.execute("VACUUM INTO ?", (str(dest),))
     return dest
+
+
+class SqliteUserRepo:
+    """``UserRepo`` over the ``users`` table with Argon2id hashes."""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+        self._hasher = PasswordHasher()
+
+    def has_users(self) -> bool:
+        with self._db.read() as conn:
+            row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
+        return int(row["n"]) > 0
+
+    def create_user(self, username: str, password: str) -> bool:
+        digest = self._hasher.hash(password)
+        try:
+            with self._db.write() as conn:
+                conn.execute(
+                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                    (username, digest),
+                )
+        except sqlite3.IntegrityError:
+            return False
+        return True
+
+    def verify(self, username: str, password: str) -> bool:
+        with self._db.read() as conn:
+            row = conn.execute(
+                "SELECT password_hash FROM users WHERE username = ?",
+                (username,),
+            ).fetchone()
+        if row is None:
+            return False
+        try:
+            return bool(self._hasher.verify(str(row["password_hash"]), password))
+        except (VerificationError, InvalidHash):
+            return False

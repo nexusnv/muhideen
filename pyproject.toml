@@ -25,6 +25,7 @@ dependencies = [
     "pydantic>=2",
     "adhanpy==1.0.5",
     "httpx>=0.27",
+    "argon2-cffi>=23.1",
 ]
 
 [project.urls]
