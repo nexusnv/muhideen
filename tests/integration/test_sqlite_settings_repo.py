@@ -193,3 +193,30 @@ def test_save_persists_rules_as_canonical_rows(tmp_path: Path) -> None:
 def test_sqlite_settings_repo_satisfies_port(tmp_path: Path) -> None:
     db = _db(tmp_path)
     assert isinstance(SqliteSettingsRepo(db), SettingsRepo)
+
+
+def test_offset_keys_round_trip(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    settings = Settings(
+        masjid_name="Masjid Test",
+        zone="SGR01",
+        hijri_offset=0,
+        imsak_offset_min=5,
+        dhuha_offset_min=20,
+    )
+    repo.save(settings)
+    loaded = repo.load()
+    assert (loaded.imsak_offset_min, loaded.dhuha_offset_min) == (5, 20)
+
+
+def test_offset_keys_default_when_missing(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0))
+    with db.write() as conn:
+        conn.execute(
+            "DELETE FROM settings WHERE key IN ('imsak_offset_min', 'dhuha_offset_min')"
+        )
+    loaded = repo.load()
+    assert (loaded.imsak_offset_min, loaded.dhuha_offset_min) == (10, 28)
