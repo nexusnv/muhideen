@@ -132,3 +132,70 @@ def test_fallback_result_frozen() -> None:
     result = FallbackResult(day=_day(), stale=False)
     with pytest.raises(FrozenInstanceError):
         result.stale = True  # type: ignore[misc]
+
+
+@pytest.mark.unit
+def test_merge_days_prefers_cached_markers() -> None:
+    from datetime import time
+
+    from muhideen.domain.fallback import merge_days
+
+    cached = PrayerDay(
+        date=date(2026, 9, 23),
+        zone="SGR01",
+        imsak=time(5, 45),
+        fajr=time(5, 55),
+        syuruq=time(7, 1),
+        dhuha=time(7, 26),
+        dhuhr=time(13, 9),
+        asr=time(16, 14),
+        maghrib=time(19, 11),
+        isha=time(20, 20),
+        source=ScheduleSource.JAKIM,
+        fetched_at=datetime(2026, 9, 23, 1, 0, tzinfo=TZ),
+    )
+    calc = PrayerDay(
+        date=date(2026, 9, 23),
+        zone="SGR01",
+        imsak=time(5, 40),
+        fajr=time(5, 50),
+        syuruq=time(7, 0),
+        dhuha=time(7, 30),
+        dhuhr=time(12, 20),
+        asr=time(15, 35),
+        maghrib=time(18, 10),
+        isha=time(19, 30),
+        source=ScheduleSource.CALC,
+        fetched_at=datetime(2026, 9, 23, 1, 0, tzinfo=TZ),
+    )
+    merged = merge_days(cached, calc)
+    assert merged is not None
+    assert (merged.fajr, merged.dhuhr, merged.source) == (
+        time(5, 55),
+        time(13, 9),
+        ScheduleSource.JAKIM,
+    )
+
+
+@pytest.mark.unit
+def test_merge_days_falls_back_to_calc() -> None:
+    from datetime import time
+
+    from muhideen.domain.fallback import merge_days
+
+    calc = PrayerDay(
+        date=date(2026, 9, 23),
+        zone="SGR01",
+        imsak=time(5, 40),
+        fajr=time(5, 50),
+        syuruq=time(7, 0),
+        dhuha=time(7, 30),
+        dhuhr=time(12, 20),
+        asr=time(15, 35),
+        maghrib=time(18, 10),
+        isha=time(19, 30),
+        source=ScheduleSource.CALC,
+        fetched_at=datetime(2026, 9, 23, 1, 0, tzinfo=TZ),
+    )
+    assert merge_days(None, calc) == calc
+    assert merge_days(None, None) is None

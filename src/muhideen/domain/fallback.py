@@ -50,3 +50,34 @@ def resolve_day(
         zone,
         requested.isoformat(),
     )
+
+
+def merge_days(
+    preferred: PrayerDay | None, fallback: PrayerDay | None
+) -> PrayerDay | None:
+    """Merge two complete days per marker, preferring ``preferred``.
+
+    API (cached/JAKIM) markers supersede calc markers one by one. Rows are
+    complete today (the JAKIM parser rejects partial payloads and the DB
+    columns are NOT NULL), so a present ``preferred`` day wins wholesale —
+    the per-marker form is what future-proofs a partial-row world without a
+    schema change. Provenance follows ``preferred``.
+    """
+    if preferred is None:
+        return fallback
+    if fallback is None:
+        return preferred
+    return PrayerDay(
+        date=preferred.date,
+        zone=preferred.zone,
+        imsak=preferred.imsak,
+        fajr=preferred.fajr,
+        syuruq=preferred.syuruq,
+        dhuha=preferred.dhuha,
+        dhuhr=preferred.dhuhr,
+        asr=preferred.asr,
+        maghrib=preferred.maghrib,
+        isha=preferred.isha,
+        source=preferred.source,
+        fetched_at=preferred.fetched_at,
+    )
