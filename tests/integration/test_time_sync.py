@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -190,6 +191,44 @@ def test_probe_caches_within_ttl_and_reprobes_after_expiry() -> None:
     clock.advance(31.0)  # 60s since the cached read
     assert probe.synchronized() is True
     assert runner.calls == ["timedatectl", "timedatectl"]
+
+
+def test_expired_cache_probes_once_under_concurrent_callers() -> None:
+    # Round-3 review: post-expiry thundering herd. Callers race in from the
+    # ticker, the HTTP threadpool and off-loop SSE frames — while one refresh
+    # is in flight, every other caller must share it, not spawn its own
+    # timedatectl/chronyc (each up to a 10s timeout) on the Pi.
+    entered_first = threading.Event()
+    entered_second = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+
+    def runner(cmd: list[str]) -> str:
+        calls.append(cmd[0])
+        (entered_first if len(calls) == 1 else entered_second).set()
+        release.wait(10)  # hold the refresh open until the test releases it
+        return "yes"
+
+    probe = SystemTimeSyncProbe(clock=DriftingClock(NOW), runner=runner)
+    results: list[bool] = []
+
+    def call() -> None:
+        results.append(probe.synchronized())
+
+    first = threading.Thread(target=call)
+    first.start()
+    assert entered_first.wait(5)  # first caller is inside the refresh
+    second = threading.Thread(target=call)
+    second.start()
+    # Unlocked: the cache is still unwritten, so the second caller enters the
+    # runner too (event fires). Locked: it waits on the refresh lock instead
+    # (event never fires) — either way, release next and assert one probe.
+    entered_second.wait(1)
+    release.set()
+    first.join(10)
+    second.join(10)
+    assert results == [True, True]
+    assert calls == ["timedatectl"]  # one shared subprocess, not two
 
 
 def test_probe_falls_back_to_chrony_when_timedatectl_missing() -> None:

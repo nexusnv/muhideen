@@ -10,6 +10,7 @@ closed to `False`: an unsynced clock must never claim to be synced.
 from __future__ import annotations
 
 import subprocess
+import threading
 from collections.abc import Callable
 
 from muhideen.core.ports import Clock
@@ -50,16 +51,27 @@ class SystemTimeSyncProbe:
         self._ttl_s = ttl_s
         self._cached: bool | None = None
         self._cached_at = float("-inf")
+        self._refresh_lock = threading.Lock()
 
     def synchronized(self) -> bool:
-        """Fresh cached answer inside the TTL; otherwise re-probe the system."""
+        """Fresh cached answer inside the TTL; otherwise re-probe the system.
+
+        Check-and-refresh runs under a lock so concurrent callers arriving
+        after an expiry share the single in-flight subprocess instead of
+        racing ``timedatectl``/``chronyc`` spawns (each up to a 10s
+        timeout). Blocking here is safe by construction: every caller is a
+        worker thread — the SSE generator offloads ``next_event`` via
+        ``asyncio.to_thread``, endpoints run in starlette's threadpool, and
+        the ticker is its own thread — so no wait can reach the event loop.
+        """
         now = self._clock.monotonic()
-        if self._cached is not None and now - self._cached_at < self._ttl_s:
-            return self._cached
-        value = self._read()
-        self._cached = value
-        self._cached_at = now
-        return value
+        with self._refresh_lock:
+            if self._cached is not None and now - self._cached_at < self._ttl_s:
+                return self._cached
+            value = self._read()
+            self._cached = value
+            self._cached_at = now
+            return value
 
     def _read(self) -> bool:
         try:
