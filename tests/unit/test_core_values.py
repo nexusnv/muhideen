@@ -365,30 +365,44 @@ def test_schedule_source_members() -> None:
     assert {s.value for s in ScheduleSource} == {"jakim", "calc", "manual"}
 
 
+@pytest.mark.unit
 def test_settings_boundary_offset_defaults_and_guards() -> None:
-    from muhideen.core.values import Settings
-
     settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
     assert settings.imsak_offset_min == 10
     assert settings.dhuha_offset_min == 28
 
 
+@pytest.mark.unit
 def test_settings_boundary_offset_ranges_rejected() -> None:
-    import pytest
-
-    from muhideen.core.values import Settings
-
     for bad in (-1, 11):
-        with pytest.raises(ValueError):
-            Settings(masjid_name="M", zone="SGR01", hijri_offset=0, imsak_offset_min=bad)
+        with pytest.raises(ValueError, match="imsak_offset_min out of range"):
+            Settings(
+                masjid_name="M",
+                zone="SGR01",
+                hijri_offset=0,
+                imsak_offset_min=bad,
+            )
     for bad in (14, 31):
-        with pytest.raises(ValueError):
-            Settings(masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=bad)
+        with pytest.raises(ValueError, match="dhuha_offset_min out of range"):
+            Settings(
+                masjid_name="M",
+                zone="SGR01",
+                hijri_offset=0,
+                dhuha_offset_min=bad,
+            )
 
 
+@pytest.mark.unit
 def test_settings_boundary_offset_edges_accepted() -> None:
-    from muhideen.core.values import Settings
-
-    assert Settings(masjid_name="M", zone="SGR01", hijri_offset=0, imsak_offset_min=0).imsak_offset_min == 0
-    assert Settings(masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=15).dhuha_offset_min == 15
-    assert Settings(masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=30).dhuha_offset_min == 30
+    imsak_zero = Settings(
+        masjid_name="M", zone="SGR01", hijri_offset=0, imsak_offset_min=0
+    )
+    assert imsak_zero.imsak_offset_min == 0
+    dhuha_low = Settings(
+        masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=15
+    )
+    assert dhuha_low.dhuha_offset_min == 15
+    dhuha_high = Settings(
+        masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=30
+    )
+    assert dhuha_high.dhuha_offset_min == 30
