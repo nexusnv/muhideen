@@ -123,9 +123,10 @@ zone code **or** lat/lon + method (MABIMS default; online-JAKIM vs calc-only
 toggle) → admin password (client-side length pre-check) → Hijri offset stepper
 (−2…+2) → review → `POST /api/auth/setup` then `PUT /api/settings`.
 `/admin/settings` exposes the minimal tunables on the same API (no fork): name,
-zone/latlon+method, calc-only, Hijri offset, per-prayer (+Jumuah) iqamah
-delays, adhan duration, dim durations, `boundary_countdown` opt-in.
-Full-replace `PUT` with inline 422 display; success notes live reload via
+zone/latlon+method, calc-only, Hijri offset, `imsak_offset_min`,
+`dhuha_offset_min`, per-prayer (+Jumuah) iqamah delays, adhan duration, dim
+durations, `boundary_countdown` opt-in. Full-replace `PUT` includes and
+submits both offset fields on every save, with inline 422 display; success notes live reload via
 `config-update`. QR block (`http://muhideen.local:8000/admin`, no secrets)
 rendered server-side, shown on demand, hidden by default and during prayer
 states; one-time setup token with expiry note; fallback IP alongside (mDNS may
