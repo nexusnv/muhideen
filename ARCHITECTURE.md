@@ -107,7 +107,7 @@ And the three users from the domain glossary each touch a different surface: the
 
 Prayer times reach the screen through three stages: acquire candidate schedules, resolve one day, compute the display state. Exactly one zone is configured per installation, and every stage respects that.
 
-**Acquire.** The scheduler fetches the whole calendar year for the configured zone once daily (with short retries on failure), storing each day with its provenance. Independently, the on-device calculator can derive a day's markers from coordinates plus the pinned MABIMS parameters. The two sources never mix inside one day: each stored day carries its source, and each fetch either fully validates or leaves the cache untouched.
+**Acquire.** The scheduler fetches the whole calendar year for the configured zone once daily (with short retries on failure), storing each day with its provenance. Independently, the on-device calculator can derive a day's markers from coordinates plus the pinned MABIMS parameters. Each stored day carries its source, and each fetch either fully validates or leaves the cache untouched. At resolve time markers merge per marker with cached (API) markers winning over calc; rows are complete today so a present cached day wins wholesale.
 
 **Resolve (the fallback chain).** For a requested date, the engine takes the first candidate that matches, in fixed priority:
 
@@ -117,6 +117,8 @@ Prayer times reach the screen through three stages: acquire candidate schedules,
 3. last-known saved day for zone    → always flagged stale
 4. none of the above                → unknown schedule (404 at the API)
 ```
+
+Per-marker precedence: when both candidates exist, each marker takes the cached value; provenance follows the cached day. Calc derivation itself is per marker: 6 from the library plus `imsak_offset_min`/`dhuha_offset_min` offsets (0 hides imsak).
 
 Freshness is a separate flag from identity: anything older than 48 hours or produced by a degraded step renders with a banner, never silently. A requested zone that is not the configured zone is unknown even when coordinates exist — the system never serves a schedule stamped for a zone it was not resolved for. An installation with no settings yet reports itself unconfigured rather than guessing.
 

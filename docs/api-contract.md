@@ -68,13 +68,14 @@ Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-onl
 
 ## `GET /api/settings`
 
-Admin session required. Full installation settings including the `boundary_countdown` opt-in and `calc_only` offline mode.
+Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the `boundary_countdown` opt-in and `calc_only` offline mode.
 
 ```json
 {
   "masjid_name": "Masjid Test",
   "zone": "SGR01",
   "hijri_offset": 0,
+  "imsak_offset_min": 10,
   "adhan_duration_s": 180,
   "dim_minutes_default": 20,
   "dim_minutes_jumuah": 45,
@@ -89,6 +90,7 @@ Admin session required. Full installation settings including the `boundary_count
   "lat": 3.07,
   "lon": 101.69,
   "method": "MABIMS",
+  "dhuha_offset_min": 28,
   "boundary_countdown": false,
   "calc_only": false
 }
@@ -103,6 +105,7 @@ Admin session required. Full-replace body; the response echoes the stored settin
   "masjid_name": "Masjid Test",
   "zone": "SGR01",
   "hijri_offset": 0,
+  "imsak_offset_min": 10,
   "adhan_duration_s": 180,
   "dim_minutes_default": 20,
   "dim_minutes_jumuah": 45,
@@ -117,6 +120,7 @@ Admin session required. Full-replace body; the response echoes the stored settin
   "lat": 3.07,
   "lon": 101.69,
   "method": "MABIMS",
+  "dhuha_offset_min": 28,
   "boundary_countdown": false,
   "calc_only": false
 }

@@ -34,21 +34,34 @@ def _next_boundary(
     tomorrow: PrayerDay | None,
     tz: tzinfo | None,
     now: datetime,
+    *,
+    skip_imsak: bool = False,
 ) -> tuple[MarkerName, datetime]:
     """Next upcoming Boundary Time Marker instant, carrying to tomorrow's
-    first marker (imsak) once all of today's have passed — mirrors the
-    fajr template carry in ``resolve_next_event``."""
-    for marker, slot in (
-        (MarkerName.IMSAK, today.imsak),
-        (MarkerName.SYURUQ, today.syuruq),
-        (MarkerName.DHUHA, today.dhuha),
-    ):
+    first enabled marker once all of today's have passed — mirrors the
+    fajr template carry in ``resolve_next_event``. ``skip_imsak`` drops
+    imsak from today and from the carry (calc ``imsak_offset_min=0``
+    disables and hides it, so it must never surface as a countdown)."""
+    slots: list[tuple[MarkerName, time]] = []
+    if not skip_imsak:
+        slots.append((MarkerName.IMSAK, today.imsak))
+    slots.extend([(MarkerName.SYURUQ, today.syuruq), (MarkerName.DHUHA, today.dhuha)])
+    for marker, slot in slots:
         boundary_at = _adhan_dt(effective, slot, tz)
         if boundary_at > now:
             return marker, boundary_at
-    imsak_time = tomorrow.imsak if tomorrow is not None else today.imsak
+    if skip_imsak:
+        carry: tuple[MarkerName, time] = (
+            MarkerName.SYURUQ,
+            tomorrow.syuruq if tomorrow is not None else today.syuruq,
+        )
+    else:
+        carry = (
+            MarkerName.IMSAK,
+            tomorrow.imsak if tomorrow is not None else today.imsak,
+        )
     next_date = effective + timedelta(days=1)
-    return MarkerName.IMSAK, _adhan_dt(next_date, imsak_time, tz)
+    return carry[0], _adhan_dt(next_date, carry[1], tz)
 
 
 def resolve_next_event(
@@ -105,7 +118,14 @@ def resolve_next_event(
         ),
     ]
     next_boundary, boundary_at = (
-        _next_boundary(effective, today, tomorrow, tz, now)
+        _next_boundary(
+            effective,
+            today,
+            tomorrow,
+            tz,
+            now,
+            skip_imsak=settings.imsak_offset_min == 0,
+        )
         if settings.boundary_countdown
         else (None, None)
     )

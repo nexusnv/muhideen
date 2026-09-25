@@ -306,6 +306,32 @@ def test_boundary_carry_past_dhuha_uses_tomorrow_imsak() -> None:
 
 
 @pytest.mark.unit
+def test_disabled_imsak_skipped_in_boundary_pointer() -> None:
+    from dataclasses import replace
+
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    day = replace(_day(), imsak=dtime(5, 45))  # imsak == fajr (offset 0)
+    settings = replace(_settings(True), imsak_offset_min=0)
+    event = resolve_next_event(_at(5, 30), day, None, _rules(), settings, False)
+    assert event.next_boundary is MarkerName.SYURUQ
+    assert event.boundary_at == datetime(2025, 10, 22, 6, 55, tzinfo=TZ)
+
+
+@pytest.mark.unit
+def test_disabled_imsak_carry_uses_tomorrow_syuruq() -> None:
+    from dataclasses import replace
+
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    day = replace(_day(), imsak=dtime(5, 45))  # imsak == fajr (offset 0)
+    settings = replace(_settings(True), imsak_offset_min=0)
+    event = resolve_next_event(_at(8, 0), day, None, _rules(), settings, False)
+    assert event.next_boundary is MarkerName.SYURUQ
+    assert event.boundary_at == datetime(2025, 10, 23, 6, 55, tzinfo=TZ)
+
+
+@pytest.mark.unit
 def test_boundary_carry_prefers_tomorrow_schedule() -> None:
     from muhideen.domain.prayer_state import resolve_next_event
 

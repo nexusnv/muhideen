@@ -81,7 +81,16 @@ class PartialJAKIMClient:
 
 
 class FullCalcEngine:
-    def compute_day(self, day: date, lat: float, lon: float, method: str) -> PrayerDay:
+    def compute_day(
+        self,
+        day: date,
+        lat: float,
+        lon: float,
+        method: str,
+        *,
+        imsak_offset_min: int = 10,
+        dhuha_offset_min: int = 28,
+    ) -> PrayerDay:
         raise NotImplementedError
 
 
@@ -208,3 +217,13 @@ def test_incomplete_stub_fails_isinstance(stub: Any, protocol: type) -> None:
 def test_protocols_are_runtime_checkable() -> None:
     for protocol in ALL_PROTOCOLS:
         assert getattr(protocol, "_is_runtime_protocol", False) is True
+
+
+@pytest.mark.unit
+def test_calc_engine_port_accepts_offsets() -> None:
+    import inspect
+
+    from muhideen.adapters.calc_mabims import MabimsCalcEngine
+
+    params = inspect.signature(MabimsCalcEngine.compute_day).parameters
+    assert "imsak_offset_min" in params and "dhuha_offset_min" in params

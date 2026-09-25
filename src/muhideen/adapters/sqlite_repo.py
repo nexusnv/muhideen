@@ -223,6 +223,8 @@ class SqliteSettingsRepo:
                 method=kv.get("method", "MABIMS"),
                 boundary_countdown=_parse_bool(kv.get("boundary_countdown", "0")),
                 calc_only=_parse_bool(kv.get("calc_only", "0")),
+                imsak_offset_min=int(kv.get("imsak_offset_min", "10")),
+                dhuha_offset_min=int(kv.get("dhuha_offset_min", "28")),
                 lat=_parse_optional_float(kv.get("lat")),
                 lon=_parse_optional_float(kv.get("lon")),
                 iqamah_rules=_rules_from_rows(rule_rows) or DEFAULT_IQAMAH_RULES,
@@ -240,6 +242,8 @@ class SqliteSettingsRepo:
             ("dim_minutes_default", str(settings.dim_minutes_default)),
             ("dim_minutes_jumuah", str(settings.dim_minutes_jumuah)),
             ("method", settings.method),
+            ("imsak_offset_min", str(settings.imsak_offset_min)),
+            ("dhuha_offset_min", str(settings.dhuha_offset_min)),
             ("boundary_countdown", "1" if settings.boundary_countdown else "0"),
             ("calc_only", "1" if settings.calc_only else "0"),
         ]

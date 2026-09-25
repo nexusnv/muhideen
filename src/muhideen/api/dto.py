@@ -310,6 +310,8 @@ class SettingsDTO(ContractDTO):
     method: MethodLiteral
     boundary_countdown: bool
     calc_only: bool
+    imsak_offset_min: Annotated[int, Field(ge=0, le=10)]
+    dhuha_offset_min: Annotated[int, Field(ge=15, le=30)]
 
     @classmethod
     def from_domain(cls, settings: Settings) -> SettingsDTO:
@@ -329,6 +331,8 @@ class SettingsDTO(ContractDTO):
             method=cast(MethodLiteral, settings.method),
             boundary_countdown=settings.boundary_countdown,
             calc_only=settings.calc_only,
+            imsak_offset_min=settings.imsak_offset_min,
+            dhuha_offset_min=settings.dhuha_offset_min,
         )
 
     def to_domain(self) -> Settings:
@@ -346,6 +350,8 @@ class SettingsDTO(ContractDTO):
             method=self.method,
             boundary_countdown=self.boundary_countdown,
             calc_only=self.calc_only,
+            imsak_offset_min=self.imsak_offset_min,
+            dhuha_offset_min=self.dhuha_offset_min,
         )
 
 

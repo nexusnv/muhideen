@@ -152,3 +152,13 @@ def test_calc_only_round_trip(surface: SimpleNamespace, client: TestClient) -> N
     payload = _settings_payload(calc_only=True)
     assert client.put("/api/settings", json=payload).status_code == 200
     assert client.get("/api/settings").json()["calc_only"] is True
+
+
+def test_offset_round_trip(surface: SimpleNamespace, client: TestClient) -> None:
+    _login(client)
+    payload = _settings_payload(imsak_offset_min=5, dhuha_offset_min=20)
+    response = client.put("/api/settings", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["imsak_offset_min"], body["dhuha_offset_min"]) == (5, 20)
+    assert client.get("/api/settings").json()["imsak_offset_min"] == 5
