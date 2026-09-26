@@ -89,10 +89,22 @@ LOCALES = ROOT / "locales"
 OWNERS = {
     "prayer": ["src/muhideen/views/display.py"],
     "boundary": ["src/muhideen/views/display.py"],
-    "display": ["src/muhideen/views/display.py", "src/muhideen/views/templates/display.html"],
-    "admin_login": ["src/muhideen/views/templates/admin/login.html", "src/muhideen/static/admin.js"],
-    "admin_setup": ["src/muhideen/views/templates/admin/setup.html", "src/muhideen/static/admin.js"],
-    "admin_settings": ["src/muhideen/views/templates/admin/settings.html", "src/muhideen/static/admin.js"],
+    "display": [
+        "src/muhideen/views/display.py",
+        "src/muhideen/views/templates/display.html",
+    ],
+    "admin_login": [
+        "src/muhideen/views/templates/admin/login.html",
+        "src/muhideen/static/admin.js",
+    ],
+    "admin_setup": [
+        "src/muhideen/views/templates/admin/setup.html",
+        "src/muhideen/static/admin.js",
+    ],
+    "admin_settings": [
+        "src/muhideen/views/templates/admin/settings.html",
+        "src/muhideen/static/admin.js",
+    ],
 }
 
 
@@ -183,7 +195,9 @@ def test_next_tomorrow_flag_when_adhan_is_next_day() -> None:
 def test_next_tomorrow_false_same_day() -> None:
     from muhideen.views.display import build_display_context
 
-    ctx = build_display_context(day=_day(), event=_event("NORMAL"), settings=_settings())
+    ctx = build_display_context(
+        day=_day(), event=_event("NORMAL"), settings=_settings()
+    )
     assert ctx["next_tomorrow"] is False
 ```
 
