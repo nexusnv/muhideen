@@ -76,6 +76,12 @@
       try { anchor(JSON.parse(e.data).now); } catch (err) { /* keep baseline */ }
     });
     src.addEventListener("config-update", function () { window.location.reload(); });
-    src.onerror = function () { src.close(); setInterval(poll, 60000); };
+    var pollStarted = false;
+    function startPoll() {
+      if (pollStarted) return;
+      pollStarted = true;
+      setInterval(poll, 60000);
+    }
+    src.onerror = function () { src.close(); startPoll(); };
   } catch (err) { setInterval(poll, 60000); }
 })();
