@@ -84,6 +84,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
   aarch64/x86_64 cross wheels); shipped guide `docs/deployment.md`.
 - Configurable calc boundary offsets: imsak_offset_min (0–10, default 10; 0 returns imsak==fajr and hides the marker on display) and dhuha_offset_min (15–30, default 28); fixed defaults replace the latitude-fitted dhuha rule (golden tolerance 3→5); settings API/fixtures/contract carry both keys; resolve merges per marker with API winning.
 - Additive `hijri_date` on `GET /api/prayer-day` (hijridate Umm al-Qura, `hijri_offset` applied, null outside library range).
+- 1B-1 display: server-rendered `GET /display?id=` (classic-green, stable region IDs, trilingual labels, imsak hidden when disabled, error slates) + static CSS/JS (SSE, monotonic tick, 60s poll, 30s heartbeat).
 
 ### Changed
 

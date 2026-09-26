@@ -96,6 +96,12 @@ layers = [
     "muhideen.core",
 ]
 
+[[tool.importlinter.contracts]]
+name = "Views stay presentation-only"
+type = "forbidden"
+source_modules = ["muhideen.views"]
+forbidden_modules = ["muhideen.domain", "muhideen.engine", "muhideen.adapters"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
