@@ -80,3 +80,12 @@ def test_display_before_setup_is_503_slate(
     response = client.get("/display", params={"id": "HALL-01"})
     assert response.status_code == 503
     assert 'id="slate"' in response.text
+
+
+def test_display_without_resolvable_schedule_is_404_slate(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface, lat=None, lon=None)
+    response = client.get("/display", params={"id": "HALL-01"})
+    assert response.status_code == 404
+    assert 'id="slate"' in response.text
