@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ masjid_name }} — Prayer Times</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header id="hdr">
+  <span id="masjid">{{ masjid_name }} / {{ zone }}</span>
+  <span id="dates">{{ gregorian }} · {{ hijri }}</span>
+</header>
+{% if banners %}<div id="banners">{% for b in banners %}<div class="banner">{{ b }}</div>{% endfor %}</div>{% endif %}
+<main id="hero">
+  <h1 id="hero-clock">{{ clock }}</h1>
+  <div id="hero-next">
+    <div id="next-name">{{ next_name_en }} · {{ next_name_bm }} · {{ next_name_ar }}</div>
+    <div id="next-time">{{ next_time }}</div>
+  </div>
+</main>
+<section id="cards">
+  {% for c in cards %}
+  <div class="card{% if c.is_next %} next{% endif %}" id="card-{{ c.key }}">
+    <div class="n">{{ c.en }} · {{ c.bm }} · {{ c.ar }}</div>
+    <div class="t">{{ c.time }}</div>
+  </div>
+  {% endfor %}
+</section>
+<section id="bounds">
+  {% for b in bounds %}
+  <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} {{ b.time }}</span>
+  {% endfor %}
+  {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
+</section>
+<footer id="ftr"><span id="carousel-dot">●</span><span id="qr-hint">Admin: muhideen.local:8000/admin</span></footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

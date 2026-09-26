@@ -17,7 +17,9 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import AfterValidator
 from starlette.responses import StreamingResponse
 from starlette.types import Send
@@ -72,12 +74,17 @@ from muhideen.core.ports import (
     UserRepo,
 )
 from muhideen.engine import Engine
+from muhideen.views.display import build_display_context
 
 logger = logging.getLogger(__name__)
 
 _KEEPALIVE_S = 60.0
 _POLL_S = 0.05
 _PROD_TZ = ZoneInfo("Asia/Kuala_Lumpur")
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+_TEMPLATES = Jinja2Templates(
+    directory=str(Path(__file__).resolve().parent.parent / "views" / "templates")
+)
 
 
 def _require_tz_aware(value: datetime) -> datetime:
@@ -292,6 +299,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         version=package_version("muhideen"),
         lifespan=_lifespan,
     )
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     @app.middleware("http")
     async def _docs_gate(request: Request, call_next: Any) -> Any:
@@ -388,6 +396,42 @@ def create_app(deps: AppDeps) -> FastAPI:
     def version() -> VersionDTO:
         """Report the installed package version and contract generation."""
         return VersionDTO(version=package_version("muhideen"), api="v1")
+
+    @app.get("/display", response_class=HTMLResponse)
+    def display(
+        request: Request,
+        id: Annotated[str, Query(min_length=1, max_length=64)],
+    ) -> HTMLResponse:
+        """Server-rendered public display; error slate, never blank."""
+        try:
+            settings = deps.settings_repo.load()
+        except ConfigError:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "error.html",
+                {"code": 503, "message": "Setup required"},
+                status_code=503,
+            )
+        now = deps.clock.now()
+        try:
+            result = engine.resolve_day(now.date(), settings.zone, now)
+        except ScheduleError:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "error.html",
+                {"code": 404, "message": "No schedule"},
+                status_code=404,
+            )
+        event = engine.next_event(now)
+        day_dto = PrayerDayDTO.from_domain(
+            result.day,
+            result.stale,
+            hijri_date=resolve_hijri(result.day.date, settings.hijri_offset),
+        )
+        ctx = build_display_context(
+            day=day_dto, event=NextEventDTO.from_domain(event), settings=settings
+        )
+        return _TEMPLATES.TemplateResponse(request, "display.html", ctx)
 
     @app.post("/api/auth/setup", response_model=AuthResponseDTO)
     def auth_setup(
