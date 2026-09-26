@@ -111,9 +111,12 @@ class PrayerDayDTO(ContractDTO):
     boundaries: BoundaryTimesDTO
     source: ScheduleSource
     stale: bool
+    hijri_date: str | None
 
     @classmethod
-    def from_domain(cls, day: PrayerDay, stale: bool) -> PrayerDayDTO:
+    def from_domain(
+        cls, day: PrayerDay, stale: bool, *, hijri_date: str | None = None
+    ) -> PrayerDayDTO:
         """Map a PrayerDay to HH:MM wire groups plus the staleness flag."""
         return cls(
             date=day.date,
@@ -132,6 +135,7 @@ class PrayerDayDTO(ContractDTO):
             ),
             source=day.source,
             stale=stale,
+            hijri_date=hijri_date,
         )
 
 

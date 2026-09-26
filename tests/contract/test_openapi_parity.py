@@ -165,6 +165,7 @@ def test_openapi_declares_all_five_paths() -> None:
         "/api/auth/login",
         "/api/auth/logout",
         "/api/auth/session",
+        "/display",
     }
 
 

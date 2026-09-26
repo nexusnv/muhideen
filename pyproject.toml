@@ -26,6 +26,7 @@ dependencies = [
     "adhanpy==1.0.5",
     "httpx>=0.27",
     "argon2-cffi>=23.1",
+    "hijridate==2.6.0",
 ]
 
 [project.urls]
@@ -94,6 +95,12 @@ layers = [
     "muhideen.domain",
     "muhideen.core",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Views stay presentation-only"
+type = "forbidden"
+source_modules = ["muhideen.views"]
+forbidden_modules = ["muhideen.domain", "muhideen.engine", "muhideen.adapters"]
 
 [dependency-groups]
 dev = [

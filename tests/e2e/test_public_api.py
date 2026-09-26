@@ -166,3 +166,25 @@ def test_heartbeat_returns_ok(surface: SimpleNamespace, client: TestClient) -> N
     response = client.post("/api/displays/heartbeat", json={"id": "HALL-01"})
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_prayer_day_carries_hijri_date(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    response = client.get(
+        "/api/prayer-day", params={"date": "2025-10-20", "zone": "SGR01"}
+    )
+    assert response.status_code == 200
+    assert response.json()["hijri_date"] == "1447-04-28"
+
+
+def test_prayer_day_hijri_date_null_outside_library_range(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    response = client.get(
+        "/api/prayer-day", params={"date": "1900-01-01", "zone": "SGR01"}
+    )
+    assert response.status_code == 200
+    assert response.json()["hijri_date"] is None
