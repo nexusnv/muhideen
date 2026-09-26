@@ -107,13 +107,22 @@
   } catch (err) { setInterval(poll, 60000); }
   var dimEl = document.getElementById("dim");
   if (dimEl) {
+    var skipKey = "muhideen-dim-skip";
+    try {
+      if (localStorage.getItem(skipKey) === dimEl.getAttribute("data-dim-until")) {
+        dimEl.style.display = "none";
+      }
+    } catch (err) { /* storage unavailable: overlay stays */ }
     var pressTimer = null;
     function cancelPress() {
       if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; }
     }
     dimEl.addEventListener("pointerdown", function () {
       cancelPress();
-      pressTimer = setTimeout(function () { dimEl.style.display = "none"; }, 3000);
+      pressTimer = setTimeout(function () {
+        try { localStorage.setItem(skipKey, dimEl.getAttribute("data-dim-until") || ""); } catch (err) { /* fall through to hide */ }
+        window.location.reload();
+      }, 3000);
     });
     dimEl.addEventListener("pointerup", cancelPress);
     dimEl.addEventListener("pointerleave", cancelPress);

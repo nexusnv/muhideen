@@ -146,6 +146,7 @@ def test_state_walkthrough_adhan_overlay(
     _advance_to(surface, target)
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert 'id="overlay-adhan"' in html
+    assert "hidden data-now=" in html
     assert 'id="cards"' not in html
 
 
@@ -164,6 +165,8 @@ def test_state_walkthrough_iqamah_and_dim(
     _advance_to(surface, iqamah + timedelta(minutes=2))
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert 'id="dim"' in html
+    assert "hidden data-now=" in html
+    assert "data-dim-until=" in html
     assert 'id="dim-skip-hint"' in html
     assert 'id="cards"' not in html
     assert 'id="ftr"' not in html

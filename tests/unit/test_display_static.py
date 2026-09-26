@@ -60,6 +60,8 @@ def test_js_realtime_wiring_present() -> None:
         "querySelectorAll",
         "pointerdown",
         "3000",
+        "muhideen-dim-skip",
+        "localStorage",
     ):
         assert token in js
 
@@ -86,5 +88,7 @@ def test_state_template_ids_present() -> None:
         'id="note-pre"',
         "data-countdown",
         "data-bar-start",
+        "hidden data-now",
+        "data-dim-until",
     ):
         assert token in html

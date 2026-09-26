@@ -9,11 +9,13 @@
 <body>
 {% if state == "ADHAN" %}
 <main id="overlay-adhan">
+  <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
   <h1>{{ next_name_en }} · {{ next_name_bm }} · {{ next_name_ar }}</h1>
   <div id="adhan-bar"><div id="adhan-fill" data-bar-start="{{ adhan_iso }}" data-bar-end="{{ adhan_end_iso }}"></div></div>
 </main>
 {% elif state == "SALAH_DIM" %}
-<main id="dim">
+<main id="dim" data-dim-until="{{ dim_until_iso }}">
+  <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
   <h1>{{ next_name_en }} · {{ next_name_ar }}</h1>
   <div id="dim-clock" class="js-clock">{{ clock }}</div>
   <div id="dim-bar"><div id="dim-fill" data-bar-start="{{ iqamah_iso }}" data-bar-end="{{ dim_until_iso }}"></div></div>
