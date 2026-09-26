@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -23,6 +24,14 @@ def _seed_settings(surface: SimpleNamespace, **overrides: Any) -> None:
     }
     base.update(overrides)
     surface.settings_repo.save(Settings(**base))  # type: ignore[arg-type]
+
+
+def _advance_to(surface: SimpleNamespace, target: datetime) -> None:
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=timezone(timedelta(hours=8)))
+    delta = (target - surface.clock.now()).total_seconds()
+    assert delta >= 0, "walkthrough only moves forward"
+    surface.clock.advance(delta)
 
 
 def test_display_renders_all_regions(
@@ -107,3 +116,63 @@ def test_display_carries_tzoffset_for_fixed_offset_clock(
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert 'data-tzoffset="480"' in html
     assert "data-tz=" not in html
+
+
+def test_state_walkthrough_pre_adhan_hides_footer(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    prayer = client.get(
+        "/api/prayer-day", params={"date": "2025-10-20", "zone": "SGR01"}
+    ).json()
+    hour, minute = prayer["prayers"]["dhuhr"].split(":")
+    target = datetime(2025, 10, 20, int(hour), int(minute)) - timedelta(minutes=2)
+    _advance_to(surface, target)
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="note-pre"' in html
+    assert 'id="ftr"' not in html
+    assert "Preparing for" in html
+
+
+def test_state_walkthrough_adhan_overlay(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    prayer = client.get(
+        "/api/prayer-day", params={"date": "2025-10-20", "zone": "SGR01"}
+    ).json()
+    hour, minute = prayer["prayers"]["dhuhr"].split(":")
+    target = datetime(2025, 10, 20, int(hour), int(minute)) + timedelta(seconds=60)
+    _advance_to(surface, target)
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="overlay-adhan"' in html
+    assert 'id="cards"' not in html
+
+
+def test_state_walkthrough_iqamah_and_dim(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    event = client.get(
+        "/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"}
+    ).json()
+    iqamah = datetime.fromisoformat(event["iqamah_at"])
+    _advance_to(surface, iqamah - timedelta(minutes=1))
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="iqamah-hero"' in html
+    assert "data-countdown" in html
+    _advance_to(surface, iqamah + timedelta(minutes=2))
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="dim"' in html
+    assert 'id="dim-skip-hint"' in html
+    assert 'id="cards"' not in html
+    assert 'id="ftr"' not in html
+
+
+def test_state_walkthrough_jumuah_friday(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    _advance_to(surface, datetime(2025, 10, 24, 12, 20))
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert "Jumaat" in html

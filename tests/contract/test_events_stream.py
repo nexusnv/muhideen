@@ -147,3 +147,17 @@ def test_config_update_requires_non_empty_changed_list() -> None:
         ConfigUpdateEventDTO.model_validate({})
     with pytest.raises(ValidationError):
         ConfigUpdateEventDTO.model_validate({"changed": []})
+
+
+def test_events_stream_state_frames_never_name_boundaries() -> None:
+    frames = 0
+    for lines in _blocks():
+        if _event_name(lines) == "state":
+            payload = StateEventDTO.model_validate(_payload(lines))
+            assert payload.next_prayer is None or payload.next_prayer not in (
+                "imsak",
+                "syuruq",
+                "dhuha",
+            )
+            frames += 1
+    assert frames > 0
