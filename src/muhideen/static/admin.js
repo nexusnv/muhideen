@@ -1,29 +1,9 @@
 (function () {
   "use strict";
-  function setLang(lang) {
-    document.documentElement.lang = lang;
-    var els = document.querySelectorAll("[data-en]");
-    for (var i = 0; i < els.length; i++) {
-      var el = els[i];
-      if (!el.getAttribute("data-bm")) el.setAttribute("data-bm", el.textContent);
-      el.textContent = lang === "en" ? el.getAttribute("data-en") : el.getAttribute("data-bm");
-    }
-    var btn = document.getElementById("lang-toggle");
-    if (btn) btn.textContent = lang === "en" ? "BM" : "EN";
-  }
-  var toggle = document.getElementById("lang-toggle");
-  if (toggle) toggle.addEventListener("click", function () {
-    setLang(document.documentElement.lang === "en" ? "bm" : "en");
-  });
   function msg(id, text) {
     var el = document.getElementById(id);
     if (el) el.textContent = text;
   }
-  var STR = {
-    bm: { next: "Seterusnya", done: "Selesai", check: "Semak input", setupFail: "Persediaan gagal", invalid: "Tetapan tidak sah (422)", net: "Ralat rangkaian", wrong: "Kata laluan salah", limited: "Terlalu banyak cubaan, tunggu sebentar", saved: "Disimpan — dimuat semula" },
-    en: { next: "Next", done: "Done", check: "Check input", setupFail: "Setup failed", invalid: "Invalid settings (422)", net: "Network error", wrong: "Wrong password", limited: "Too many attempts, wait a minute", saved: "Saved — live reload" }
-  };
-  function t(key) { return STR[document.documentElement.lang === "en" ? "en" : "bm"][key]; }
   var DEFAULTS = {
     "masjid_name": "",
     "zone": "",
@@ -59,9 +39,9 @@
       body: JSON.stringify({ password: document.getElementById("password").value }),
     }).then(function (r) {
       if (r.status === 200) { window.location.href = "/admin/settings"; return; }
-      if (r.status === 429) { msg("login-msg", t("limited")); return; }
-      msg("login-msg", t("wrong"));
-    }).catch(function () { msg("login-msg", t("net")); });
+      if (r.status === 429) { msg("login-msg", "Too many attempts, wait a minute"); return; }
+      msg("login-msg", "Wrong password");
+    }).catch(function () { msg("login-msg", "Network error"); });
   });
   var wizard = document.getElementById("wizard");
   if (wizard) {
@@ -71,7 +51,7 @@
       var secs = wizard.querySelectorAll("[data-step]");
       for (var i = 0; i < secs.length; i++) secs[i].hidden = Number(secs[i].getAttribute("data-step")) !== n;
       document.getElementById("w-back").hidden = n === 1;
-      document.getElementById("w-next").textContent = n === 5 ? t("done") : t("next");
+      document.getElementById("w-next").textContent = n === 5 ? "Done" : "Next";
       if (n === 5) {
         document.getElementById("w-review").textContent =
           document.getElementById("w-name").value + " / " + document.getElementById("w-zone").value;
@@ -102,7 +82,7 @@
       msg("w-msg", "");
       document.getElementById("w-next").disabled = true;
       if (step < 5) {
-        if (valid(step)) show(step + 1); else msg("w-msg", t("check"));
+        if (valid(step)) show(step + 1); else msg("w-msg", "Check input");
         document.getElementById("w-next").disabled = false;
         return;
       }
@@ -120,10 +100,10 @@
           body: JSON.stringify(body),
         }).then(function (r) {
           if (r.status === 200) { window.location.href = "/admin/settings"; return; }
-          msg("w-msg", t("invalid"));
+          msg("w-msg", "Invalid settings (422)");
           document.getElementById("w-next").disabled = false;
         }).catch(function () {
-          msg("w-msg", t("net"));
+          msg("w-msg", "Network error");
           document.getElementById("w-next").disabled = false;
         });
       }
@@ -135,10 +115,10 @@
         body: JSON.stringify({ password: document.getElementById("w-pass").value }),
       }).then(function (r) {
         if (r.status === 200 || r.status === 409) { setupDone = true; putSettings(); return; }
-        msg("w-msg", t("setupFail"));
+        msg("w-msg", "Setup failed");
         document.getElementById("w-next").disabled = false;
       }).catch(function () {
-        msg("w-msg", t("net"));
+        msg("w-msg", "Network error");
         document.getElementById("w-next").disabled = false;
       });
     });
@@ -168,9 +148,9 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then(function (r) {
-      if (r.status === 200) { msg("s-msg", t("saved")); return; }
-      msg("s-msg", t("invalid"));
-    }).catch(function () { msg("s-msg", t("net")); });
+      if (r.status === 200) { msg("s-msg", "Saved — live reload"); return; }
+      msg("s-msg", "Invalid settings (422)");
+    }).catch(function () { msg("s-msg", "Network error"); });
   });
   var qrToggle = document.getElementById("qr-toggle");
   if (qrToggle) qrToggle.addEventListener("click", function () {

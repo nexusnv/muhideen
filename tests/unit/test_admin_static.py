@@ -16,15 +16,17 @@ def test_admin_js_wiring_present() -> None:
         "/api/auth/setup",
         "/api/settings",
         "429",
-        "setLang",
-        "data-en",
         "imsak_offset_min",
         "dhuha_offset_min",
-        "STR",
         "setupDone",
         "disabled",
+        "Wrong password",
+        "Too many attempts, wait a minute",
+        "Network error",
     ):
         assert token in js
+    for absent in ("setLang", "data-en", "var STR", "lang-toggle"):
+        assert absent not in js
 
 
 def test_admin_js_defaults_cover_settings_dto() -> None:
@@ -45,10 +47,16 @@ def test_admin_css_touch_targets() -> None:
     assert "max(2.2vh, 16px)" in css
 
 
-def test_admin_templates_bilingual() -> None:
+def test_admin_templates_english_only() -> None:
     views = STATIC.parent / "views" / "templates" / "admin"
     for name in ("login.html", "setup.html", "settings.html"):
         html = (views / name).read_text()
-        assert "data-en=" in html
-        assert 'id="lang-toggle"' in html
-        assert "<span data-en" in html
+        assert "data-en" not in html
+        assert "lang-toggle" not in html
+        assert 'lang="en"' in html
+    login = (views / "login.html").read_text()
+    assert "Password" in login
+    assert "Login" in login
+    settings = (views / "settings.html").read_text()
+    assert "Save" in settings
+    assert "Settings" in settings

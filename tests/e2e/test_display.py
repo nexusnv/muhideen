@@ -48,10 +48,12 @@ def test_display_renders_all_regions(
     assert "1447" in html  # Hijri date present (calc 2026 day + offset 0)
 
 
-def test_display_trilingual_cards(surface: SimpleNamespace, client: TestClient) -> None:
+def test_display_english_arabic_cards(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
     _seed_settings(surface)
     html = client.get("/display", params={"id": "HALL-01"}).text
-    for token in ("Subuh", "Zohor", "Isyak", "الفجر", "المغرب"):
+    for token in ("Fajr", "Dhuhr", "Isha", "الفجر", "المغرب"):
         assert token in html
 
 
@@ -178,4 +180,4 @@ def test_state_walkthrough_jumuah_friday(
     _seed_settings(surface)
     _advance_to(surface, datetime(2025, 10, 24, 12, 20))
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert "Jumaat" in html
+    assert "Jumuah" in html

@@ -75,13 +75,14 @@ def _wizard_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
-def test_login_page_renders_bilingual(
+def test_login_page_renders_english(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
     response = client.get("/admin/login")
     assert response.status_code == 200
-    assert "Kata Laluan" in response.text
-    assert 'data-en="Password"' in response.text
+    assert "Password" in response.text
+    assert "Login" in response.text
+    assert "data-en" not in response.text
 
 
 def test_setup_page_open_before_setup(
@@ -89,7 +90,7 @@ def test_setup_page_open_before_setup(
 ) -> None:
     response = client.get("/admin/setup")
     assert response.status_code == 200
-    assert "Persediaan" in response.text
+    assert "Setup" in response.text
 
 
 def test_setup_page_redirects_after_setup(

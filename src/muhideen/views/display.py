@@ -14,18 +14,18 @@ from muhideen.core.values import ScheduleSource, Settings
 PRAYER_ORDER = ("fajr", "dhuhr", "asr", "maghrib", "isha")
 
 PRAYER_LABELS = {
-    "fajr": ("Fajr", "Subuh", "الفجر"),
-    "dhuhr": ("Dhuhr", "Zohor", "الظهر"),
-    "asr": ("Asr", "Asar", "العصر"),
-    "maghrib": ("Maghrib", "Maghrib", "المغرب"),
-    "isha": ("Isha", "Isyak", "العشاء"),
-    "jumuah": ("Jumuah", "Jumaat", "الجمعة"),
+    "fajr": ("Fajr", "الفجر"),
+    "dhuhr": ("Dhuhr", "الظهر"),
+    "asr": ("Asr", "العصر"),
+    "maghrib": ("Maghrib", "المغرب"),
+    "isha": ("Isha", "العشاء"),
+    "jumuah": ("Jumuah", "الجمعة"),
 }
 
 BOUNDARY_LABELS = {
-    "imsak": ("Imsak", "Imsak", "الإمساك"),
-    "syuruq": ("Syuruq", "Syuruk", "الشروق"),
-    "dhuha": ("Dhuha", "Dhuha", "الضحى"),
+    "imsak": ("Imsak", "الإمساك"),
+    "syuruq": ("Syuruq", "الشروق"),
+    "dhuha": ("Dhuha", "الضحى"),
 }
 
 
@@ -49,8 +49,7 @@ def build_display_context(
         {
             "key": key,
             "en": PRAYER_LABELS[key][0],
-            "bm": PRAYER_LABELS[key][1],
-            "ar": PRAYER_LABELS[key][2],
+            "ar": PRAYER_LABELS[key][1],
             "time": times[key],
             "is_next": key == next_key or (key == "dhuhr" and next_key == "jumuah"),
         }
@@ -87,8 +86,7 @@ def build_display_context(
         "hijri": day.hijri_date or "—",
         "clock": event.now.strftime("%H:%M:%S"),
         "next_name_en": labels[0],
-        "next_name_bm": labels[1],
-        "next_name_ar": labels[2],
+        "next_name_ar": labels[1],
         "next_time": event.adhan_at.strftime("%H:%M") if event.adhan_at else "",
         "cards": cards,
         "bounds": bounds,

@@ -10,7 +10,7 @@
 {% if state == "ADHAN" %}
 <main id="overlay-adhan">
   <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
-  <h1>{{ next_name_en }} · {{ next_name_bm }} · {{ next_name_ar }}</h1>
+  <h1>{{ next_name_en }} · {{ next_name_ar }}</h1>
   <div id="adhan-bar"><div id="adhan-fill" data-bar-start="{{ adhan_iso }}" data-bar-end="{{ adhan_end_iso }}"></div></div>
 </main>
 {% elif state == "SALAH_DIM" %}
@@ -34,7 +34,7 @@
   <div id="iqamah-hero" data-countdown="{{ iqamah_iso }}"></div>
   {% else %}
   <div id="hero-next">
-    <div id="next-name">{{ next_name_en }} · {{ next_name_bm }} · {{ next_name_ar }}</div>
+    <div id="next-name">{{ next_name_en }} · {{ next_name_ar }}</div>
     <div id="next-time">{{ next_time }}</div>
   </div>
   {% endif %}
@@ -42,7 +42,7 @@
 <section id="cards">
   {% for c in cards %}
   <div class="card{% if c.is_next %} next{% endif %}" id="card-{{ c.key }}">
-    <div class="n">{{ c.en }} · {{ c.bm }} · {{ c.ar }}</div>
+    <div class="n">{{ c.en }} · {{ c.ar }}</div>
     <div class="t">{{ c.time }}</div>
   </div>
   {% endfor %}

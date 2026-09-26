@@ -97,5 +97,5 @@ def test_jumuah_labels_and_dhuhr_time() -> None:
 
     event = _event("NORMAL", next_prayer="jumuah")
     ctx = build_display_context(day=_day(), event=event, settings=_settings())  # type: ignore[arg-type]
-    assert (ctx["next_name_en"], ctx["next_name_bm"]) == ("Jumuah", "Jumaat")
+    assert (ctx["next_name_en"], ctx["next_name_ar"]) == ("Jumuah", "الجمعة")
     assert ctx["next_time"] == "12:15"
