@@ -27,7 +27,7 @@ dependencies = [
     "httpx>=0.27",
     "argon2-cffi>=23.1",
     "hijridate==2.6.0",
-    "segno>=1.6.6",
+    "segno==1.6.6",
 ]
 
 [project.urls]
