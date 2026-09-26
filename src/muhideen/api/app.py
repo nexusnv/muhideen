@@ -526,6 +526,13 @@ def create_app(deps: AppDeps) -> FastAPI:
         """Admin login page (thin fetch client over /api/auth/login)."""
         return _TEMPLATES.TemplateResponse(request, "admin/login.html", login_context())
 
+    @app.get("/admin", response_class=HTMLResponse)
+    def admin_landing(request: Request) -> RedirectResponse:
+        """Landing: setup on first boot, settings otherwise."""
+        if not deps.user_repo.has_users():
+            return RedirectResponse("/admin/setup")
+        return RedirectResponse("/admin/settings")
+
     @app.get("/admin/setup", response_class=HTMLResponse, response_model=None)
     def admin_setup(request: Request) -> HTMLResponse | RedirectResponse:
         """First-boot wizard; redirects once an admin exists."""
@@ -541,7 +548,7 @@ def create_app(deps: AppDeps) -> FastAPI:
             return RedirectResponse("/admin/login")
         dto = SettingsDTO.from_domain(deps.settings_repo.load())
         rules_json = json.dumps([r.model_dump(mode="json") for r in dto.iqamah_rules])
-        host = request.url.hostname or "muhideen.local"
+        host = request.url.netloc or "muhideen.local:8000"
         ctx = settings_context(
             settings=dto,
             rules_json=rules_json,

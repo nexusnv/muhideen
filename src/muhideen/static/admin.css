@@ -6,3 +6,4 @@ button { background: #e0b73c; color: #0a3527; font-weight: 700; border: 0; borde
 #lang-toggle { width: auto; padding: 0 3vw; }
 [role="alert"] { color: #e0b73c; min-height: 3vh; }
 #qr-img { max-width: 100%; }
+input, select { font-size: max(2.2vh, 16px); }

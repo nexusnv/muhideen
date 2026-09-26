@@ -20,6 +20,9 @@ def test_admin_js_wiring_present() -> None:
         "data-en",
         "imsak_offset_min",
         "dhuha_offset_min",
+        "STR",
+        "setupDone",
+        "disabled",
     ):
         assert token in js
 
@@ -39,6 +42,7 @@ def test_admin_css_touch_targets() -> None:
     css = (STATIC / "admin.css").read_text()
     assert "min-height: 48px" in css
     assert "max-width: 640px" in css
+    assert "max(2.2vh, 16px)" in css
 
 
 def test_admin_templates_bilingual() -> None:
@@ -47,3 +51,4 @@ def test_admin_templates_bilingual() -> None:
         html = (views / name).read_text()
         assert "data-en=" in html
         assert 'id="lang-toggle"' in html
+        assert "<span data-en" in html

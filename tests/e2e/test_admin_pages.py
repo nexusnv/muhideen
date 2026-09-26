@@ -171,3 +171,35 @@ def test_login_rate_limit_sixth_attempt_429(
         client.post("/api/auth/login", json={"password": "wrongpass1"}).status_code
         == 429
     )
+
+
+def test_admin_landing_redirects(surface: SimpleNamespace, client: TestClient) -> None:
+    r = client.get("/admin", follow_redirects=False)
+    assert (r.status_code, r.headers["location"]) == (307, "/admin/setup")
+    client.post("/api/auth/setup", json={"password": "password123"})
+    r = client.get("/admin", follow_redirects=False)
+    assert (r.status_code, r.headers["location"]) == (307, "/admin/settings")
+
+
+def test_zero_coordinates_survive_round_trip(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    client.post("/api/auth/setup", json={"password": "password123"})
+    body = _wizard_body()
+    body["lat"] = 0.0
+    body["lon"] = 0.0
+    assert client.put("/api/settings", json=body).status_code == 200
+    html = client.get("/admin/settings").text
+    assert html.count('value="0.0"') == 2
+
+
+def test_settings_recoverable_after_rejected_put(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    client.post("/api/auth/setup", json={"password": "password123"})
+    bad = _wizard_body()
+    bad["imsak_offset_min"] = 11
+    assert client.put("/api/settings", json=bad).status_code == 422
+    good = _wizard_body()
+    assert client.put("/api/settings", json=good).status_code == 200
+    assert client.get("/api/settings").json()["masjid_name"] == good["masjid_name"]

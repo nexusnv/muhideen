@@ -19,6 +19,11 @@
     var el = document.getElementById(id);
     if (el) el.textContent = text;
   }
+  var STR = {
+    bm: { next: "Seterusnya", done: "Selesai", check: "Semak input", setupFail: "Persediaan gagal", invalid: "Tetapan tidak sah (422)", net: "Ralat rangkaian", wrong: "Kata laluan salah", limited: "Terlalu banyak cubaan, tunggu sebentar", saved: "Disimpan — dimuat semula" },
+    en: { next: "Next", done: "Done", check: "Check input", setupFail: "Setup failed", invalid: "Invalid settings (422)", net: "Network error", wrong: "Wrong password", limited: "Too many attempts, wait a minute", saved: "Saved — live reload" }
+  };
+  function t(key) { return STR[document.documentElement.lang === "en" ? "en" : "bm"][key]; }
   var DEFAULTS = {
     "masjid_name": "",
     "zone": "",
@@ -54,9 +59,9 @@
       body: JSON.stringify({ password: document.getElementById("password").value }),
     }).then(function (r) {
       if (r.status === 200) { window.location.href = "/admin/settings"; return; }
-      if (r.status === 429) { msg("login-msg", "Terlalu banyak cubaan, tunggu sebentar"); return; }
-      msg("login-msg", "Kata laluan salah");
-    }).catch(function () { msg("login-msg", "Ralat rangkaian"); });
+      if (r.status === 429) { msg("login-msg", t("limited")); return; }
+      msg("login-msg", t("wrong"));
+    }).catch(function () { msg("login-msg", t("net")); });
   });
   var wizard = document.getElementById("wizard");
   if (wizard) {
@@ -66,7 +71,7 @@
       var secs = wizard.querySelectorAll("[data-step]");
       for (var i = 0; i < secs.length; i++) secs[i].hidden = Number(secs[i].getAttribute("data-step")) !== n;
       document.getElementById("w-back").hidden = n === 1;
-      document.getElementById("w-next").textContent = n === 5 ? "Selesai" : "Seterusnya";
+      document.getElementById("w-next").textContent = n === 5 ? t("done") : t("next");
       if (n === 5) {
         document.getElementById("w-review").textContent =
           document.getElementById("w-name").value + " / " + document.getElementById("w-zone").value;
@@ -74,16 +79,33 @@
     }
     function valid(n) {
       if (n === 1) return document.getElementById("w-name").value !== "" && document.getElementById("w-zone").value !== "";
+      if (n === 2) {
+        var lat = document.getElementById("w-lat").value;
+        var lon = document.getElementById("w-lon").value;
+        if (lat !== "" && (Number(lat) < -90 || Number(lat) > 90)) return false;
+        if (lon !== "" && (Number(lon) < -180 || Number(lon) > 180)) return false;
+        return true;
+      }
       if (n === 3) {
         var p = document.getElementById("w-pass").value;
         return p.length >= 8 && p === document.getElementById("w-pass2").value;
       }
+      if (n === 4) {
+        var h = Number(document.getElementById("w-hijri").value);
+        return h >= -2 && h <= 2;
+      }
       return true;
     }
     document.getElementById("w-back").addEventListener("click", function () { show(step - 1); });
+    var setupDone = false;
     document.getElementById("w-next").addEventListener("click", function () {
       msg("w-msg", "");
-      if (step < 5) { if (valid(step)) show(step + 1); else msg("w-msg", "Semak input"); return; }
+      document.getElementById("w-next").disabled = true;
+      if (step < 5) {
+        if (valid(step)) show(step + 1); else msg("w-msg", t("check"));
+        document.getElementById("w-next").disabled = false;
+        return;
+      }
       var body = JSON.parse(JSON.stringify(DEFAULTS));
       body.masjid_name = document.getElementById("w-name").value;
       body.zone = document.getElementById("w-zone").value;
@@ -91,22 +113,34 @@
       body.lat = num("w-lat");
       body.lon = num("w-lon");
       body.hijri_offset = Number(document.getElementById("w-hijri").value);
+      function putSettings() {
+        fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).then(function (r) {
+          if (r.status === 200) { window.location.href = "/admin/settings"; return; }
+          msg("w-msg", t("invalid"));
+          document.getElementById("w-next").disabled = false;
+        }).catch(function () {
+          msg("w-msg", t("net"));
+          document.getElementById("w-next").disabled = false;
+        });
+      }
+      var needSetup = !setupDone;
+      if (!needSetup) { putSettings(); return; }
       fetch("/api/auth/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: document.getElementById("w-pass").value }),
       }).then(function (r) {
-        if (r.status !== 200) { msg("w-msg", "Persediaan gagal"); return null; }
-        return fetch("/api/settings", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-      }).then(function (r) {
-        if (r === null) return;
-        if (r.status === 200) window.location.href = "/admin/settings";
-        else msg("w-msg", "Tetapan tidak sah (422)");
-      }).catch(function () { msg("w-msg", "Ralat rangkaian"); });
+        if (r.status === 200 || r.status === 409) { setupDone = true; putSettings(); return; }
+        msg("w-msg", t("setupFail"));
+        document.getElementById("w-next").disabled = false;
+      }).catch(function () {
+        msg("w-msg", t("net"));
+        document.getElementById("w-next").disabled = false;
+      });
     });
     show(1);
   }
@@ -134,9 +168,9 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then(function (r) {
-      if (r.status === 200) { msg("s-msg", "Disimpan — dimuat semula"); return; }
-      msg("s-msg", "Tetapan tidak sah (422)");
-    }).catch(function () { msg("s-msg", "Ralat rangkaian"); });
+      if (r.status === 200) { msg("s-msg", t("saved")); return; }
+      msg("s-msg", t("invalid"));
+    }).catch(function () { msg("s-msg", t("net")); });
   });
   var qrToggle = document.getElementById("qr-toggle");
   if (qrToggle) qrToggle.addEventListener("click", function () {
