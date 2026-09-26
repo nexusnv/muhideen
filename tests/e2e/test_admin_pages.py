@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as html_module
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -120,6 +121,9 @@ def test_settings_page_renders_qr_and_fallback(
     assert "data:image/png;base64," in html
     assert "testserver" in html
     assert 'id="qr-body" hidden' in html
+    rules_attr = html.split("data-rules='", 1)[1].split("'", 1)[0]
+    rules = json.loads(html_module.unescape(rules_attr))
+    assert len(rules) == 6
 
 
 def test_wizard_equivalent_body_accepted(
