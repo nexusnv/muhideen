@@ -84,7 +84,8 @@ Regions with stable IDs: `hdr` (masjid name, zone, Gregorian + Hijri dates,
 STALE / TIME UNSYNCED / calc-fallback banners), `hero-clock` (≥12vh),
 `hero-next` (next prayer name + time + iqamah countdown; always a Prayer Time
 Marker), `cards` (5, each EN+BM+Arabic; next-prayer highlighted), `bounds`
-(secondary strip Imsak/Syuruq/Dhuha; countdown only when `next_boundary`
+(secondary strip Imsak/Syuruq/Dhuha — the imsak item is hidden when
+`imsak_offset_min == 0`; countdown only when `next_boundary`
 present), `ftr` (carousel dot, QR hint toggle).
 
 Realtime: first paint server-rendered (usable with JS disabled at reduced
