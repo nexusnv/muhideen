@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="bm">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-en="Settings">Tetapan</title>
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+<main id="admin-settings">
+  <h1 data-en="Settings">Tetapan</h1>
+  <button id="lang-toggle" type="button">EN</button>
+  <label data-en="Masjid name">Nama Masjid<input id="s-name" type="text" value="{{ current.masjid_name }}"></label>
+  <label>Zone<input id="s-zone" type="text" value="{{ current.zone }}"></label>
+  <label>Lat<input id="s-lat" type="number" step="any" value="{{ current.lat or '' }}"></label>
+  <label>Lon<input id="s-lon" type="number" step="any" value="{{ current.lon or '' }}"></label>
+  <label>Method<input id="s-method" type="text" value="{{ current.method }}"></label>
+  <label><input id="s-calc" type="checkbox"{% if current.calc_only %} checked{% endif %}> <span data-en="Offline calculation only">Pengiraan luar talian sahaja</span></label>
+  <label>Hijri offset<input id="s-hijri" type="number" min="-2" max="2" value="{{ current.hijri_offset }}"></label>
+  <label>Imsak offset (min)<input id="s-imsak" type="number" min="0" max="10" value="{{ current.imsak_offset_min }}"></label>
+  <label>Dhuha offset (min)<input id="s-dhuha" type="number" min="15" max="30" value="{{ current.dhuha_offset_min }}"></label>
+  <label>Adhan (s)<input id="s-adhan" type="number" min="1" value="{{ current.adhan_duration_s }}"></label>
+  <label>Dim (min)<input id="s-dim" type="number" min="5" max="60" value="{{ current.dim_minutes_default }}"></label>
+  <label>Jumuah dim (min)<input id="s-dimj" type="number" min="5" max="60" value="{{ current.dim_minutes_jumuah }}"></label>
+  <div id="iqamah-rules" data-rules='{{ rules_json }}'></div>
+  <label><input id="s-boundary" type="checkbox"{% if current.boundary_countdown %} checked{% endif %}> <span data-en="Boundary countdown">Kira detik sempadan</span></label>
+  <div id="s-msg" role="alert"></div>
+  <button id="s-save" type="button" data-en="Save">Simpan</button>
+  <section id="qr-block">
+    <button id="qr-toggle" type="button" data-en="Show connect QR">Tunjuk QR sambungan</button>
+    <div id="qr-body" hidden>
+      <img id="qr-img" src="{{ qr_data_uri }}" alt="Connect QR">
+      <div><a id="qr-fallback" href="{{ fallback_url }}">{{ fallback_url }}</a></div>
+    </div>
+  </section>
+</main>
+<script src="/static/admin.js"></script>
+</body>
+</html>
