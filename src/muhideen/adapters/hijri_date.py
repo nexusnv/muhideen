@@ -15,8 +15,8 @@ from hijridate import Gregorian
 
 def resolve_hijri(day: date, offset: int) -> str | None:
     """Return ``YYYY-MM-DD`` Hijri for ``day + offset`` days, else None."""
-    shifted = day + timedelta(days=offset)
     try:
+        shifted = day + timedelta(days=offset)
         hijri = Gregorian(shifted.year, shifted.month, shifted.day).to_hijri()
     except (ValueError, OverflowError):
         return None
