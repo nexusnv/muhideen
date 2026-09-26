@@ -10,12 +10,12 @@ from muhideen.api.dto import SettingsDTO
 
 def login_context() -> dict[str, object]:
     """Context for the login page (no data needed)."""
-    return {"lang": "bm"}
+    return {"lang": "en"}
 
 
 def setup_context() -> dict[str, object]:
     """Context for the first-boot wizard (no data needed)."""
-    return {"lang": "bm"}
+    return {"lang": "en"}
 
 
 def settings_context(
@@ -23,7 +23,7 @@ def settings_context(
 ) -> dict[str, object]:
     """Prefilled settings page plus QR block (LAN URL only, never secrets)."""
     return {
-        "lang": "bm",
+        "lang": "en",
         "current": settings,
         "rules_json": rules_json,
         "qr_data_uri": qr_data_uri,
