@@ -77,7 +77,6 @@ def test_adhan_end_derives_from_duration() -> None:
 
     ctx = build_display_context(day=_day(), event=_event("ADHAN"), settings=_settings())  # type: ignore[arg-type]
     assert ctx["adhan_end_iso"] == "2025-10-20T12:18:00+08:00"
-    assert ctx["adhan_duration_s"] == 180
 
 
 def test_iqamah_and_dim_targets_pass_through() -> None:

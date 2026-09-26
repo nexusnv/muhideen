@@ -107,7 +107,6 @@ def build_display_context(
             if event.adhan_at
             else ""
         ),
-        "adhan_duration_s": settings.adhan_duration_s,
         "tz_name": tzinfo.key if isinstance(tzinfo, ZoneInfo) else None,
         "tz_offset_min": (
             int(off.total_seconds() // 60)
