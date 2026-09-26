@@ -50,5 +50,9 @@ def test_js_realtime_wiring_present() -> None:
         "performance.now",
         "60000",
         "30000",
+        "data-state",
+        "data-now",
+        "timeZone",
+        "getAttribute",
     ):
         assert token in js

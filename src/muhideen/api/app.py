@@ -415,6 +415,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         now = deps.clock.now()
         try:
             result = engine.resolve_day(now.date(), settings.zone, now)
+            event = engine.next_event(now)
         except ScheduleError:
             return _TEMPLATES.TemplateResponse(
                 request,
@@ -422,15 +423,20 @@ def create_app(deps: AppDeps) -> FastAPI:
                 {"code": 404, "message": "No schedule"},
                 status_code=404,
             )
-        event = engine.next_event(now)
+        except ConfigError:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "error.html",
+                {"code": 503, "message": "Setup required"},
+                status_code=503,
+            )
+        event_dto = NextEventDTO.from_domain(event)
         day_dto = PrayerDayDTO.from_domain(
             result.day,
             result.stale,
             hijri_date=resolve_hijri(result.day.date, settings.hijri_offset),
         )
-        ctx = build_display_context(
-            day=day_dto, event=NextEventDTO.from_domain(event), settings=settings
-        )
+        ctx = build_display_context(day=day_dto, event=event_dto, settings=settings)
         return _TEMPLATES.TemplateResponse(request, "display.html", ctx)
 
     @app.post("/api/auth/setup", response_model=AuthResponseDTO)

@@ -13,7 +13,7 @@
 </header>
 {% if banners %}<div id="banners">{% for b in banners %}<div class="banner">{{ b }}</div>{% endfor %}</div>{% endif %}
 <main id="hero">
-  <h1 id="hero-clock">{{ clock }}</h1>
+  <h1 id="hero-clock" data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}>{{ clock }}</h1>
   <div id="hero-next">
     <div id="next-name">{{ next_name_en }} · {{ next_name_bm }} · {{ next_name_ar }}</div>
     <div id="next-time">{{ next_time }}</div>

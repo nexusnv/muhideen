@@ -5,6 +5,8 @@ Imports ``api.dto`` + ``core`` only — never ``domain``/``engine``/adapters.
 
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 from muhideen.api.dto import NextEventDTO, PrayerDayDTO
 from muhideen.core.values import ScheduleSource, Settings
 
@@ -38,6 +40,7 @@ def build_display_context(
         "isha": day.prayers.isha,
     }
     next_key = event.next_prayer or "fajr"
+    tzinfo = event.now.tzinfo
     labels = (
         PRAYER_LABELS["jumuah"] if next_key == "jumuah" else PRAYER_LABELS[next_key]
     )
@@ -72,8 +75,10 @@ def build_display_context(
         banners.append("STALE — showing fallback schedule")
     if not event.time_synced:
         banners.append("TIME UNSYNCED")
-    if day.source is not ScheduleSource.JAKIM:
+    if day.source is ScheduleSource.CALC:
         banners.append("CALC — computed schedule")
+    elif day.source is ScheduleSource.MANUAL:
+        banners.append("MANUAL — set by admin")
     return {
         "masjid_name": settings.masjid_name,
         "zone": settings.zone,
@@ -89,4 +94,9 @@ def build_display_context(
         "banners": banners,
         "next_boundary": event.next_boundary,
         "boundary_at": event.boundary_at.isoformat() if event.boundary_at else None,
+        "now_iso": event.now.isoformat(),
+        "state": event.state,
+        "next_key": next_key,
+        "adhan_iso": event.adhan_at.isoformat() if event.adhan_at else "",
+        "tz_name": tzinfo.key if isinstance(tzinfo, ZoneInfo) else None,
     }
