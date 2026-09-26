@@ -7,17 +7,35 @@
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+{% if state == "ADHAN" %}
+<main id="overlay-adhan">
+  <h1>{{ next_name_en }} · {{ next_name_bm }} · {{ next_name_ar }}</h1>
+  <div id="adhan-bar"><div id="adhan-fill" data-bar-start="{{ adhan_iso }}" data-bar-end="{{ adhan_end_iso }}"></div></div>
+</main>
+{% elif state == "SALAH_DIM" %}
+<main id="dim">
+  <h1>{{ next_name_en }} · {{ next_name_ar }}</h1>
+  <div id="dim-clock" class="js-clock">{{ clock }}</div>
+  <div id="dim-bar"><div id="dim-fill" data-bar-start="{{ iqamah_iso }}" data-bar-end="{{ dim_until_iso }}"></div></div>
+  <div id="dim-skip-hint">Hold 3s to restore (admin)</div>
+</main>
+{% else %}
 <header id="hdr">
   <span id="masjid">{{ masjid_name }} / {{ zone }}</span>
   <span id="dates">{{ gregorian }} · {{ hijri }}</span>
 </header>
 {% if banners %}<div id="banners">{% for b in banners %}<div class="banner">{{ b }}</div>{% endfor %}</div>{% endif %}
+{% if state == "PRE_ADHAN" %}<div id="note-pre">{{ pre_note }}</div>{% endif %}
 <main id="hero">
-  <h1 id="hero-clock" data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}>{{ clock }}</h1>
+  <h1 id="hero-clock" class="js-clock" data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}>{{ clock }}</h1>
+  {% if state == "IQAMAH_COUNTDOWN" %}
+  <div id="iqamah-hero" data-countdown="{{ iqamah_iso }}"></div>
+  {% else %}
   <div id="hero-next">
     <div id="next-name">{{ next_name_en }} · {{ next_name_bm }} · {{ next_name_ar }}</div>
     <div id="next-time">{{ next_time }}</div>
   </div>
+  {% endif %}
 </main>
 <section id="cards">
   {% for c in cards %}
@@ -33,7 +51,10 @@
   {% endfor %}
   {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
 </section>
+{% if state == "NORMAL" %}
 <footer id="ftr"><span id="carousel-dot">●</span><span id="qr-hint">Admin: muhideen.local:8000/admin</span></footer>
+{% endif %}
+{% endif %}
 <script src="/static/app.js"></script>
 </body>
 </html>

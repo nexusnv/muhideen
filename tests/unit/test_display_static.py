@@ -57,3 +57,29 @@ def test_js_realtime_wiring_present() -> None:
         "getAttribute",
     ):
         assert token in js
+
+
+def test_state_region_selectors_present() -> None:
+    css = (STATIC / "app.css").read_text()
+    for selector in (
+        "#note-pre",
+        "#overlay-adhan",
+        "#iqamah-hero",
+        "#dim",
+        "#dim-clock",
+        "#dim-skip-hint",
+    ):
+        assert selector in css
+
+
+def test_state_template_ids_present() -> None:
+    html = (STATIC.parent / "views" / "templates" / "display.html").read_text()
+    for token in (
+        'id="overlay-adhan"',
+        'id="iqamah-hero"',
+        'id="dim"',
+        'id="note-pre"',
+        "data-countdown",
+        "data-bar-start",
+    ):
+        assert token in html

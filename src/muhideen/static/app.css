@@ -24,3 +24,10 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-u
 #overlay-adhan { position: fixed; inset: 0; background: var(--bg); display: grid; place-content: center; text-align: center; }
 .slate-error { display: grid; place-content: center; min-height: 100vh; text-align: center; }
 @media (max-aspect-ratio: 1/1) { #hero { grid-template-columns: 1fr; } #cards { grid-template-columns: 1fr 1fr; } }
+#note-pre { text-align: center; font-size: 2.6vh; color: var(--accent); padding: 1vh; }
+#overlay-adhan h1 { font-size: 8vh; margin: 2vh 0; }
+#adhan-bar { height: 1vh; background: var(--line); margin: 0 10vw; }
+#adhan-fill, #dim-fill { height: 100%; background: var(--accent); width: 0; }
+#dim-clock { font-size: 6vh; }
+#iqamah-hero { font-size: 9vh; font-weight: 700; }
+#dim-skip-hint { font-size: 1.8vh; color: var(--muted); margin-top: 3vh; }
