@@ -55,6 +55,11 @@ def test_js_realtime_wiring_present() -> None:
         "data-tzoffset",
         "timeZone",
         "getAttribute",
+        "data-countdown",
+        "data-bar-start",
+        "querySelectorAll",
+        "pointerdown",
+        "3000",
     ):
         assert token in js
 
