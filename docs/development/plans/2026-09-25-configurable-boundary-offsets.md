@@ -54,18 +54,37 @@ def test_settings_boundary_offset_ranges_rejected() -> None:
 
     for bad in (-1, 11):
         with pytest.raises(ValueError):
-            Settings(masjid_name="M", zone="SGR01", hijri_offset=0, imsak_offset_min=bad)
+            Settings(
+                masjid_name="M", zone="SGR01", hijri_offset=0, imsak_offset_min=bad
+            )
     for bad in (14, 31):
         with pytest.raises(ValueError):
-            Settings(masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=bad)
+            Settings(
+                masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=bad
+            )
 
 
 def test_settings_boundary_offset_edges_accepted() -> None:
     from muhideen.core.values import Settings
 
-    assert Settings(masjid_name="M", zone="SGR01", hijri_offset=0, imsak_offset_min=0).imsak_offset_min == 0
-    assert Settings(masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=15).dhuha_offset_min == 15
-    assert Settings(masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=30).dhuha_offset_min == 30
+    assert (
+        Settings(
+            masjid_name="M", zone="SGR01", hijri_offset=0, imsak_offset_min=0
+        ).imsak_offset_min
+        == 0
+    )
+    assert (
+        Settings(
+            masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=15
+        ).dhuha_offset_min
+        == 15
+    )
+    assert (
+        Settings(
+            masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=30
+        ).dhuha_offset_min
+        == 30
+    )
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -198,24 +217,40 @@ def test_merge_days_prefers_cached_markers() -> None:
     from datetime import datetime as _dt
 
     cached = PrayerDay(
-        date=date(2026, 9, 23), zone="SGR01",
-        imsak=time(5, 45), fajr=time(5, 55), syuruq=time(7, 1),
-        dhuha=time(7, 26), dhuhr=time(13, 9), asr=time(16, 14),
-        maghrib=time(19, 11), isha=time(20, 20),
+        date=date(2026, 9, 23),
+        zone="SGR01",
+        imsak=time(5, 45),
+        fajr=time(5, 55),
+        syuruq=time(7, 1),
+        dhuha=time(7, 26),
+        dhuhr=time(13, 9),
+        asr=time(16, 14),
+        maghrib=time(19, 11),
+        isha=time(20, 20),
         source=ScheduleSource.JAKIM,
         fetched_at=_dt(2026, 9, 23, 1, 0, tzinfo=tz),
     )
     calc = PrayerDay(
-        date=date(2026, 9, 23), zone="SGR01",
-        imsak=time(5, 40), fajr=time(5, 50), syuruq=time(7, 0),
-        dhuha=time(7, 30), dhuhr=time(12, 20), asr=time(15, 35),
-        maghrib=time(18, 10), isha=time(19, 30),
+        date=date(2026, 9, 23),
+        zone="SGR01",
+        imsak=time(5, 40),
+        fajr=time(5, 50),
+        syuruq=time(7, 0),
+        dhuha=time(7, 30),
+        dhuhr=time(12, 20),
+        asr=time(15, 35),
+        maghrib=time(18, 10),
+        isha=time(19, 30),
         source=ScheduleSource.CALC,
         fetched_at=_dt(2026, 9, 23, 1, 0, tzinfo=tz),
     )
     merged = merge_days(cached, calc)
     assert merged is not None
-    assert (merged.fajr, merged.dhuhr, merged.source) == (time(5, 55), time(13, 9), ScheduleSource.JAKIM)
+    assert (merged.fajr, merged.dhuhr, merged.source) == (
+        time(5, 55),
+        time(13, 9),
+        ScheduleSource.JAKIM,
+    )
 
 
 def test_merge_days_falls_back_to_calc() -> None:
@@ -228,10 +263,16 @@ def test_merge_days_falls_back_to_calc() -> None:
 
     tz = ZoneInfo("Asia/Kuala_Lumpur")
     calc = PrayerDay(
-        date=date(2026, 9, 23), zone="SGR01",
-        imsak=time(5, 40), fajr=time(5, 50), syuruq=time(7, 0),
-        dhuha=time(7, 30), dhuhr=time(12, 20), asr=time(15, 35),
-        maghrib=time(18, 10), isha=time(19, 30),
+        date=date(2026, 9, 23),
+        zone="SGR01",
+        imsak=time(5, 40),
+        fajr=time(5, 50),
+        syuruq=time(7, 0),
+        dhuha=time(7, 30),
+        dhuhr=time(12, 20),
+        asr=time(15, 35),
+        maghrib=time(18, 10),
+        isha=time(19, 30),
         source=ScheduleSource.CALC,
         fetched_at=_dt(2026, 9, 23, 1, 0, tzinfo=tz),
     )
@@ -249,7 +290,9 @@ Expected: FAIL with `ImportError: cannot import name 'merge_days'`
 Append to `src/muhideen/domain/fallback.py`:
 
 ```python
-def merge_days(preferred: PrayerDay | None, fallback: PrayerDay | None) -> PrayerDay | None:
+def merge_days(
+    preferred: PrayerDay | None, fallback: PrayerDay | None
+) -> PrayerDay | None:
     """Merge two complete days per marker, preferring ``preferred``.
 
     API (cached/JAKIM) markers supersede calc markers one by one. Rows are
@@ -373,48 +416,44 @@ DEFAULT_DHUHA_OFFSET_MIN = 28
 Delete `_dhuha_offset_min` entirely. New `compute_day`:
 
 ```python
-    def compute_day(
-        self,
-        day: date,
-        lat: float,
-        lon: float,
-        method: str,
-        *,
-        imsak_offset_min: int = DEFAULT_IMSAK_OFFSET_MIN,
-        dhuha_offset_min: int = DEFAULT_DHUHA_OFFSET_MIN,
-    ) -> PrayerDay:
-        """Compute one day's eight markers via adhanpy; `ValueError` if unsupported.
+def compute_day(
+    self,
+    day: date,
+    lat: float,
+    lon: float,
+    method: str,
+    *,
+    imsak_offset_min: int = DEFAULT_IMSAK_OFFSET_MIN,
+    dhuha_offset_min: int = DEFAULT_DHUHA_OFFSET_MIN,
+) -> PrayerDay:
+    """Compute one day's eight markers via adhanpy; `ValueError` if unsupported.
 
-        adhanpy supplies 6 markers (fajr, sunrise→syuruq, dhuhr, asr,
-        maghrib, isha); imsak/dhuha are derived offsets
-        (``imsak = fajr − imsak_offset_min`` with 0 meaning disabled/hidden,
-        ``dhuha = syuruq + dhuha_offset_min``). Out-of-range offsets are a
-        cache miss (`ValueError`), matching the Settings guards (0–10, 15–30).
-        The result is stamped `ScheduleSource.CALC` with the pinned clock
-        and passed through `ensure_ordered` before anything returns.
-        """
-        if method != _PINNED_METHOD:
-            # engine.py converts ValueError to a cache miss, so an unknown
-            # configured method degrades the chain instead of 500-ing.
-            raise ValueError(f"unsupported calculation method: {method}")
-        if not 0 <= imsak_offset_min <= 10:
-            raise ValueError(f"imsak_offset_min out of range: {imsak_offset_min}")
-        if not 15 <= dhuha_offset_min <= 30:
-            raise ValueError(f"dhuha_offset_min out of range: {dhuha_offset_min}")
-        times = PrayerTimes(
-            (lat, lon),
-            datetime(day.year, day.month, day.day),
-            calculation_parameters=_params(),
-            time_zone=self._tz,
-        )
-        fajr: time = times.fajr.time()
-        syuruq: time = times.sunrise.time()
-        imsak = (
-            datetime.combine(day, fajr) - timedelta(minutes=imsak_offset_min)
-        ).time()
-        dhuha = (
-            datetime.combine(day, syuruq) + timedelta(minutes=dhuha_offset_min)
-        ).time()
+    adhanpy supplies 6 markers (fajr, sunrise→syuruq, dhuhr, asr,
+    maghrib, isha); imsak/dhuha are derived offsets
+    (``imsak = fajr − imsak_offset_min`` with 0 meaning disabled/hidden,
+    ``dhuha = syuruq + dhuha_offset_min``). Out-of-range offsets are a
+    cache miss (`ValueError`), matching the Settings guards (0–10, 15–30).
+    The result is stamped `ScheduleSource.CALC` with the pinned clock
+    and passed through `ensure_ordered` before anything returns.
+    """
+    if method != _PINNED_METHOD:
+        # engine.py converts ValueError to a cache miss, so an unknown
+        # configured method degrades the chain instead of 500-ing.
+        raise ValueError(f"unsupported calculation method: {method}")
+    if not 0 <= imsak_offset_min <= 10:
+        raise ValueError(f"imsak_offset_min out of range: {imsak_offset_min}")
+    if not 15 <= dhuha_offset_min <= 30:
+        raise ValueError(f"dhuha_offset_min out of range: {dhuha_offset_min}")
+    times = PrayerTimes(
+        (lat, lon),
+        datetime(day.year, day.month, day.day),
+        calculation_parameters=_params(),
+        time_zone=self._tz,
+    )
+    fajr: time = times.fajr.time()
+    syuruq: time = times.sunrise.time()
+    imsak = (datetime.combine(day, fajr) - timedelta(minutes=imsak_offset_min)).time()
+    dhuha = (datetime.combine(day, syuruq) + timedelta(minutes=dhuha_offset_min)).time()
 ```
 
 Also update the module docstring params line (keep the 6-marker note from the working tree):
@@ -617,17 +656,15 @@ from muhideen.domain.fallback import merge_days
 Replace `_resolve_day` body tail:
 
 ```python
-        cached = self._prayer_repo.get_day(requested, zone)
-        calculated = (
-            self._calc_day(requested, zone, settings) if cached is None else None
-        )
-        last_known = (
-            self._prayer_repo.last_known(requested, zone)
-            if cached is None and calculated is None
-            else None
-        )
-        merged = merge_days(cached, calculated)
-        return resolve_fallback(requested, zone, now, merged, None, last_known)
+cached = self._prayer_repo.get_day(requested, zone)
+calculated = self._calc_day(requested, zone, settings) if cached is None else None
+last_known = (
+    self._prayer_repo.last_known(requested, zone)
+    if cached is None and calculated is None
+    else None
+)
+merged = merge_days(cached, calculated)
+return resolve_fallback(requested, zone, now, merged, None, last_known)
 ```
 
 Replace `_calc_day` compute call:
@@ -671,8 +708,11 @@ def test_offset_keys_round_trip() -> None:
     from muhideen.core.values import Settings
 
     settings = Settings(
-        masjid_name="Masjid Test", zone="SGR01", hijri_offset=0,
-        imsak_offset_min=5, dhuha_offset_min=20,
+        masjid_name="Masjid Test",
+        zone="SGR01",
+        hijri_offset=0,
+        imsak_offset_min=5,
+        dhuha_offset_min=20,
     )
     repo.save(settings)
     loaded = repo.load()
@@ -684,7 +724,9 @@ def test_offset_keys_default_when_missing() -> None:
 
     repo.save(Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0))
     with repo._db.write() as conn:
-        conn.execute("DELETE FROM settings WHERE key IN ('imsak_offset_min', 'dhuha_offset_min')")
+        conn.execute(
+            "DELETE FROM settings WHERE key IN ('imsak_offset_min', 'dhuha_offset_min')"
+        )
     loaded = repo.load()
     assert (loaded.imsak_offset_min, loaded.dhuha_offset_min) == (10, 28)
 ```
@@ -701,16 +743,16 @@ Expected: FAIL with `TypeError` (unknown kwargs) or `AssertionError` on load
 In `SqliteSettingsRepo.load`, add:
 
 ```python
-                imsak_offset_min=int(kv.get("imsak_offset_min", "10")),
-                dhuha_offset_min=int(kv.get("dhuha_offset_min", "28")),
+imsak_offset_min = (int(kv.get("imsak_offset_min", "10")),)
+dhuha_offset_min = (int(kv.get("dhuha_offset_min", "28")),)
 ```
 
 In `save`, extend `pairs`:
 
 ```python
-            ("method", settings.method),
-            ("imsak_offset_min", str(settings.imsak_offset_min)),
-            ("dhuha_offset_min", str(settings.dhuha_offset_min)),
+(("method", settings.method),)
+(("imsak_offset_min", str(settings.imsak_offset_min)),)
+(("dhuha_offset_min", str(settings.dhuha_offset_min)),)
 ```
 
 In `0001_initial.sql`, update the keys comment:
@@ -797,19 +839,19 @@ Expected: FAIL with `TypeError: _settings_payload() got an unexpected keyword ar
 `from_domain` add:
 
 ```python
-            boundary_countdown=settings.boundary_countdown,
-            calc_only=settings.calc_only,
-            imsak_offset_min=settings.imsak_offset_min,
-            dhuha_offset_min=settings.dhuha_offset_min,
+boundary_countdown = (settings.boundary_countdown,)
+calc_only = (settings.calc_only,)
+imsak_offset_min = (settings.imsak_offset_min,)
+dhuha_offset_min = (settings.dhuha_offset_min,)
 ```
 
 `to_domain` add:
 
 ```python
-            boundary_countdown=self.boundary_countdown,
-            calc_only=self.calc_only,
-            imsak_offset_min=self.imsak_offset_min,
-            dhuha_offset_min=self.dhuha_offset_min,
+boundary_countdown = (self.boundary_countdown,)
+calc_only = (self.calc_only,)
+imsak_offset_min = (self.imsak_offset_min,)
+dhuha_offset_min = (self.dhuha_offset_min,)
 ```
 
 `api/fixtures/settings.json` — add `"imsak_offset_min":10,"dhuha_offset_min":28` (keep alphabetical-ish order with existing keys; exact bytes: insert after `"hijri_offset":0,` → `"hijri_offset":0,"imsak_offset_min":10,` and after `"method":"MABIMS",` → `"dhuha_offset_min":28,` — verify with the contract test).
