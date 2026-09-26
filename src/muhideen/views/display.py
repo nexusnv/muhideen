@@ -5,6 +5,7 @@ Imports ``api.dto`` + ``core`` only — never ``domain``/``engine``/adapters.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from muhideen.api.dto import NextEventDTO, PrayerDayDTO
@@ -98,6 +99,14 @@ def build_display_context(
         "state": event.state,
         "next_key": next_key,
         "adhan_iso": event.adhan_at.isoformat() if event.adhan_at else "",
+        "pre_note": f"Preparing for {labels[0]}" if event.state == "PRE_ADHAN" else "",
+        "iqamah_iso": event.iqamah_at.isoformat() if event.iqamah_at else "",
+        "dim_until_iso": event.dim_until.isoformat() if event.dim_until else "",
+        "adhan_end_iso": (
+            (event.adhan_at + timedelta(seconds=settings.adhan_duration_s)).isoformat()
+            if event.adhan_at
+            else ""
+        ),
         "tz_name": tzinfo.key if isinstance(tzinfo, ZoneInfo) else None,
         "tz_offset_min": (
             int(off.total_seconds() // 60)

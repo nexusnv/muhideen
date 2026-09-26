@@ -34,10 +34,26 @@
     }
     return new Date(epoch).toLocaleTimeString("en-GB", base);
   }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
   function tick() {
     var epoch = serverEpoch();
-    if (epoch === null || !clockEl) return;
-    clockEl.textContent = fmt(epoch);
+    if (epoch === null) return;
+    var clocks = document.querySelectorAll(".js-clock");
+    for (var i = 0; i < clocks.length; i++) clocks[i].textContent = fmt(epoch);
+    var downs = document.querySelectorAll("[data-countdown]");
+    for (var j = 0; j < downs.length; j++) {
+      var target = new Date(downs[j].getAttribute("data-countdown")).getTime();
+      var remain = Math.max(0, target - epoch);
+      var s = Math.floor(remain / 1000);
+      downs[j].textContent = pad(Math.floor(s / 60)) + ":" + pad(s % 60);
+    }
+    var bars = document.querySelectorAll("[data-bar-start]");
+    for (var k = 0; k < bars.length; k++) {
+      var start = new Date(bars[k].getAttribute("data-bar-start")).getTime();
+      var end = new Date(bars[k].getAttribute("data-bar-end")).getTime();
+      var pct = end <= start ? 100 : Math.min(100, Math.max(0, (epoch - start) / (end - start) * 100));
+      bars[k].style.width = pct + "%";
+    }
   }
   setInterval(tick, 1000);
   function sameAsDom(data) {
@@ -89,4 +105,26 @@
     }
     src.onerror = function () { src.close(); startPoll(); };
   } catch (err) { setInterval(poll, 60000); }
+  var dimEl = document.getElementById("dim");
+  if (dimEl) {
+    var skipKey = "muhideen-dim-skip";
+    try {
+      if (localStorage.getItem(skipKey) === dimEl.getAttribute("data-dim-until")) {
+        dimEl.style.display = "none";
+      }
+    } catch (err) { /* storage unavailable: overlay stays */ }
+    var pressTimer = null;
+    function cancelPress() {
+      if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; }
+    }
+    dimEl.addEventListener("pointerdown", function () {
+      cancelPress();
+      pressTimer = setTimeout(function () {
+        try { localStorage.setItem(skipKey, dimEl.getAttribute("data-dim-until") || ""); } catch (err) { /* fall through to hide */ }
+        window.location.reload();
+      }, 3000);
+    });
+    dimEl.addEventListener("pointerup", cancelPress);
+    dimEl.addEventListener("pointerleave", cancelPress);
+  }
 })();
