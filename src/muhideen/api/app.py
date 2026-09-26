@@ -23,6 +23,7 @@ from starlette.responses import StreamingResponse
 from starlette.types import Send
 
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
+from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
 from muhideen.adapters.migrate import migrate
 from muhideen.adapters.scheduler import build_scheduler
@@ -328,7 +329,11 @@ def create_app(deps: AppDeps) -> FastAPI:
     ) -> PrayerDayDTO:
         """Resolve one day's schedule with its staleness flag."""
         result = engine.resolve_day(date, zone, deps.clock.now())
-        return PrayerDayDTO.from_domain(result.day, result.stale)
+        settings = deps.settings_repo.load()
+        hijri_date = resolve_hijri(result.day.date, settings.hijri_offset)
+        return PrayerDayDTO.from_domain(
+            result.day, result.stale, hijri_date=hijri_date
+        )
 
     @app.get("/api/next-event", response_model=NextEventDTO)
     def next_event(

@@ -6,7 +6,7 @@ Base URL (device): `http://muhideen.local:8000`. Mock: `http://localhost:8001` v
 
 ## `GET /api/prayer-day?date=YYYY-MM-DD&zone=SGR01`
 
-Day schedule + freshness. `source` is per-day fallback provenance; `stale` drives the banner. `prayers` holds the 5 Prayer Time Markers (cards/hero level); `boundaries` holds Imsak/Syuruq/Dhuha — rendered at secondary level, never adhan/iqamah/dim.
+Day schedule + freshness. `source` is per-day fallback provenance; `stale` drives the banner. `prayers` holds the 5 Prayer Time Markers (cards/hero level); `boundaries` holds Imsak/Syuruq/Dhuha — rendered at secondary level, never adhan/iqamah/dim. `hijri_date` is the Gregorian date converted via `hijridate` with `hijri_offset` applied (`null` outside 1343–1500 AH, never a 500).
 
 ```json
 {
@@ -15,7 +15,8 @@ Day schedule + freshness. `source` is per-day fallback provenance; `stale` drive
   "prayers": {"fajr": "05:45", "dhuhr": "12:15", "asr": "15:30", "maghrib": "18:05", "isha": "19:25"},
   "boundaries": {"imsak": "05:35", "syuruq": "06:55", "dhuha": "07:25"},
   "source": "jakim",
-  "stale": false
+  "stale": false,
+  "hijri_date": "1447-04-28"
 }
 ```
 
