@@ -331,9 +331,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         result = engine.resolve_day(date, zone, deps.clock.now())
         settings = deps.settings_repo.load()
         hijri_date = resolve_hijri(result.day.date, settings.hijri_offset)
-        return PrayerDayDTO.from_domain(
-            result.day, result.stale, hijri_date=hijri_date
-        )
+        return PrayerDayDTO.from_domain(result.day, result.stale, hijri_date=hijri_date)
 
     @app.get("/api/next-event", response_model=NextEventDTO)
     def next_event(

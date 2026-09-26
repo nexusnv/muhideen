@@ -147,9 +147,9 @@ def test_prayer_day_from_domain_matches_fixture() -> None:
         source=ScheduleSource.JAKIM,
         fetched_at=datetime(2025, 10, 20, 1, 0, tzinfo=KL),
     )
-    assert PrayerDayDTO.from_domain(day, stale=False, hijri_date="1447-04-28").model_dump(mode="json") == _load(
-        "prayer-day.json"
-    )
+    assert PrayerDayDTO.from_domain(
+        day, stale=False, hijri_date="1447-04-28"
+    ).model_dump(mode="json") == _load("prayer-day.json")
 
 
 def test_version_fixture_round_trips() -> None:
