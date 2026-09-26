@@ -55,6 +55,16 @@ def test_tz_name_iana_passthrough() -> None:
     day, event = _dtos(KL)
     ctx = build_display_context(day=day, event=event, settings=_settings())
     assert ctx["tz_name"] == "Asia/Kuala_Lumpur"
+    assert ctx["tz_offset_min"] is None
+
+
+def test_tz_offset_minutes_for_fixed_offset() -> None:
+    from muhideen.views.display import build_display_context
+
+    day, event = _dtos(timezone(timedelta(hours=8)))
+    ctx = build_display_context(day=day, event=event, settings=_settings())
+    assert ctx["tz_offset_min"] == 480
+    assert ctx["tz_name"] is None
 
 
 def test_tz_name_absent_for_fixed_offset() -> None:

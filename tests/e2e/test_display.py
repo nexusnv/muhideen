@@ -98,3 +98,12 @@ def test_display_carries_realtime_data_attrs(
     html = client.get("/display", params={"id": "HALL-01"}).text
     for attr in ("data-now=", "data-state=", "data-next=", "data-adhan="):
         assert attr in html
+
+
+def test_display_carries_tzoffset_for_fixed_offset_clock(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'data-tzoffset="480"' in html
+    assert "data-tz=" not in html

@@ -99,4 +99,10 @@ def build_display_context(
         "next_key": next_key,
         "adhan_iso": event.adhan_at.isoformat() if event.adhan_at else "",
         "tz_name": tzinfo.key if isinstance(tzinfo, ZoneInfo) else None,
+        "tz_offset_min": (
+            int(off.total_seconds() // 60)
+            if not isinstance(tzinfo, ZoneInfo)
+            and (off := event.now.utcoffset()) is not None
+            else None
+        ),
     }

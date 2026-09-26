@@ -7,6 +7,7 @@
   var domNext = clockEl ? clockEl.getAttribute("data-next") : null;
   var domAdhan = clockEl ? clockEl.getAttribute("data-adhan") : null;
   var tzName = clockEl ? clockEl.getAttribute("data-tz") : null;
+  var tzOffsetAttr = clockEl ? clockEl.getAttribute("data-tzoffset") : null; var tzOffset = tzOffsetAttr === null ? NaN : parseInt(tzOffsetAttr, 10);
   var serverNow = null;
   var baseMono = null;
   function anchor(nowIso) {
@@ -26,6 +27,10 @@
         var opts = { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: tzName };
         return new Date(epoch).toLocaleTimeString("en-GB", opts);
       } catch (err) { tzName = null; }
+    }
+    if (tzOffset === tzOffset) {
+      var shifted = { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC" };
+      return new Date(epoch + tzOffset * 60000).toLocaleTimeString("en-GB", shifted);
     }
     return new Date(epoch).toLocaleTimeString("en-GB", base);
   }

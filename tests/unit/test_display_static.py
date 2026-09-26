@@ -52,6 +52,7 @@ def test_js_realtime_wiring_present() -> None:
         "30000",
         "data-state",
         "data-now",
+        "data-tzoffset",
         "timeZone",
         "getAttribute",
     ):
