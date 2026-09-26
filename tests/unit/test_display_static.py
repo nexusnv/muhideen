@@ -22,9 +22,7 @@ def _luminance(hex_color: str) -> float:
 
 
 def _contrast(fg: str, bg: str) -> float:
-    high, low = max(_luminance(fg), _luminance(bg)), min(
-        _luminance(fg), _luminance(bg)
-    )
+    high, low = max(_luminance(fg), _luminance(bg)), min(_luminance(fg), _luminance(bg))
     return (high + 0.05) / (low + 0.05)
 
 
