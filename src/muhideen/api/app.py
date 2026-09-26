@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import queue
 import threading
@@ -17,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import AfterValidator
@@ -28,6 +29,7 @@ from muhideen.adapters.calc_mabims import MabimsCalcEngine
 from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
 from muhideen.adapters.migrate import migrate
+from muhideen.adapters.qr_code import qr_data_uri
 from muhideen.adapters.scheduler import build_scheduler
 from muhideen.adapters.sqlite_repo import (
     Database,
@@ -74,6 +76,7 @@ from muhideen.core.ports import (
     UserRepo,
 )
 from muhideen.engine import Engine
+from muhideen.views.admin import login_context, settings_context, setup_context
 from muhideen.views.display import build_display_context
 
 logger = logging.getLogger(__name__)
@@ -517,6 +520,35 @@ def create_app(deps: AppDeps) -> FastAPI:
         deps.settings_repo.save(settings)
         deps.event_bus.publish("config-update", ("settings",))
         return SettingsDTO.from_domain(settings)
+
+    @app.get("/admin/login", response_class=HTMLResponse)
+    def admin_login(request: Request) -> HTMLResponse:
+        """Admin login page (thin fetch client over /api/auth/login)."""
+        return _TEMPLATES.TemplateResponse(request, "admin/login.html", login_context())
+
+    @app.get("/admin/setup", response_class=HTMLResponse, response_model=None)
+    def admin_setup(request: Request) -> HTMLResponse | RedirectResponse:
+        """First-boot wizard; redirects once an admin exists."""
+        if deps.user_repo.has_users():
+            return RedirectResponse("/admin/settings")
+        return _TEMPLATES.TemplateResponse(request, "admin/setup.html", setup_context())
+
+    @app.get("/admin/settings", response_class=HTMLResponse, response_model=None)
+    def admin_settings(request: Request) -> HTMLResponse | RedirectResponse:
+        """Settings page for authed admins; others go to login."""
+        token = request.cookies.get(SESSION_COOKIE)
+        if token is None or not sessions.validate(token):
+            return RedirectResponse("/admin/login")
+        dto = SettingsDTO.from_domain(deps.settings_repo.load())
+        rules_json = json.dumps([r.model_dump(mode="json") for r in dto.iqamah_rules])
+        host = request.url.hostname or "muhideen.local"
+        ctx = settings_context(
+            settings=dto,
+            rules_json=rules_json,
+            qr_data_uri=qr_data_uri("http://muhideen.local:8000/admin"),
+            fallback_url=f"http://{host}/admin",
+        )
+        return _TEMPLATES.TemplateResponse(request, "admin/settings.html", ctx)
 
     return app
 
