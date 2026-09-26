@@ -90,6 +90,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- UI is English-only (BM toggle removed); Arabic prayer names stay invariant; `locales/en.json` seeds file-based translation. Display hero marks tomorrow Fajr.
 - `PrayerName` renamed `MarkerName`; state machine windows are
   Prayer-Time-Marker-only (boundary markers never PRE_ADHAN/ADHAN/IQAMAH/dim;
   `resolve_iqamah` raises for them); `next_prayer` narrowed to prayer markers
