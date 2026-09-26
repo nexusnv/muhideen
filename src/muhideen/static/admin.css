@@ -1,0 +1,9 @@
+body { margin: 0; font-family: system-ui, sans-serif; background: #0a3527; color: #f4f1e8; }
+main { max-width: 640px; margin: 0 auto; padding: 4vw; }
+label { display: block; margin: 2vh 0; font-size: 2.2vh; }
+input, select, button { min-height: 48px; font-size: 2.2vh; width: 100%; box-sizing: border-box; margin-top: 0.5vh; }
+button { background: #e0b73c; color: #0a3527; font-weight: 700; border: 0; border-radius: 1vh; margin-top: 2vh; }
+#lang-toggle { width: auto; padding: 0 3vw; }
+[role="alert"] { color: #e0b73c; min-height: 3vh; }
+#qr-img { max-width: 100%; }
+input, select { font-size: max(2.2vh, 16px); }

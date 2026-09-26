@@ -86,6 +86,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
 - Additive `hijri_date` on `GET /api/prayer-day` (hijridate Umm al-Qura, `hijri_offset` applied, null outside library range).
 - 1B-1 display: server-rendered `GET /display?id=` (classic-green, stable region IDs, trilingual labels, imsak hidden when disabled, error slates) + static CSS/JS (SSE, monotonic tick, 60s poll, 30s heartbeat).
 - 1B-2 states: per-state display variants (PRE_ADHAN note, ADHAN overlay, IQAMAH hero countdown, SALAH_DIM blackout with local 3s long-press skip), Jumuah edges, boundary-never-state replay guard. No contract change.
+- 1B-3 admin: `/admin/setup` wizard (thin client, no fork), `/admin/settings` tunables incl. offsets, `/admin/login` with 429 surfacing, server-side QR data URI (LAN URL only), BM/EN toggle. No contract change (HTML-only), no migration. QR via segno (pure-Python, BSD).
 
 ### Changed
 

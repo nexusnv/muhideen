@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="bm">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-en="Setup">Persediaan</title>
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+<main id="wizard">
+  <h1 data-en="Setup">Persediaan</h1>
+  <button id="lang-toggle" type="button">EN</button>
+  <section data-step="1">
+    <label><span data-en="Masjid name">Nama Masjid</span><input id="w-name" type="text"></label>
+    <label>Zone<input id="w-zone" type="text" placeholder="SGR01"></label>
+  </section>
+  <section data-step="2" hidden>
+    <label><input id="w-calc" type="checkbox"> <span data-en="Offline calculation only">Pengiraan luar talian sahaja</span></label>
+    <label>Lat<input id="w-lat" type="number" step="any"></label>
+    <label>Lon<input id="w-lon" type="number" step="any"></label>
+  </section>
+  <section data-step="3" hidden>
+    <label><span data-en="Password">Kata Laluan</span><input id="w-pass" type="password" autocomplete="new-password"></label>
+    <label><span data-en="Confirm password">Sahkan kata laluan</span><input id="w-pass2" type="password" autocomplete="new-password"></label>
+  </section>
+  <section data-step="4" hidden>
+    <label>Hijri offset<input id="w-hijri" type="number" min="-2" max="2" value="0"></label>
+  </section>
+  <section data-step="5" hidden>
+    <div id="w-review"></div>
+    <p data-en="Setup closes after the first admin is created.">Persediaan ditutup selepas admin pertama diwujudkan.</p>
+  </section>
+  <div id="w-msg" role="alert"></div>
+  <button id="w-back" type="button" hidden data-en="Back">Kembali</button>
+  <button id="w-next" type="button">Seterusnya</button>
+</main>
+<script src="/static/admin.js"></script>
+</body>
+</html>
