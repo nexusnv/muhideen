@@ -140,7 +140,7 @@ DEFAULT_IQAMAH_RULES: tuple[IqamahRule, ...] = (
     IqamahRule(prayer=MarkerName.ISHA, mode="delay", delay_minutes=15),
     IqamahRule(prayer=MarkerName.JUMUAH, mode="delay", delay_minutes=10),
 )
-"""PRD FR-1.4 iqamah defaults: Subuh 15, Dhuhr/Asr/Maghrib 10, Isha 15,
+"""PRD FR-1.4 iqamah defaults: Fajr 15, Dhuhr/Asr/Maghrib 10, Isha 15,
 Jumuah its own rule. Boundary Time Markers have no iqamah, so no rule."""
 
 
