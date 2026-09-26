@@ -79,6 +79,7 @@ def build_display_context(
         banners.append("CALC — computed schedule")
     elif day.source is ScheduleSource.MANUAL:
         banners.append("MANUAL — set by admin")
+    adhan_date = event.adhan_at.date() if event.adhan_at else None
     return {
         "masjid_name": settings.masjid_name,
         "zone": settings.zone,
@@ -88,6 +89,7 @@ def build_display_context(
         "next_name_en": labels[0],
         "next_name_ar": labels[1],
         "next_time": event.adhan_at.strftime("%H:%M") if event.adhan_at else "",
+        "next_tomorrow": adhan_date is not None and adhan_date > day.date,
         "cards": cards,
         "bounds": bounds,
         "banners": banners,

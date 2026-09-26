@@ -99,3 +99,28 @@ def test_jumuah_labels_and_dhuhr_time() -> None:
     ctx = build_display_context(day=_day(), event=event, settings=_settings())  # type: ignore[arg-type]
     assert (ctx["next_name_en"], ctx["next_name_ar"]) == ("Jumuah", "الجمعة")
     assert ctx["next_time"] == "12:15"
+
+
+def test_next_tomorrow_flag_when_adhan_is_next_day() -> None:
+    from datetime import datetime
+
+    from muhideen.views.display import build_display_context
+
+    day = _day()
+    event = _event(
+        "NORMAL",
+        now=datetime(2025, 10, 20, 21, 0, tzinfo=KL),
+        next_prayer="fajr",
+        adhan_at=datetime(2025, 10, 21, 5, 45, tzinfo=KL),
+    )
+    ctx = build_display_context(day=day, event=event, settings=_settings())  # type: ignore[arg-type]
+    assert ctx["next_tomorrow"] is True
+
+
+def test_next_tomorrow_false_same_day() -> None:
+    from muhideen.views.display import build_display_context
+
+    ctx = build_display_context(
+        day=_day(), event=_event("NORMAL"), settings=_settings()
+    )  # type: ignore[arg-type]
+    assert ctx["next_tomorrow"] is False

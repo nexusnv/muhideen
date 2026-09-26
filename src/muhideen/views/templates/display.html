@@ -35,7 +35,7 @@
   {% else %}
   <div id="hero-next">
     <div id="next-name">{{ next_name_en }} · {{ next_name_ar }}</div>
-    <div id="next-time">{{ next_time }}</div>
+    <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
   </div>
   {% endif %}
 </main>

@@ -181,3 +181,12 @@ def test_state_walkthrough_jumuah_friday(
     _advance_to(surface, datetime(2025, 10, 24, 12, 20))
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert "Jumuah" in html
+
+
+def test_hero_marks_tomorrow_fajr(surface: SimpleNamespace, client: TestClient) -> None:
+    from datetime import datetime
+
+    _seed_settings(surface)
+    _advance_to(surface, datetime(2025, 10, 20, 21, 0))
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="next-tomorrow"' in html
