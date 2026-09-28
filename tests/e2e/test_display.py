@@ -328,7 +328,12 @@ def test_display_display_dim_beats_group_dim(
 
 
 @pytest.mark.parametrize(
-    "key,value", [("theme.palette", "neon"), ("dim_minutes_override", "99")]
+    "key,value",
+    [
+        ("theme.palette", "neon"),
+        ("dim_minutes_override", "99"),
+        ("dim_minutes_override", "abc"),
+    ],
 )
 def test_display_corrupt_override_slates_503(
     surface: SimpleNamespace, client: TestClient, key: str, value: str
