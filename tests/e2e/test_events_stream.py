@@ -279,6 +279,48 @@ def test_published_tick_stage_matches_open_window_playlist(
     assert data["stage"] == "playlist:open"
 
 
+def test_published_tick_stage_falls_back_to_clock_on_corrupt_playlist(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
+    from muhideen.core.values import Playlist, PlaylistItem
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    repo = SqlitePlaylistRepo(surface.db)
+    repo.save(
+        Playlist(
+            id="broken",
+            title="Broken",
+            active=True,
+            window_start=None,
+            window_end=None,
+            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+        )
+    )
+    with surface.db.write() as conn:
+        conn.execute(
+            "UPDATE playlists SET anchor_marker = 'bogus' WHERE id = 'broken'",
+        )
+    gen = _Driver(
+        app_module._event_stream(
+            _engine(surface),
+            surface.clock,
+            surface.bus,
+            surface.settings_repo,
+            repo,
+        )
+    )
+    try:
+        next(gen)
+        surface.bus.publish("tick")
+        frame = next(gen)
+    finally:
+        gen.close()
+    event, data = _parse(frame)
+    assert event == "tick"
+    assert data["stage"] == "clock"
+
+
 def test_config_update_carries_changed_groups(
     surface: SimpleNamespace, client: TestClient
 ) -> None:

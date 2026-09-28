@@ -212,7 +212,6 @@
         (function (d) {
           html += '<div class="display-row" data-display="' + esc(d.id) + '">'
             + "<strong>" + esc(d.name) + "</strong>"
-            + '<label>Theme <input data-theme-for="' + esc(d.id) + '" type="text" value="' + esc(d.current_theme) + '"></label>'
             + '<label>Group <select data-group-for="' + esc(d.id) + '">';
           for (var g = 0; g < data.groups.length; g++) {
             html += '<option value="' + esc(data.groups[g].name) + '"'
@@ -240,12 +239,11 @@
       overridesBox.addEventListener("click", function (ev) {
         var saveId = ev.target.getAttribute && ev.target.getAttribute("data-save-display");
         if (saveId) {
-          var themeEl = overridesBox.querySelector('[data-theme-for="' + saveId + '"]');
           var groupEl = overridesBox.querySelector('[data-group-for="' + saveId + '"]');
           fetch("/api/displays/" + encodeURIComponent(saveId), {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ current_theme: themeEl.value, group_name: groupEl.value }),
+            body: JSON.stringify({ group_name: groupEl.value }),
           }).then(function (r) {
             if (r.status === 200) window.location.reload();
           }).catch(function () { msg("s-msg", "Network error"); });

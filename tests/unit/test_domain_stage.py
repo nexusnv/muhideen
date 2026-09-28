@@ -93,6 +93,7 @@ def _playlist(
     anchor: MarkerName | None = None,
     start_offset: int = 0,
     stop_offset: int = 0,
+    max_cycles: int | None = None,
 ) -> Playlist:
     return Playlist(
         id=pid,
@@ -104,7 +105,7 @@ def _playlist(
         anchor_start_offset_min=start_offset,
         anchor_stop_offset_min=stop_offset,
         cycle_mode="indefinite",
-        max_cycles=None,
+        max_cycles=max_cycles,
         items=items,
     )
 
@@ -338,6 +339,66 @@ def test_open_window_always_active() -> None:
         now = _at(hour, minute)
         got = resolve_stage(now, _day(), _settings(), _dhuhr_event(now), (always,))
         assert got == PlaylistOccupant(playlist_id="always")
+
+
+@pytest.mark.unit
+def test_max_cycles_none_loops_indefinitely() -> None:
+    from muhideen.domain.stage import PlaylistOccupant, resolve_stage
+
+    now = datetime(2025, 10, 22, 10, 59, tzinfo=TZ)
+    alone = _playlist("a", "09:00", "11:00", max_cycles=None)
+    assert resolve_stage(now, _day(), _settings(), _dhuhr_event(now), (alone,)) == (
+        PlaylistOccupant(playlist_id="a")
+    )
+
+
+@pytest.mark.unit
+def test_max_cycles_one_exhausts_after_one_full_cycle() -> None:
+    from muhideen.domain.stage import ClockOccupant, PlaylistOccupant, resolve_stage
+
+    capped = _playlist("a", "09:00", "11:00", max_cycles=1)
+    fallback = _playlist("b")
+    before = datetime(2025, 10, 22, 9, 0, 5, tzinfo=TZ)
+    assert resolve_stage(
+        before, _day(), _settings(), _dhuhr_event(before), (capped,)
+    ) == PlaylistOccupant(playlist_id="a")
+    past = datetime(2025, 10, 22, 9, 0, 10, tzinfo=TZ)
+    assert (
+        resolve_stage(past, _day(), _settings(), _dhuhr_event(past), (capped,))
+        == ClockOccupant()
+    )
+    assert resolve_stage(
+        past, _day(), _settings(), _dhuhr_event(past), (capped, fallback)
+    ) == PlaylistOccupant(playlist_id="b")
+
+
+@pytest.mark.unit
+def test_max_cycles_two_boundary() -> None:
+    from muhideen.domain.stage import ClockOccupant, PlaylistOccupant, resolve_stage
+
+    capped = _playlist("a", "09:00", "11:00", max_cycles=2)
+    last_second = datetime(2025, 10, 22, 9, 0, 19, tzinfo=TZ)
+    assert resolve_stage(
+        last_second, _day(), _settings(), _dhuhr_event(last_second), (capped,)
+    ) == PlaylistOccupant(playlist_id="a")
+    exhausted = datetime(2025, 10, 22, 9, 0, 20, tzinfo=TZ)
+    assert (
+        resolve_stage(
+            exhausted, _day(), _settings(), _dhuhr_event(exhausted), (capped,)
+        )
+        == ClockOccupant()
+    )
+
+
+@pytest.mark.unit
+def test_max_cycles_empty_items_stays_clock() -> None:
+    from muhideen.domain.stage import ClockOccupant, resolve_stage
+
+    now = _at(10, 0)
+    alone = _playlist("a", "09:00", "11:00", items=(), max_cycles=1)
+    assert resolve_stage(now, _day(), _settings(), _dhuhr_event(now), (alone,)) == (
+        ClockOccupant()
+    )
 
 
 @pytest.mark.unit

@@ -134,7 +134,9 @@ def resolve_stage(
 
     Countdown windows outrank everything; otherwise the most-recently
     activated in-window playlist wins; otherwise the Clock shows. A
-    playlist counts only while active, non-empty, and in-window. Unknown
+    playlist counts only while active, non-empty, in-window, and inside
+    its cycle budget (``max_cycles`` bounds full loops of the item set
+    from the window start; ``None`` loops indefinitely). Unknown
     window bounds raise ``ConfigError`` when the playlist is evaluated.
     """
     prayer = event.next_prayer
@@ -157,6 +159,13 @@ def resolve_stage(
         )
         if start is not None and stop is not None and stop <= start and now < stop:
             activation = start - timedelta(days=1)
+        if playlist.max_cycles is not None and start is not None:
+            cycle_total = sum(item.duration_s for item in playlist.items)
+            if cycle_total <= 0:
+                continue
+            elapsed = (now - activation).total_seconds()
+            if int(elapsed // cycle_total) >= playlist.max_cycles:
+                continue
         if best is None or activation > best[0]:
             best = (activation, PlaylistOccupant(playlist_id=playlist.id))
     return best[1] if best is not None else ClockOccupant()

@@ -361,7 +361,7 @@ Admin session required. Registers one display against an existing group; duplica
 
 ## `PATCH /api/displays/{display_id}`
 
-Admin session required. Sets per-display overrides (theme choice, group assignment); empty bodies are 422, unknown displays and unknown groups are 404/422.
+Admin session required. Sets per-display overrides (theme choice, group assignment); empty bodies are 422, unknown displays and unknown groups are 404/422. An explicit `group_name` null clears the assignment (the effective dim falls back to settings); an explicit `current_theme` null is not an update, so a null-theme-only body is 422.
 
 ```json
 {"current_theme": "midnight", "group_name": null}

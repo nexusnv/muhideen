@@ -309,12 +309,14 @@ def test_image_upload_missing_playlist_is_404(authed: TestClient) -> None:
 
 
 def test_image_upload_enforces_item_cap(
-    authed: TestClient, surface: SimpleNamespace
+    authed: TestClient, surface: SimpleNamespace, tmp_path: Path
 ) -> None:
     import base64
 
     from muhideen.core.values import Playlist, PlaylistItem
 
+    media_dir = tmp_path / "uploads"
+    before = len(list(media_dir.glob("*"))) if media_dir.exists() else 0
     items = tuple(
         PlaylistItem(image_path=f"img-{n}.jpg", duration_s=5, sort_order=n)
         for n in range(50)
@@ -336,6 +338,8 @@ def test_image_upload_enforces_item_cap(
         json={"image_base64": base64.b64encode(_png()).decode(), "duration_s": 5},
     )
     assert response.status_code == 422
+    after = len(list(media_dir.glob("*"))) if media_dir.exists() else 0
+    assert after == before, "rejected 51st-item upload must not orphan a file"
 
 
 def test_occupancy_preview_reports_stage_now_and_next(
@@ -564,6 +568,42 @@ def test_display_registry_flow(authed: TestClient) -> None:
             "/api/display-groups/Nope", json={"dim_minutes_override": 10}
         ).status_code
         == 404
+    )
+
+
+def test_display_group_null_clears_assignment(authed: TestClient) -> None:
+    registered = authed.post(
+        "/api/displays", json={"id": "hall-2", "name": "Side Hall"}
+    )
+    assert registered.status_code == 201
+    assert (
+        authed.patch(
+            "/api/display-groups/Default", json={"dim_minutes_override": 30}
+        ).status_code
+        == 200
+    )
+    hall = next(
+        d for d in authed.get("/api/displays").json()["displays"] if d["id"] == "hall-2"
+    )
+    assert hall["effective_dim_minutes"] == 30
+    assert hall["dim_source"] == "group"
+
+    cleared = authed.patch("/api/displays/hall-2", json={"group_name": None})
+    assert cleared.status_code == 200
+    assert cleared.json()["group_name"] is None
+    assert cleared.json()["effective_dim_minutes"] == 20
+    assert cleared.json()["dim_source"] == "settings"
+    hall = next(
+        d for d in authed.get("/api/displays").json()["displays"] if d["id"] == "hall-2"
+    )
+    assert hall["group_name"] is None
+
+    assert (
+        authed.patch("/api/displays/hall-2", json={"current_theme": None}).status_code
+        == 422
+    )
+    assert (
+        authed.patch("/api/displays/nope", json={"group_name": None}).status_code == 404
     )
 
 

@@ -27,7 +27,6 @@ def test_admin_js_wiring_present() -> None:
         "disabled",
         "on Stage now",
         "next at",
-        "current_theme",
         "dim_minutes_override",
         "duration_s",
         "Wrong password",
@@ -36,6 +35,10 @@ def test_admin_js_wiring_present() -> None:
     ):
         assert token in js
     for absent in ("setLang", "data-en", "var STR", "lang-toggle"):
+        assert absent not in js
+    # Per-display Theme input is dead (render reads settings theme only):
+    # the admin sends group_name alone and keeps no theme read.
+    for absent in ("data-theme-for", "current_theme"):
         assert absent not in js
 
 

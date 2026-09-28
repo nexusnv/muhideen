@@ -36,7 +36,7 @@ from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.images import MAX_IMAGE_BYTES, store_image
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
 from muhideen.adapters.migrate import migrate
-from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
+from muhideen.adapters.playlist_repo import MAX_PLAYLIST_ITEMS, SqlitePlaylistRepo
 from muhideen.adapters.qr_code import qr_data_uri
 from muhideen.adapters.scheduler import build_scheduler
 from muhideen.adapters.sqlite_repo import (
@@ -411,9 +411,16 @@ async def _event_stream(
                         exclude_none=True
                     )
                 else:
+                    try:
+                        stage = await asyncio.to_thread(
+                            _tick_stage, engine, settings_repo, current, playlist_repo
+                        )
+                    except MuhideenError as exc:
+                        logger.warning("tick stage fallback to clock: %s", exc)
+                        stage = "clock"
                     payload = TickEventDTO.from_domain(
                         current,
-                        _tick_stage(engine, settings_repo, current, playlist_repo),
+                        stage,
                     ).model_dump_json()
                 yield _frame(name, payload)
             elif name == "config-update":
@@ -1134,6 +1141,14 @@ def create_app(deps: AppDeps) -> FastAPI:
         playlist = store.get(playlist_id)
         if playlist is None:
             raise HTTPException(status_code=404, detail="unknown playlist")
+        if len(playlist.items) >= MAX_PLAYLIST_ITEMS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"playlist {playlist_id!r} exceeds"
+                    f" {MAX_PLAYLIST_ITEMS} items: {len(playlist.items)}"
+                ),
+            )
         try:
             data = base64.b64decode(payload.image_base64, validate=True)
         except (ValueError, binascii.Error) as exc:
@@ -1160,7 +1175,11 @@ def create_app(deps: AppDeps) -> FastAPI:
                 )
             )
         except ValueError as exc:
+            stored.unlink(missing_ok=True)
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception:
+            stored.unlink(missing_ok=True)
+            raise
         return {
             "image_path": stored.name,
             "duration_s": payload.duration_s,
@@ -1254,26 +1273,45 @@ def create_app(deps: AppDeps) -> FastAPI:
         dependencies=[Depends(admin)],
     )
     def update_display(display_id: str, payload: DisplayUpdateDTO) -> dict[str, Any]:
-        """Set per-display overrides: theme choice and group assignment."""
+        """Set per-display overrides: theme choice and group assignment.
+
+        An explicit ``group_name`` null clears the assignment (the row
+        keeps NULL, so the effective dim falls back to settings); an
+        explicit ``current_theme`` null is not an update, so a body with
+        nothing else to change is still 422.
+        """
         db = _registry_or_503()
         default_dim = deps.settings_repo.load().dim_minutes_default
-        if payload.current_theme is None and payload.group_name is None:
+        provided = payload.model_fields_set
+        has_group = "group_name" in provided
+        has_theme = "current_theme" in provided and payload.current_theme is not None
+        if not has_group and not has_theme:
             raise HTTPException(status_code=422, detail="nothing to update")
         with db.write() as conn:
-            if payload.group_name is not None:
-                group = conn.execute(
-                    "SELECT name FROM display_groups WHERE name = ?",
-                    (payload.group_name,),
-                ).fetchone()
-                if group is None:
-                    raise HTTPException(status_code=422, detail="unknown display group")
-                cursor = conn.execute(
-                    "UPDATE displays SET group_name = ? WHERE id = ?",
-                    (payload.group_name, display_id),
-                )
-                if cursor.rowcount == 0:
-                    raise HTTPException(status_code=404, detail="unknown display")
-            if payload.current_theme is not None:
+            if has_group:
+                if payload.group_name is None:
+                    cursor = conn.execute(
+                        "UPDATE displays SET group_name = NULL WHERE id = ?",
+                        (display_id,),
+                    )
+                    if cursor.rowcount == 0:
+                        raise HTTPException(status_code=404, detail="unknown display")
+                else:
+                    group = conn.execute(
+                        "SELECT name FROM display_groups WHERE name = ?",
+                        (payload.group_name,),
+                    ).fetchone()
+                    if group is None:
+                        raise HTTPException(
+                            status_code=422, detail="unknown display group"
+                        )
+                    cursor = conn.execute(
+                        "UPDATE displays SET group_name = ? WHERE id = ?",
+                        (payload.group_name, display_id),
+                    )
+                    if cursor.rowcount == 0:
+                        raise HTTPException(status_code=404, detail="unknown display")
+            if has_theme:
                 cursor = conn.execute(
                     "UPDATE displays SET current_theme = ? WHERE id = ?",
                     (payload.current_theme, display_id),
