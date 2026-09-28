@@ -47,6 +47,39 @@
   </section>
   <section id="section-display" class="admin-section">
     <h2>Display</h2>
+    <h3>Theme knobs</h3>
+    <div class="form-grid">
+      <label><span>Palette</span><select id="s-theme-palette">
+        <option value="classic-green"{% if current.theme.palette == "classic-green" %} selected{% endif %}>Classic green</option>
+        <option value="midnight"{% if current.theme.palette == "midnight" %} selected{% endif %}>Midnight</option>
+        <option value="sand"{% if current.theme.palette == "sand" %} selected{% endif %}>Sand</option>
+      </select></label>
+      <label><span>Font</span><select id="s-theme-font">
+        <option value="outfit"{% if current.theme.font == "outfit" %} selected{% endif %}>Outfit</option>
+        <option value="system"{% if current.theme.font == "system" %} selected{% endif %}>System</option>
+      </select></label>
+      <label><span>Countdown style</span><select id="s-theme-countdown">
+        <option value="boxes"{% if current.theme.countdown_style == "boxes" %} selected{% endif %}>Boxes</option>
+        <option value="inline"{% if current.theme.countdown_style == "inline" %} selected{% endif %}>Inline</option>
+      </select></label>
+      <label><span>Clock format</span><select id="s-theme-clock">
+        <option value="24h-seconds"{% if current.theme.clock_format == "24h-seconds" %} selected{% endif %}>24h with seconds</option>
+        <option value="24h"{% if current.theme.clock_format == "24h" %} selected{% endif %}>24h</option>
+        <option value="12h"{% if current.theme.clock_format == "12h" %} selected{% endif %}>12h</option>
+      </select></label>
+      <label><span>Hijri form</span><select id="s-theme-hijri">
+        <option value="long"{% if current.theme.hijri_form == "long" %} selected{% endif %}>Long</option>
+        <option value="short"{% if current.theme.hijri_form == "short" %} selected{% endif %}>Short</option>
+      </select></label>
+      <label><span>Boundary strip</span><select id="s-theme-boundary">
+        <option value="show"{% if current.theme.boundary_strip == "show" %} selected{% endif %}>Show</option>
+        <option value="hide"{% if current.theme.boundary_strip == "hide" %} selected{% endif %}>Hide</option>
+      </select></label>
+      <label><span>Density</span><select id="s-theme-density">
+        <option value="comfortable"{% if current.theme.density == "comfortable" %} selected{% endif %}>Comfortable</option>
+        <option value="compact"{% if current.theme.density == "compact" %} selected{% endif %}>Compact</option>
+      </select></label>
+    </div>
     <p>Per-display theme choice and dim minutes. A display uses its group dim
     override when set, otherwise the global dim default.</p>
     <div id="display-overrides" data-displays='{{ displays_json }}' data-groups='{{ groups_json }}'></div>

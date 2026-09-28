@@ -69,7 +69,7 @@ Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-onl
 
 ## `GET /api/settings`
 
-Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the `boundary_countdown` opt-in and `calc_only` offline mode, and the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default).
+Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the `boundary_countdown` opt-in and `calc_only` offline mode, the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default), and the `theme` knobs (closed enums: `palette` ∈ `classic-green|midnight|sand`, `font` ∈ `outfit|system`, `countdown_style` ∈ `boxes|inline`, `clock_format` ∈ `24h|24h-seconds|12h`, `hijri_form` ∈ `long|short`, `boundary_strip` ∈ `show|hide`, `density` ∈ `comfortable|compact`; anything else is 422). Per-display `display_settings` rows (`theme.*` plus `dim_minutes_override` 5–60) override the knobs and dim for one `GET /display?id=` render.
 
 ```json
 {
@@ -95,7 +95,16 @@ Admin session required. Full installation settings including the boundary offset
   "boundary_countdown": false,
   "calc_only": false,
   "countdown_before_adhan_min": 5,
-  "countdown_before_adhan_overrides": {"fajr": 10}
+  "countdown_before_adhan_overrides": {"fajr": 10},
+  "theme": {
+    "palette": "classic-green",
+    "font": "outfit",
+    "countdown_style": "boxes",
+    "clock_format": "24h-seconds",
+    "hijri_form": "long",
+    "boundary_strip": "show",
+    "density": "comfortable"
+  }
 }
 ```
 
@@ -127,7 +136,16 @@ Admin session required. Full-replace body; the response echoes the stored settin
   "boundary_countdown": false,
   "calc_only": false,
   "countdown_before_adhan_min": 5,
-  "countdown_before_adhan_overrides": {"fajr": 10}
+  "countdown_before_adhan_overrides": {"fajr": 10},
+  "theme": {
+    "palette": "classic-green",
+    "font": "outfit",
+    "countdown_style": "boxes",
+    "clock_format": "24h-seconds",
+    "hijri_form": "long",
+    "boundary_strip": "show",
+    "density": "comfortable"
+  }
 }
 ```
 
@@ -359,7 +377,7 @@ Admin session required. Sets group overrides (theme default, dim minutes 5–60,
 
 ## Errors
 
-Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, or set a `fixed` rule without `fixed_time`, leaving the stored settings unchanged. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
+Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, set a `fixed` rule without `fixed_time`, or set a theme knob outside its closed enum, leaving the stored settings unchanged. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
 
 ## Versioning
 Additive fields allowed without bump — e.g. `time_synced` on `next-event` and SSE `state` payloads (slice 1A-8), and `stage` on SSE `tick` payloads. Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.

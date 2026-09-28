@@ -144,6 +144,64 @@ DEFAULT_IQAMAH_RULES: tuple[IqamahRule, ...] = (
 Jumuah its own rule. Boundary Time Markers have no iqamah, so no rule."""
 
 
+ThemePalette = Literal["classic-green", "midnight", "sand"]
+"""Closed palette enum: default green, dark midnight, warm sand."""
+
+ThemeFont = Literal["outfit", "system"]
+"""Closed font enum: vendored Outfit or the offline system stack."""
+
+ThemeCountdownStyle = Literal["boxes", "inline"]
+"""Closed countdown enum: H/M/S boxes or a single inline line."""
+
+ThemeClockFormat = Literal["24h", "24h-seconds", "12h"]
+"""Closed clock enum: hours+minutes with or without seconds, 12h AM/PM."""
+
+ThemeHijriForm = Literal["long", "short"]
+"""Closed Hijri enum: long month name or the raw wire date."""
+
+ThemeBoundaryStrip = Literal["show", "hide"]
+"""Closed boundary-strip enum: render the Imsak/Syuruq/Dhuha strip or not."""
+
+ThemeDensity = Literal["comfortable", "compact"]
+"""Closed density enum: default spacing or a compact variant."""
+
+
+@dataclass(frozen=True, slots=True)
+class ThemeSettings:
+    """Closed-enum display knobs: palette, font, and layout variants.
+
+    Every field is a closed enum — unknown values raise ``ValueError`` so
+    the repo boundary and the DTO layer both surface them as 422/ConfigError
+    instead of rendering an undefined variant.
+    """
+
+    palette: ThemePalette = "classic-green"
+    font: ThemeFont = "outfit"
+    countdown_style: ThemeCountdownStyle = "boxes"
+    clock_format: ThemeClockFormat = "24h-seconds"
+    hijri_form: ThemeHijriForm = "long"
+    boundary_strip: ThemeBoundaryStrip = "show"
+    density: ThemeDensity = "comfortable"
+
+    def __post_init__(self) -> None:
+        """Reject any knob value outside its closed enum."""
+        allowed: dict[str, tuple[str, ...]] = {
+            "palette": ("classic-green", "midnight", "sand"),
+            "font": ("outfit", "system"),
+            "countdown_style": ("boxes", "inline"),
+            "clock_format": ("24h", "24h-seconds", "12h"),
+            "hijri_form": ("long", "short"),
+            "boundary_strip": ("show", "hide"),
+            "density": ("comfortable", "compact"),
+        }
+        for knob, choices in allowed.items():
+            value = getattr(self, knob)
+            if value not in choices:
+                raise ValueError(
+                    f"{knob} must be one of {', '.join(choices)}: {value!r}"
+                )
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Installation identity, display tuning, and schedule-source switches."""
@@ -166,6 +224,7 @@ class Settings:
     countdown_before_adhan_overrides: dict[str, int] = field(
         default_factory=dict[str, int], hash=False
     )
+    theme: ThemeSettings = field(default_factory=ThemeSettings)
 
     def __post_init__(self) -> None:
         """Enforce offset/coordinate guards and non-empty rule coverage."""

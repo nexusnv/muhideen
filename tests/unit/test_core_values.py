@@ -503,3 +503,88 @@ def test_countdown_window_override_wins_else_default() -> None:
     )
     assert countdown_window(settings, MarkerName.FAJR) == 10
     assert countdown_window(settings, MarkerName.DHUHR) == 5
+
+
+@pytest.mark.unit
+def test_theme_settings_defaults() -> None:
+    from muhideen.core.values import ThemeSettings
+
+    theme = ThemeSettings()
+    assert theme.palette == "classic-green"
+    assert theme.font == "outfit"
+    assert theme.countdown_style == "boxes"
+    assert theme.clock_format == "24h-seconds"
+    assert theme.hijri_form == "long"
+    assert theme.boundary_strip == "show"
+    assert theme.density == "comfortable"
+
+
+@pytest.mark.unit
+def test_theme_settings_frozen_and_hashable() -> None:
+    from dataclasses import FrozenInstanceError
+
+    from muhideen.core.values import ThemeSettings
+
+    theme = ThemeSettings()
+    with pytest.raises(FrozenInstanceError):
+        theme.palette = "midnight"  # type: ignore[misc]
+    assert isinstance(hash(theme), int)
+    assert theme == ThemeSettings()
+    assert theme != ThemeSettings(palette="midnight")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "bad"),
+    [
+        ("palette", "neon"),
+        ("font", "comic-sans"),
+        ("countdown_style", "spiral"),
+        ("clock_format", "13h"),
+        ("hijri_form", "roman"),
+        ("boundary_strip", "marquee"),
+        ("density", "airy"),
+    ],
+)
+def test_theme_settings_rejects_open_values(field: str, bad: str) -> None:
+    from muhideen.core.values import ThemeSettings
+
+    with pytest.raises(ValueError, match=field):
+        ThemeSettings(**{field: bad})  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "good"),
+    [
+        ("palette", "midnight"),
+        ("palette", "sand"),
+        ("font", "system"),
+        ("countdown_style", "inline"),
+        ("clock_format", "24h"),
+        ("clock_format", "12h"),
+        ("hijri_form", "short"),
+        ("boundary_strip", "hide"),
+        ("density", "compact"),
+    ],
+)
+def test_theme_settings_accepts_closed_values(field: str, good: str) -> None:
+    from muhideen.core.values import ThemeSettings
+
+    assert getattr(ThemeSettings(**{field: good}), field) == good  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
+def test_settings_carries_default_theme() -> None:
+    from muhideen.core.values import ThemeSettings
+
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+    assert settings.theme == ThemeSettings()
+    other = Settings(
+        masjid_name="M",
+        zone="SGR01",
+        hijri_offset=0,
+        theme=ThemeSettings(palette="midnight"),
+    )
+    assert settings != other
+    assert isinstance(hash(other), int)

@@ -27,7 +27,16 @@
     "imsak_offset_min": 10,
     "dhuha_offset_min": 28,
     "countdown_before_adhan_min": 5,
-    "countdown_before_adhan_overrides": {}
+    "countdown_before_adhan_overrides": {},
+    "theme": {
+      "palette": "classic-green",
+      "font": "outfit",
+      "countdown_style": "boxes",
+      "clock_format": "24h-seconds",
+      "hijri_form": "long",
+      "boundary_strip": "show",
+      "density": "comfortable"
+    }
   };
   function num(id) {
     var v = document.getElementById(id).value;
@@ -153,6 +162,15 @@
       dhuha_offset_min: Number(document.getElementById("s-dhuha").value),
       countdown_before_adhan_min: cdDefaultEl ? Number(cdDefaultEl.value) : 5,
       countdown_before_adhan_overrides: overrides,
+      theme: {
+        palette: document.getElementById("s-theme-palette").value,
+        font: document.getElementById("s-theme-font").value,
+        countdown_style: document.getElementById("s-theme-countdown").value,
+        clock_format: document.getElementById("s-theme-clock").value,
+        hijri_form: document.getElementById("s-theme-hijri").value,
+        boundary_strip: document.getElementById("s-theme-boundary").value,
+        density: document.getElementById("s-theme-density").value
+      }
     };
     fetch("/api/settings", {
       method: "PUT",

@@ -78,3 +78,17 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-u
 @font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono-800.woff2") format("woff2"); font-weight: 800; font-style: normal; font-display: swap; }
 body { font-family: "Outfit", system-ui, sans-serif; }
 .digital-font { font-family: "JetBrains Mono", ui-monospace, monospace; }
+/* Theme knob variants (closed enums; classic-green inherits :root tokens). */
+body.palette-midnight { color-scheme: dark; --bg: #0b1020; --card: #141d33; --line: #2a3a5f; --fg: #eef1f8; --muted: #93a3c4; --accent: #e0b73c; --hero-1: #2f4a8f; --hero-2: #1d2f5e; --hero-ink: #ffffff; --cream: #e8ecf5; --leaf: #2f4a8f; --leaf-dark: #1d2f5e; }
+body.palette-sand { color-scheme: light; --bg: #f4efe4; --card: #fffdf6; --line: #d8cfae; --fg: #2e2a1e; --muted: #6f6752; --accent: #b8891f; --hero-1: #c9a63c; --hero-2: #96741d; --hero-ink: #ffffff; --cream: #fffdf6; --leaf: #5f6b2f; --leaf-dark: #3f4a1e; }
+body.font-system { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.countdown-wrap.countdown-inline { align-items: center; gap: 0.8vw; }
+.countdown-wrap.countdown-inline .countdown-box { flex-direction: row; align-items: baseline; gap: 0.6vw; }
+.countdown-wrap.countdown-inline .cd-val { font-size: 7vh; }
+.countdown-wrap.countdown-inline .cd-lab { display: none; }
+.countdown-wrap.countdown-inline .cd-sep { font-size: 5vh; }
+body.density-compact #hero { padding: 1.5vh 2vw; }
+body.density-compact .cd-val { font-size: 9vh; }
+body.density-compact #strip { padding: 1.2vh 1.6vw; }
+body.density-compact .card { padding: 0.8vh 0.8vw; }
+body.density-compact .card .t { font-size: 3vh; }

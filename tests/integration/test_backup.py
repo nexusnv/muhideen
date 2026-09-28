@@ -58,7 +58,7 @@ def test_backup_preserves_data_and_user_version(tmp_path: Path) -> None:
     assert backup_to(db, dest) == dest
     conn = sqlite3.connect(dest)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
         assert "masjid_name" in _settings_kv(conn)
         prayer_count = conn.execute("SELECT COUNT(*) FROM prayer_times").fetchone()
         assert prayer_count is not None and prayer_count[0] == 1
@@ -89,6 +89,6 @@ def test_backup_of_fresh_schema_succeeds(tmp_path: Path) -> None:
             ).fetchall()
         }
         assert "settings" in tables and "prayer_times" in tables
-        assert len(_settings_kv(conn)) == 9  # seeds only (6 + 2 offsets + countdown)
+        assert len(_settings_kv(conn)) == 16  # seeds only (9 + 7 theme knobs)
     finally:
         conn.close()

@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 from muhideen.adapters.migrate import migrate
-from muhideen.adapters.sqlite_repo import Database, SqliteSettingsRepo
+from muhideen.adapters.sqlite_repo import (
+    DISPLAY_SETTINGS_ALLOWLIST,
+    Database,
+    SqliteDisplaySettingsRepo,
+    SqliteSettingsRepo,
+)
 from muhideen.core.errors import ConfigError
 from muhideen.core.ports import SettingsRepo
 from muhideen.core.values import (
@@ -313,3 +318,149 @@ def test_save_drops_removed_countdown_overrides(tmp_path: Path) -> None:
     loaded = repo.load()
     assert loaded.countdown_before_adhan_overrides == {}
     assert "countdown_min_fajr" not in _settings_kv(db)
+
+
+def test_theme_keys_round_trip(tmp_path: Path) -> None:
+    from muhideen.core.values import ThemeSettings
+
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    settings = Settings(
+        masjid_name="Masjid Test",
+        zone="SGR01",
+        hijri_offset=0,
+        theme=ThemeSettings(
+            palette="midnight",
+            font="system",
+            countdown_style="inline",
+            clock_format="12h",
+            hijri_form="short",
+            boundary_strip="hide",
+            density="compact",
+        ),
+    )
+    repo.save(settings)
+    loaded = repo.load()
+    assert loaded.theme == settings.theme
+    kv = _settings_kv(db)
+    assert kv["theme.palette"] == "midnight"
+    assert kv["theme.countdown_style"] == "inline"
+    assert kv["theme.clock_format"] == "12h"
+
+
+def test_theme_keys_default_when_missing(tmp_path: Path) -> None:
+    from muhideen.core.values import ThemeSettings
+
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0))
+    with db.write() as conn:
+        conn.execute("DELETE FROM settings WHERE key LIKE 'theme.%'")
+    assert repo.load().theme == ThemeSettings()
+
+
+def test_theme_seeded_default_present(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    _seed_identity(db)
+    loaded = SqliteSettingsRepo(db).load()
+    assert loaded.theme.palette == "classic-green"
+    assert loaded.theme.countdown_style == "boxes"
+
+
+def test_theme_default_round_trips_without_countdown_clash(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(
+        Settings(
+            masjid_name="Masjid Test",
+            zone="SGR01",
+            hijri_offset=0,
+            countdown_before_adhan_overrides={"fajr": 10},
+        )
+    )
+    kv = _settings_kv(db)
+    assert kv["countdown_min_default"] == "5"
+    assert kv["theme.palette"] == "classic-green"
+
+
+@pytest.mark.parametrize("value", ["neon", "", "MIDNIGHT"])
+def test_theme_corrupt_raises_config_error(tmp_path: Path, value: str) -> None:
+    db = _db(tmp_path)
+    _seed_identity(db)
+    with db.write() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            ("theme.palette", value),
+        )
+    with pytest.raises(ConfigError):
+        SqliteSettingsRepo(db).load()
+
+
+def test_display_settings_table_exists_after_migrate(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    with db.read() as conn:
+        columns = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(display_settings)").fetchall()
+        ]
+    assert columns == ["display_id", "key", "value"]
+    assert (
+        frozenset(
+            {
+                "theme.palette",
+                "theme.font",
+                "theme.countdown_style",
+                "theme.clock_format",
+                "theme.hijri_form",
+                "theme.boundary_strip",
+                "theme.density",
+                "dim_minutes_override",
+            }
+        )
+        == DISPLAY_SETTINGS_ALLOWLIST
+    )
+
+
+def test_display_settings_overrides_round_trip(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    with db.write() as conn:
+        conn.execute(
+            "INSERT INTO displays (id, name, group_name) VALUES (?, ?, ?)",
+            ("HALL-01", "Main Hall", "Default"),
+        )
+    repo = SqliteDisplaySettingsRepo(db)
+    repo.set_override("HALL-01", "theme.palette", "midnight")
+    repo.set_override("HALL-01", "dim_minutes_override", "30")
+    assert repo.overrides_for("HALL-01") == {
+        "theme.palette": "midnight",
+        "dim_minutes_override": "30",
+    }
+    assert repo.overrides_for("UNKNOWN-ID") == {}
+
+
+def test_display_settings_rejects_keys_outside_allowlist(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteDisplaySettingsRepo(db)
+    with pytest.raises(ValueError, match="not an overridable display setting"):
+        repo.set_override("HALL-01", "masjid_name", "Other")
+    with pytest.raises(ValueError, match="not an overridable display setting"):
+        repo.set_override("HALL-01", "theme_default", "x")
+
+
+@pytest.mark.parametrize("value", ["midnight", "neon", "4", "61", "abc"])
+def test_display_settings_validates_values(tmp_path: Path, value: str) -> None:
+    db = _db(tmp_path)
+    with db.write() as conn:
+        conn.execute(
+            "INSERT INTO displays (id, name, group_name) VALUES (?, ?, ?)",
+            ("HALL-01", "Main Hall", "Default"),
+        )
+    repo = SqliteDisplaySettingsRepo(db)
+    if value == "midnight":
+        repo.set_override("HALL-01", "theme.palette", value)
+        assert repo.overrides_for("HALL-01")["theme.palette"] == "midnight"
+    else:
+        key = "theme.palette" if value in ("neon",) else "dim_minutes_override"
+        with pytest.raises(ValueError):
+            repo.set_override("HALL-01", key, value)

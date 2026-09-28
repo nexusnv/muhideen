@@ -133,3 +133,38 @@ def test_reskin_template_tokens_present() -> None:
         'id="live-clock"',
     ):
         assert token in html
+
+
+def test_theme_css_variants_present() -> None:
+    css = (STATIC / "app.css").read_text()
+    for token in (
+        "countdown-inline",
+        "palette-midnight",
+        "palette-sand",
+        "font-system",
+        "density-compact",
+    ):
+        assert token in css
+
+
+def test_theme_template_tokens_present() -> None:
+    html = (STATIC.parent / "views" / "templates" / "display.html").read_text()
+    for token in (
+        "countdown-inline",
+        "hijri_display",
+        "show_boundaries",
+        "body_class",
+        "data-clock-format",
+        "data-dim-minutes",
+        "data-dim-source",
+    ):
+        assert token in html
+
+
+def test_js_honours_clock_format() -> None:
+    js = (STATIC / "app.js").read_text()
+    for token in (
+        "data-clock-format",
+        "clockFmt",
+    ):
+        assert token in js

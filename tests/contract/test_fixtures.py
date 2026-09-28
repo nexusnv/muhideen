@@ -279,3 +279,40 @@ def test_all_contract_surfaces_have_fixtures() -> None:
     ):
         _load(name)
     assert (FIXTURES / "events-stream.txt").read_text().strip()
+
+
+def test_settings_theme_fixture_round_trips() -> None:
+    from muhideen.core.values import Settings, ThemeSettings
+
+    payload = _load("settings.json")
+    assert payload["theme"] == {
+        "palette": "classic-green",
+        "font": "outfit",
+        "countdown_style": "boxes",
+        "clock_format": "24h-seconds",
+        "hijri_form": "long",
+        "boundary_strip": "show",
+        "density": "comfortable",
+    }
+    dto = SettingsDTO.model_validate(payload)
+    assert dto.model_dump(mode="json")["theme"] == payload["theme"]
+    assert dto.to_domain().theme == ThemeSettings()
+    assert (
+        SettingsDTO.from_domain(
+            Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+        ).model_dump(mode="json")["theme"]
+        == payload["theme"]
+    )
+
+
+def test_settings_rejects_unknown_theme_knob() -> None:
+    from pydantic import ValidationError as _ValidationError
+
+    payload = _load("settings.json")
+    payload["theme"] = {**payload["theme"], "palette": "neon"}
+    with pytest.raises(_ValidationError):
+        SettingsDTO.model_validate(payload)
+    payload = _load("settings.json")
+    payload["theme"] = {**payload["theme"], "clock_format": "13h"}
+    with pytest.raises(_ValidationError):
+        SettingsDTO.model_validate(payload)

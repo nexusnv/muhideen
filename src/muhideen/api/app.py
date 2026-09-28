@@ -42,6 +42,7 @@ from muhideen.adapters.scheduler import build_scheduler
 from muhideen.adapters.sqlite_repo import (
     Database,
     SqliteDisplayRepo,
+    SqliteDisplaySettingsRepo,
     SqlitePrayerRepo,
     SqliteSettingsRepo,
     SqliteUserRepo,
@@ -615,7 +616,23 @@ def create_app(deps: AppDeps) -> FastAPI:
         request: Request,
         id: Annotated[str, Query(min_length=1, max_length=64)],
     ) -> HTMLResponse:
-        """Server-rendered public display; error slate, never blank."""
+        """Server-rendered public display; error slate, never blank.
+
+        Applies per-display presentation overrides for this render only:
+        ``display_settings`` theme.* rows over the global knobs, then the
+        display dim pin (else the group dim pin) over the salah-dim length.
+        Unknown ids render the global theme; corrupt stored rows slate 503.
+        """
+
+        def _invalid_display() -> HTMLResponse:
+            """503 slate for a corrupt per-display override row."""
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "error.html",
+                {"code": 503, "message": "Invalid display settings"},
+                status_code=503,
+            )
+
         try:
             settings = deps.settings_repo.load()
         except ConfigError:
@@ -625,6 +642,42 @@ def create_app(deps: AppDeps) -> FastAPI:
                 {"code": 503, "message": "Setup required"},
                 status_code=503,
             )
+        effective_theme = settings.theme
+        dim_override: int | None = None
+        dim_source = "settings"
+        if deps.database is not None:
+            overrides = SqliteDisplaySettingsRepo(deps.database).overrides_for(id)
+            theme_rows = {
+                key.removeprefix("theme."): value
+                for key, value in overrides.items()
+                if key.startswith("theme.")
+            }
+            if theme_rows:
+                try:
+                    effective_theme = _replace(settings.theme, **theme_rows)
+                except (ValueError, TypeError):
+                    return _invalid_display()
+            raw_dim = overrides.get("dim_minutes_override")
+            if raw_dim is None:
+                with deps.database.read() as conn:
+                    group_row = conn.execute(
+                        "SELECT g.dim_minutes_override AS dim FROM displays d"
+                        " LEFT JOIN display_groups g ON g.name = d.group_name"
+                        " WHERE d.id = ?",
+                        (id,),
+                    ).fetchone()
+                if group_row is not None and group_row["dim"] is not None:
+                    raw_dim = str(group_row["dim"])
+                    dim_source = "group"
+            if raw_dim is not None:
+                try:
+                    dim_override = int(raw_dim)
+                except ValueError:
+                    return _invalid_display()
+                if not 5 <= dim_override <= 60:
+                    return _invalid_display()
+                if dim_source == "settings":
+                    dim_source = "display"
         now = deps.clock.now()
         try:
             result = engine.resolve_day(now.date(), settings.zone, now)
@@ -643,13 +696,39 @@ def create_app(deps: AppDeps) -> FastAPI:
                 {"code": 503, "message": "Setup required"},
                 status_code=503,
             )
+        if (
+            dim_override is not None
+            and event.iqamah_at is not None
+            and event.dim_until is not None
+        ):
+            # The pin overrides the salah-dim length for this render only;
+            # global state and other displays keep the configured dim.
+            event = _replace(
+                event,
+                dim_until=event.iqamah_at + timedelta(minutes=dim_override),
+            )
+        effective_settings = (
+            settings
+            if effective_theme is settings.theme
+            else _replace(settings, theme=effective_theme)
+        )
         event_dto = NextEventDTO.from_domain(event)
         day_dto = PrayerDayDTO.from_domain(
             result.day,
             result.stale,
             hijri_date=resolve_hijri(result.day.date, settings.hijri_offset),
         )
-        ctx = build_display_context(day=day_dto, event=event_dto, settings=settings)
+        ctx = build_display_context(
+            day=day_dto,
+            event=event_dto,
+            settings=effective_settings,
+            dim_minutes=(
+                dim_override
+                if dim_override is not None
+                else settings.dim_minutes_default
+            ),
+            dim_source=dim_source,
+        )
         return _TEMPLATES.TemplateResponse(request, "display.html", ctx)
 
     @app.post("/api/auth/setup", response_model=AuthResponseDTO)

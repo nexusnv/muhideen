@@ -25,6 +25,7 @@ from muhideen.api.dto import (
     SessionStatusDTO,
     SettingsDTO,
     StateEventDTO,
+    ThemeDTO,
     TickEventDTO,
     VersionDTO,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "SessionStatusDTO",
     "SettingsDTO",
     "StateEventDTO",
+    "ThemeDTO",
     "TickEventDTO",
     "VersionDTO",
     "create_app",

@@ -100,3 +100,31 @@ def test_admin_templates_share_grouped_nav() -> None:
     assert "admin/_nav.html" in playlists
     assert "playlist-editor" in playlists
     assert "occupancy-preview" in playlists
+
+
+def test_admin_theme_knob_wiring_present() -> None:
+    js = (STATIC / "admin.js").read_text()
+    for token in (
+        "s-theme-palette",
+        "s-theme-font",
+        "s-theme-countdown",
+        "s-theme-clock",
+        "s-theme-hijri",
+        "s-theme-boundary",
+        "s-theme-density",
+    ):
+        assert token in js
+    settings = (
+        STATIC.parent / "views" / "templates" / "admin" / "settings.html"
+    ).read_text()
+    for token in (
+        'id="s-theme-palette"',
+        'id="s-theme-font"',
+        'id="s-theme-countdown"',
+        'id="s-theme-clock"',
+        'id="s-theme-hijri"',
+        'id="s-theme-boundary"',
+        'id="s-theme-density"',
+        "current.theme.palette",
+    ):
+        assert token in settings

@@ -84,10 +84,35 @@ def _iqamah_hhmm(
     )
 
 
+def _clock_str(now: datetime, clock_format: str) -> str:
+    """Live-clock label for one theme clock format (presentation-only).
+
+    ``12h`` is rendered manually (``%p`` is locale-dependent) so the
+    output is deterministic English: ``05:45 AM``, ``12:20 PM``.
+    """
+    if clock_format == "24h":
+        return now.strftime("%H:%M")
+    if clock_format == "12h":
+        hour = now.hour % 12 or 12
+        suffix = "AM" if now.hour < 12 else "PM"
+        return f"{hour:02d}:{now.minute:02d} {suffix}"
+    return now.strftime("%H:%M:%S")
+
+
 def build_display_context(
-    *, day: PrayerDayDTO, event: NextEventDTO, settings: Settings
+    *,
+    day: PrayerDayDTO,
+    event: NextEventDTO,
+    settings: Settings,
+    dim_minutes: int | None = None,
+    dim_source: str = "settings",
 ) -> dict[str, object]:
-    """Map resolved DTOs to the display template context (no time reads)."""
+    """Map resolved DTOs to the display template context (no time reads).
+
+    ``dim_minutes``/``dim_source`` carry the display's effective dim
+    (per-display pin, else group pin, else the global default); the
+    caller resolves the precedence, the builder only renders it.
+    """
     times = {
         "fajr": day.prayers.fajr,
         "dhuhr": day.prayers.dhuhr,
@@ -146,13 +171,28 @@ def build_display_context(
     elif day.source is ScheduleSource.MANUAL:
         banners.append("MANUAL — set by admin")
     adhan_date = event.adhan_at.date() if event.adhan_at else None
+    theme = settings.theme
+    hijri_long = _hijri_long(day.hijri_date)
     return {
         "masjid_name": settings.masjid_name,
         "zone": settings.zone,
         "gregorian": day.date.isoformat(),
         "hijri": day.hijri_date or "—",
-        "hijri_long": _hijri_long(day.hijri_date),
-        "clock": event.now.strftime("%H:%M:%S"),
+        "hijri_long": hijri_long,
+        "hijri_display": (
+            hijri_long if theme.hijri_form == "long" else (day.hijri_date or "—")
+        ),
+        "clock": _clock_str(event.now, theme.clock_format),
+        "clock_format": theme.clock_format,
+        "countdown_inline": theme.countdown_style == "inline",
+        "show_boundaries": theme.boundary_strip == "show",
+        "body_class": (
+            f"palette-{theme.palette} font-{theme.font} density-{theme.density}"
+        ),
+        "dim_minutes": (
+            dim_minutes if dim_minutes is not None else settings.dim_minutes_default
+        ),
+        "dim_source": dim_source,
         "next_name_en": labels[0],
         "next_name_ar": labels[1],
         "next_time": event.adhan_at.strftime("%H:%M") if event.adhan_at else "",

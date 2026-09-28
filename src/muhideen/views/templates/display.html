@@ -6,7 +6,7 @@
 <title>{{ masjid_name }} — Prayer Times</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
+<body class="{{ body_class }}" data-clock-format="{{ clock_format }}" data-dim-minutes="{{ dim_minutes }}" data-dim-source="{{ dim_source }}">
 {% if state == "ADHAN" %}
 <main id="overlay-adhan" class="hero-gradient glow-emerald">
   <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
@@ -37,7 +37,7 @@
     <div id="hero-eyebrow">IQAMAH FOR <span id="next-name">{{ next_name_en }} · {{ next_name_ar }}</span> IN</div>
     <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
   </div>
-  <div class="countdown-wrap giant" data-cd-target="{{ iqamah_iso }}">
+  <div class="countdown-wrap giant{% if countdown_inline %} countdown-inline{% endif %}" data-cd-target="{{ iqamah_iso }}">
     <div class="countdown-box"><span class="cd-val" data-cd-h>--</span><span class="cd-lab">HOURS</span></div>
     <span class="cd-sep">:</span>
     <div class="countdown-box"><span class="cd-val" data-cd-m>--</span><span class="cd-lab">MINUTES</span></div>
@@ -50,7 +50,7 @@
     <div id="hero-eyebrow">THE CALL TO PRAYER OF <span id="next-name">{{ next_name_en }} · {{ next_name_ar }}</span> IS IN</div>
     <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
   </div>
-  <div class="countdown-wrap" data-cd-target="{{ adhan_iso }}">
+  <div class="countdown-wrap{% if countdown_inline %} countdown-inline{% endif %}" data-cd-target="{{ adhan_iso }}">
     <div class="countdown-box"><span class="cd-val" data-cd-h>--</span><span class="cd-lab">HOURS</span></div>
     <span class="cd-sep">:</span>
     <div class="countdown-box"><span class="cd-val" data-cd-m>--</span><span class="cd-lab">MINUTES</span></div>
@@ -63,7 +63,7 @@
 <section id="strip">
   <div class="live-block">
     <div id="live-clock" class="js-clock digital-font">{{ clock }}</div>
-    <div class="dates"><span id="date-greg">{{ gregorian }}</span><span id="date-hijri">{{ hijri_long }}</span></div>
+    <div class="dates"><span id="date-greg">{{ gregorian }}</span><span id="date-hijri" data-hijri-long="{{ hijri_long }}">{{ hijri_display }}</span></div>
   </div>
   <section id="cards">
     {% for c in cards %}
@@ -75,12 +75,14 @@
     {% endfor %}
   </section>
 </section>
+{% if show_boundaries %}
 <section id="bounds">
   {% for b in bounds %}
   <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} {{ b.time }}</span>
   {% endfor %}
   {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
 </section>
+{% endif %}
 {% if state == "NORMAL" %}
 <footer id="ftr">
   <div class="brand-block"><span class="brand-name">{{ masjid_name }}</span><span class="brand-zone">{{ zone }}</span></div>

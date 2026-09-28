@@ -27,6 +27,7 @@ _TABLES = {
     "users",
     "playlists",
     "playlist_items",
+    "display_settings",
 }
 
 _SEEDED_SETTINGS = {
@@ -39,7 +40,21 @@ _SEEDED_SETTINGS = {
     "countdown_min_default": "5",
     "boundary_countdown": "0",
     "method": "MABIMS",
+    "theme.palette": "classic-green",
+    "theme.font": "outfit",
+    "theme.countdown_style": "boxes",
+    "theme.clock_format": "24h-seconds",
+    "theme.hijri_form": "long",
+    "theme.boundary_strip": "show",
+    "theme.density": "comfortable",
 }
+
+_SEEDED_SETTINGS_V1 = {
+    key: value
+    for key, value in _SEEDED_SETTINGS.items()
+    if not key.startswith("theme.")
+}
+"""0001-era seed set: down-migrations below 0003 remove the theme keys."""
 
 _FR_1_4_RULES = [
     ("fajr", "delay", 15, None),
@@ -85,8 +100,8 @@ def test_connect_applies_pragmas(tmp_path: Path) -> None:
 
 def test_migrate_sets_user_version_head(tmp_path: Path) -> None:
     db = Database(tmp_path / "muhideen.db")
-    assert migrate(db) == 2
-    assert current_version(db) == 2
+    assert migrate(db) == 3
+    assert current_version(db) == 3
 
 
 def test_migrate_creates_all_prd_tables_and_index(tmp_path: Path) -> None:
@@ -161,8 +176,8 @@ def test_migrate_is_idempotent(tmp_path: Path) -> None:
     migrate(db)
     kv_before = _settings_kv(db)
     rules_before = _rule_rows(db)
-    assert migrate(db) == 2
-    assert current_version(db) == 2
+    assert migrate(db) == 3
+    assert current_version(db) == 3
     assert _settings_kv(db) == kv_before == _SEEDED_SETTINGS
     assert _rule_rows(db) == rules_before == _FR_1_4_RULES
 
@@ -179,8 +194,8 @@ def test_down_then_up_round_trip_restores_seeds(tmp_path: Path) -> None:
     db = Database(tmp_path / "muhideen.db")
     migrate(db)
     migrate_down(db)
-    assert migrate(db) == 2
-    assert current_version(db) == 2
+    assert migrate(db) == 3
+    assert current_version(db) == 3
     assert _table_names(db) == _TABLES
     assert _settings_kv(db) == _SEEDED_SETTINGS
     assert _rule_rows(db) == _FR_1_4_RULES
@@ -194,8 +209,8 @@ def test_migrate_re_runs_script_when_version_bump_was_lost(tmp_path: Path) -> No
     migrate(db)
     with db.write() as conn:
         conn.execute("PRAGMA user_version = 0")  # simulate the lost bump
-    assert migrate(db) == 2  # re-executes all scripts over present tables
-    assert current_version(db) == 2
+    assert migrate(db) == 3  # re-executes all scripts over present tables
+    assert current_version(db) == 3
     assert _table_names(db) == _TABLES
     assert _settings_kv(db) == _SEEDED_SETTINGS
     assert _rule_rows(db) == _FR_1_4_RULES
@@ -276,8 +291,42 @@ def test_migrate_down_to_one_drops_only_playlist_tables(
     migrate(db)
     assert migrate_down(db, 1) == 1
     assert current_version(db) == 1
-    assert _table_names(db) == _TABLES - {"playlists", "playlist_items"}
-    assert _settings_kv(db) == _SEEDED_SETTINGS
+    assert _table_names(db) == _TABLES - {
+        "playlists",
+        "playlist_items",
+        "display_settings",
+    }
+    assert _settings_kv(db) == _SEEDED_SETTINGS_V1
     assert _rule_rows(db) == _FR_1_4_RULES
-    assert migrate(db) == 2
+    assert migrate(db) == 3
     assert _table_names(db) == _TABLES
+
+
+def test_migrate_0003_creates_display_settings_schema(tmp_path: Path) -> None:
+    db = Database(tmp_path / "muhideen.db")
+    migrate(db)
+    with db.read() as conn:
+        columns = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(display_settings)").fetchall()
+        ]
+        fk_rows = conn.execute("PRAGMA foreign_key_list(display_settings)").fetchall()
+    assert columns == ["display_id", "key", "value"]
+    assert [(row[2], row[3], row[6]) for row in fk_rows] == [
+        ("displays", "display_id", "CASCADE")
+    ]
+
+
+def test_migrate_down_to_two_drops_only_display_settings(
+    tmp_path: Path,
+) -> None:
+    db = Database(tmp_path / "muhideen.db")
+    migrate(db)
+    assert migrate_down(db, 2) == 2
+    assert current_version(db) == 2
+    assert _table_names(db) == _TABLES - {"display_settings"}
+    kv = _settings_kv(db)
+    assert not [key for key in kv if key.startswith("theme.")]
+    assert migrate(db) == 3
+    assert _table_names(db) == _TABLES
+    assert _settings_kv(db) == _SEEDED_SETTINGS

@@ -162,3 +162,46 @@ def test_offset_round_trip(surface: SimpleNamespace, client: TestClient) -> None
     body = response.json()
     assert (body["imsak_offset_min"], body["dhuha_offset_min"]) == (5, 20)
     assert client.get("/api/settings").json()["imsak_offset_min"] == 5
+
+
+def test_theme_knobs_round_trip(surface: SimpleNamespace, client: TestClient) -> None:
+    _login(client)
+    payload = _settings_payload(
+        theme={
+            "palette": "midnight",
+            "font": "system",
+            "countdown_style": "inline",
+            "clock_format": "12h",
+            "hijri_form": "short",
+            "boundary_strip": "hide",
+            "density": "compact",
+        }
+    )
+    assert client.put("/api/settings", json=payload).status_code == 200
+    assert client.get("/api/settings").json()["theme"] == payload["theme"]
+
+
+def test_theme_knobs_default_when_absent(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    payload = _settings_payload()
+    del payload["theme"]
+    assert client.put("/api/settings", json=payload).status_code == 200
+    assert client.get("/api/settings").json()["theme"]["palette"] == "classic-green"
+
+
+def test_theme_knob_outside_enum_is_422(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    stored = _settings_payload()
+    stored["theme"] = {**stored["theme"], "palette": "midnight"}
+    assert client.put("/api/settings", json=stored).status_code == 200
+    payload = _settings_payload()
+    payload["theme"] = {**payload["theme"], "palette": "neon"}
+    assert client.put("/api/settings", json=payload).status_code == 422
+    payload = _settings_payload()
+    payload["theme"] = {**payload["theme"], "density": "airy"}
+    assert client.put("/api/settings", json=payload).status_code == 422
+    assert client.get("/api/settings").json()["theme"]["palette"] == "midnight"

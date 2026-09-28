@@ -20,19 +20,26 @@
     return serverNow + (performance.now() - baseMono);
   }
   if (clockEl && clockEl.getAttribute("data-now")) anchor(clockEl.getAttribute("data-now"));
+  var clockFmt = document.body ? document.body.getAttribute("data-clock-format") : null;
   function fmt(epoch) {
-    var base = { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" };
+    var use12 = clockFmt === "12h";
+    var withSeconds = clockFmt !== "24h" && clockFmt !== "12h";
+    var locale = use12 ? "en-US" : "en-GB";
+    var base = { hour12: use12, hour: "2-digit", minute: "2-digit" };
+    if (withSeconds) base.second = "2-digit";
     if (tzName) {
       try {
-        var opts = { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: tzName };
-        return new Date(epoch).toLocaleTimeString("en-GB", opts);
+        var opts = { hour12: use12, hour: "2-digit", minute: "2-digit", timeZone: tzName };
+        if (withSeconds) opts.second = "2-digit";
+        return new Date(epoch).toLocaleTimeString(locale, opts);
       } catch (err) { tzName = null; }
     }
     if (tzOffset === tzOffset) {
-      var shifted = { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC" };
-      return new Date(epoch + tzOffset * 60000).toLocaleTimeString("en-GB", shifted);
+      var shifted = { hour12: use12, hour: "2-digit", minute: "2-digit", timeZone: "UTC" };
+      if (withSeconds) shifted.second = "2-digit";
+      return new Date(epoch + tzOffset * 60000).toLocaleTimeString(locale, shifted);
     }
-    return new Date(epoch).toLocaleTimeString("en-GB", base);
+    return new Date(epoch).toLocaleTimeString(locale, base);
   }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
   function tick() {
