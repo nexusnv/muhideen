@@ -241,3 +241,65 @@ def test_fixed_iqamah_rule_renders_clock_time() -> None:
     )
     ctx = build_display_context(day=_day(), event=_event("NORMAL"), settings=settings)
     assert _cards_by_key(ctx)["asr"]["iqamah"] == "16:00"
+
+
+def test_builder_iqamah_matches_domain_across_modes() -> None:
+    from datetime import time
+
+    from muhideen.core.errors import ConfigError
+    from muhideen.core.values import (
+        DEFAULT_IQAMAH_RULES,
+        IqamahRule,
+        MarkerName,
+        Settings,
+    )
+    from muhideen.domain.iqamah import resolve_iqamah
+    from muhideen.views.display import _iqamah_hhmm, build_display_context
+
+    rules = {r.prayer: r for r in DEFAULT_IQAMAH_RULES}
+    day_date = date(2025, 10, 20)
+
+    def _adhan(hhmm: str) -> datetime:
+        hour, minute = map(int, hhmm.split(":"))
+        return datetime(
+            day_date.year, day_date.month, day_date.day, hour, minute, tzinfo=KL
+        )
+
+    # delay mode on two prayers with different delays: fajr-15 vs dhuhr-10
+    for prayer, hhmm in ((MarkerName.FAJR, "05:45"), (MarkerName.DHUHR, "12:15")):
+        rule = rules[prayer]
+        adhan_at = _adhan(hhmm)
+        assert _iqamah_hhmm(
+            day_date=day_date, hhmm=hhmm, tz=KL, rule=rule
+        ) == resolve_iqamah(prayer, adhan_at, rules).strftime("%H:%M")
+
+    # fixed clock pin: asr pinned 16:00 on both sides
+    fixed_rule = IqamahRule(
+        prayer=MarkerName.ASR, mode="fixed", delay_minutes=10, fixed_time=time(16, 0)
+    )
+    fixed_rules = dict(rules)
+    fixed_rules[MarkerName.ASR] = fixed_rule
+    assert (
+        _iqamah_hhmm(day_date=day_date, hhmm="15:30", tz=KL, rule=fixed_rule) == "16:00"
+    )
+    assert (
+        resolve_iqamah(MarkerName.ASR, _adhan("15:30"), fixed_rules).strftime("%H:%M")
+        == "16:00"
+    )
+
+    # missing rule -> ConfigError on both sides (Settings rejects partial
+    # sets at construction, so empty is the only reachable missing state
+    # for the builder; the domain side deletes one rule from the dict).
+    with pytest.raises(ConfigError):
+        resolve_iqamah(
+            MarkerName.DHUHR,
+            _adhan("12:15"),
+            {k: v for k, v in rules.items() if k is not MarkerName.DHUHR},
+        )
+    empty_settings = Settings(
+        masjid_name="M", zone="SGR01", hijri_offset=0, iqamah_rules=()
+    )
+    with pytest.raises(ConfigError):
+        build_display_context(
+            day=_day(), event=_event("NORMAL"), settings=empty_settings
+        )
