@@ -204,3 +204,71 @@ def test_settings_recoverable_after_rejected_put(
     good = _wizard_body()
     assert client.put("/api/settings", json=good).status_code == 200
     assert client.get("/api/settings").json()["masjid_name"] == good["masjid_name"]
+
+
+def _seeded_html(client: TestClient) -> str:
+    client.post("/api/auth/setup", json={"password": "password123"})
+    payload = json.loads((FIXTURES / "settings.json").read_text())
+    assert client.put("/api/settings", json=payload).status_code == 200
+    return client.get("/admin/settings").text
+
+
+def test_settings_page_has_five_grouped_sections(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    html = _seeded_html(client)
+    assert 'id="admin-nav"' in html
+    for section in (
+        "section-profile",
+        "section-time",
+        "section-display",
+        "section-playlists",
+        "section-system",
+    ):
+        assert f'id="{section}"' in html
+    for label in ("Profile", "Time", "Display", "Playlists", "System"):
+        assert label in html
+
+
+def test_settings_page_keeps_all_field_ids(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    html = _seeded_html(client)
+    for field in (
+        "s-name",
+        "s-zone",
+        "s-lat",
+        "s-lon",
+        "s-method",
+        "s-calc",
+        "s-hijri",
+        "s-imsak",
+        "s-dhuha",
+        "s-adhan",
+        "s-dim",
+        "s-dimj",
+        "iqamah-rules",
+        "s-boundary",
+        "s-save",
+        "s-msg",
+        "qr-block",
+    ):
+        assert f'id="{field}"' in html
+
+
+def test_settings_page_exposes_countdown_inputs(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    html = _seeded_html(client)
+    assert 'id="s-countdown-default"' in html
+    for prayer in ("fajr", "dhuhr", "asr", "maghrib", "isha", "jumuah"):
+        assert f'id="s-cd-{prayer}"' in html
+    assert 'value="5"' in html
+    assert 'value="10"' in html
+
+
+def test_settings_page_links_playlist_editor(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    html = _seeded_html(client)
+    assert "/admin/playlists" in html

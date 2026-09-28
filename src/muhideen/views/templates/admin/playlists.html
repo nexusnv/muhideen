@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playlists</title>
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+{% include "admin/_nav.html" %}
+<main id="admin-playlists">
+  <h1>Playlists</h1>
+  <section id="occupancy-preview" class="admin-section" data-preview='{{ preview_json }}'>
+    <h2>On Stage now</h2>
+    <div id="preview-body"></div>
+  </section>
+  <section class="admin-section">
+    <h2>All playlists</h2>
+    <div id="playlist-list" data-playlists='{{ playlists_json }}'></div>
+    <button id="pl-new" class="btn" type="button">New playlist</button>
+  </section>
+  <section id="playlist-editor" class="admin-section">
+    <h2>Editor</h2>
+    <div class="form-grid">
+      <label><span>Title</span><input id="pl-title" type="text"></label>
+      <label><span><input id="pl-active" type="checkbox" checked> Active</span></label>
+      <label><span>Window start (HH:MM or marker)</span><input id="pl-start" type="text" placeholder="09:00"></label>
+      <label><span>Window end (HH:MM or marker)</span><input id="pl-end" type="text" placeholder="18:00"></label>
+      <label><span>Anchor marker (optional)</span><input id="pl-anchor" type="text" placeholder="maghrib"></label>
+      <label><span>Anchor start offset (min)</span><input id="pl-anchor-start" type="number" value="0"></label>
+      <label><span>Anchor stop offset (min)</span><input id="pl-anchor-stop" type="number" value="0"></label>
+      <label><span>Max cycles (blank for uncapped)</span><input id="pl-cycles" type="number" min="1"></label>
+    </div>
+    <div id="pl-items"></div>
+    <div>
+      <label><span>Add image</span><input id="pl-upload" type="file" accept="image/jpeg,image/png,image/webp"></label>
+      <label><span>Seconds on stage</span><input id="pl-duration" type="number" min="1" value="10"></label>
+      <button id="pl-upload-go" class="btn" type="button">Upload</button>
+    </div>
+    <div id="pl-msg" role="alert"></div>
+    <div>
+      <button id="pl-save" class="btn btn-primary" type="button">Save playlist</button>
+      <button id="pl-delete" class="btn btn-danger" type="button">Delete</button>
+    </div>
+  </section>
+</main>
+<script src="/static/admin.js"></script>
+</body>
+</html>

@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import queue
+import re
+import sqlite3
 import threading
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import replace as _replace
+from datetime import date, datetime, timedelta
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import Annotated, Any, Protocol, cast
+from typing import Annotated, Any, Literal, Protocol, cast
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -21,14 +27,16 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import AfterValidator
+from pydantic import AfterValidator, Field
 from starlette.responses import StreamingResponse
 from starlette.types import Send
 
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
 from muhideen.adapters.hijri_date import resolve_hijri
+from muhideen.adapters.images import MAX_IMAGE_BYTES, store_image
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
 from muhideen.adapters.migrate import migrate
+from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
 from muhideen.adapters.qr_code import qr_data_uri
 from muhideen.adapters.scheduler import build_scheduler
 from muhideen.adapters.sqlite_repo import (
@@ -55,6 +63,7 @@ from muhideen.api.dto import (
     AuthRequestDTO,
     AuthResponseDTO,
     ConfigUpdateEventDTO,
+    ContractDTO,
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
     NextEventDTO,
@@ -75,8 +84,19 @@ from muhideen.core.ports import (
     TimeSyncProbe,
     UserRepo,
 )
-from muhideen.core.values import NextEvent
-from muhideen.domain.stage import resolve_stage, stage_id
+from muhideen.core.values import (
+    MarkerKind,
+    MarkerName,
+    NextEvent,
+    Playlist,
+    PlaylistItem,
+    marker_kind,
+)
+from muhideen.domain.stage import (
+    PlaylistOccupant,
+    resolve_stage,
+    stage_id,
+)
 from muhideen.engine import Engine
 from muhideen.views.admin import login_context, settings_context, setup_context
 from muhideen.views.display import build_display_context
@@ -99,6 +119,162 @@ def _require_tz_aware(value: datetime) -> datetime:
     return value
 
 
+class PlaylistItemDTO(ContractDTO):
+    """One playlist image slot: stored filename, on-stage seconds, order."""
+
+    image_path: Annotated[str, Field(min_length=1, max_length=512)]
+    duration_s: Annotated[int, Field(gt=0)]
+    sort_order: Annotated[int, Field(ge=0)]
+
+    @classmethod
+    def from_domain(cls, item: PlaylistItem) -> PlaylistItemDTO:
+        """Map a stored playlist item to its wire shape."""
+        return cls(
+            image_path=item.image_path,
+            duration_s=item.duration_s,
+            sort_order=item.sort_order,
+        )
+
+    def to_domain(self) -> PlaylistItem:
+        """Map the wire item back to the validated value object."""
+        return PlaylistItem(
+            image_path=self.image_path,
+            duration_s=self.duration_s,
+            sort_order=self.sort_order,
+        )
+
+
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+"""Clock-window bound shape; anything else must name a time marker."""
+
+
+def _check_window_bound(raw: str | None, field: str) -> None:
+    """Reject window bounds that are neither HH:MM nor a marker name."""
+    if raw is None:
+        return
+    candidate = raw.strip()
+    if _HHMM_RE.match(candidate):
+        return
+    try:
+        MarkerName(candidate.lower())
+    except ValueError:
+        raise ValueError(f"{field} is not HH:MM or a marker name: {raw!r}") from None
+
+
+class PlaylistDTO(ContractDTO):
+    """Full playlist body: schedule, cycling policy, and ordered items."""
+
+    id: Annotated[str, Field(min_length=1, max_length=64)]
+    title: Annotated[str, Field(min_length=1, max_length=200)]
+    active: bool
+    window_start: str | None = None
+    window_end: str | None = None
+    anchor_marker: str | None = None
+    anchor_start_offset_min: int = 0
+    anchor_stop_offset_min: int = 0
+    cycle_mode: Literal["indefinite"] = "indefinite"
+    max_cycles: int | None = None
+    items: list[PlaylistItemDTO] = Field(default_factory=list[PlaylistItemDTO])
+
+    @classmethod
+    def from_domain(cls, playlist: Playlist) -> PlaylistDTO:
+        """Map a stored playlist to its wire shape."""
+        return cls(
+            id=playlist.id,
+            title=playlist.title,
+            active=playlist.active,
+            window_start=playlist.window_start,
+            window_end=playlist.window_end,
+            anchor_marker=(
+                playlist.anchor_marker.value
+                if playlist.anchor_marker is not None
+                else None
+            ),
+            anchor_start_offset_min=playlist.anchor_start_offset_min,
+            anchor_stop_offset_min=playlist.anchor_stop_offset_min,
+            cycle_mode=playlist.cycle_mode,
+            max_cycles=playlist.max_cycles,
+            items=[PlaylistItemDTO.from_domain(item) for item in playlist.items],
+        )
+
+    def to_domain(self, playlist_id: str | None = None) -> Playlist:
+        """Map the wire playlist back to the validated value object.
+
+        Raises ``ValueError`` for unknown anchors, boundary anchors, and
+        malformed window bounds (mapped to 422 by the routes).
+        """
+        pid = playlist_id if playlist_id is not None else self.id
+        _check_window_bound(self.window_start, "window_start")
+        _check_window_bound(self.window_end, "window_end")
+        anchor: MarkerName | None = None
+        if self.anchor_marker is not None:
+            try:
+                anchor = MarkerName(self.anchor_marker.strip().lower())
+            except ValueError:
+                raise ValueError(
+                    f"unknown playlist anchor marker: {self.anchor_marker!r}"
+                ) from None
+            if marker_kind(anchor) is MarkerKind.BOUNDARY:
+                raise ValueError(
+                    f"boundary marker cannot anchor a playlist: {self.anchor_marker!r}"
+                )
+        return Playlist(
+            id=pid,
+            title=self.title,
+            active=self.active,
+            window_start=self.window_start,
+            window_end=self.window_end,
+            anchor_marker=anchor,
+            anchor_start_offset_min=self.anchor_start_offset_min,
+            anchor_stop_offset_min=self.anchor_stop_offset_min,
+            cycle_mode=self.cycle_mode,
+            max_cycles=self.max_cycles,
+            items=tuple(item.to_domain() for item in self.items),
+        )
+
+
+class PlaylistCreateDTO(PlaylistDTO):
+    """Playlist creation body: the id is optional (server-generated)."""
+
+    id: Annotated[str, Field(min_length=1, max_length=64)] | None = None  # type: ignore[assignment]
+
+
+class ActiveToggleDTO(ContractDTO):
+    """Playlist active-flag patch body."""
+
+    active: bool
+
+
+class PlaylistImageUploadDTO(ContractDTO):
+    """One playlist image upload: base64 bytes plus on-stage seconds."""
+
+    image_base64: Annotated[str, Field(min_length=1)]
+    duration_s: Annotated[int, Field(gt=0)]
+
+
+class DisplayRegisterDTO(ContractDTO):
+    """Register one display against an existing group."""
+
+    id: Annotated[str, Field(min_length=1, max_length=64)]
+    name: Annotated[str, Field(min_length=1, max_length=200)]
+    group_name: Annotated[str, Field(min_length=1, max_length=64)] = "Default"
+
+
+class DisplayUpdateDTO(ContractDTO):
+    """Per-display overrides: theme choice and group assignment."""
+
+    current_theme: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    group_name: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+
+
+class DisplayGroupUpdateDTO(ContractDTO):
+    """Group-level overrides: theme default and dim minutes."""
+
+    theme: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    dim_minutes_override: Annotated[int, Field(ge=5, le=60)] | None = None
+    carousel_enabled: bool | None = None
+
+
 @dataclass
 class AppDeps:
     """Composition root dependencies for create_app (single entrypoint)."""
@@ -113,6 +289,8 @@ class AppDeps:
     run_background: bool = False
     jakim_client: JAKIMClient | None = None
     time_sync: TimeSyncProbe | None = None
+    playlist_repo: SqlitePlaylistRepo | None = None
+    media_dir: Path | None = None
 
 
 class EventStreamResponse(StreamingResponse):
@@ -142,14 +320,17 @@ def _frame(event: str, payload_json: str) -> str:
     return f"event: {event}\ndata: {payload_json}\n\n"
 
 
-def _tick_stage(engine: Engine, settings_repo: SettingsRepo, event: NextEvent) -> str:
-    """Stage id for one tick, resolved at the event's own pinned now.
-
-    No playlists are registered yet, so only countdown/clock stages occur.
-    """
+def _tick_stage(
+    engine: Engine,
+    settings_repo: SettingsRepo,
+    event: NextEvent,
+    playlist_repo: SqlitePlaylistRepo | None = None,
+) -> str:
+    """Stage id for one tick, resolved at the event's own pinned now."""
     settings = settings_repo.load()
     day = engine.resolve_day(event.now.date(), settings.zone, event.now).day
-    return stage_id(resolve_stage(event.now, day, settings, event, []))
+    playlists = playlist_repo.list() if playlist_repo is not None else []
+    return stage_id(resolve_stage(event.now, day, settings, event, playlists))
 
 
 @dataclass
@@ -184,7 +365,11 @@ def _run_ticker(engine: Engine, clock: Clock, stop: threading.Event) -> None:
 
 
 async def _event_stream(
-    engine: Engine, clock: Clock, bus: SSEBus, settings_repo: SettingsRepo
+    engine: Engine,
+    clock: Clock,
+    bus: SSEBus,
+    settings_repo: SettingsRepo,
+    playlist_repo: SqlitePlaylistRepo | None = None,
 ) -> AsyncGenerator[str]:
     """SSE body: poll the thread-safe subscriber queue without blocking a thread.
 
@@ -226,7 +411,8 @@ async def _event_stream(
                     )
                 else:
                     payload = TickEventDTO.from_domain(
-                        current, _tick_stage(engine, settings_repo, current)
+                        current,
+                        _tick_stage(engine, settings_repo, current, playlist_repo),
                     ).model_dump_json()
                 yield _frame(name, payload)
             elif name == "config-update":
@@ -261,6 +447,12 @@ def create_app(deps: AppDeps) -> FastAPI:
     login_limiter = RateLimiter(deps.clock)
     setup_limiter = RateLimiter(deps.clock)
     admin = require_admin(sessions)
+    playlist_store = deps.playlist_repo
+    if playlist_store is None and deps.database is not None:
+        playlist_store = SqlitePlaylistRepo(deps.database)
+    media_dir = (
+        deps.media_dir if deps.media_dir is not None else _STATIC_DIR / "uploads"
+    )
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
@@ -396,7 +588,9 @@ def create_app(deps: AppDeps) -> FastAPI:
         """SSE stream of state/tick/config-update events."""
         engine.next_event(deps.clock.now())
         return EventStreamResponse(
-            _event_stream(engine, deps.clock, deps.event_bus, deps.settings_repo)
+            _event_stream(
+                engine, deps.clock, deps.event_bus, deps.settings_repo, playlist_store
+            )
         )
 
     @app.post(
@@ -571,7 +765,504 @@ def create_app(deps: AppDeps) -> FastAPI:
             qr_data_uri=qr_data_uri("http://muhideen.local:8000/admin"),
             fallback_url=f"http://{host}/admin",
         )
+        ctx["nav_base"] = ""
+        ctx["version"] = package_version("muhideen")
+        if deps.database is not None:
+            groups = _group_list(deps.database)
+            by_name = {group["name"]: group for group in groups}
+            with deps.database.read() as conn:
+                rows = conn.execute(
+                    "SELECT id, name, ip_address, group_name, current_theme"
+                    " FROM displays ORDER BY id"
+                ).fetchall()
+            displays: list[dict[str, Any]] = []
+            for row in rows:
+                group = by_name.get(str(row["group_name"]), {})
+                override = group.get("dim_minutes_override")
+                displays.append(
+                    {
+                        "id": row["id"],
+                        "name": row["name"],
+                        "ip_address": row["ip_address"],
+                        "group_name": row["group_name"],
+                        "current_theme": row["current_theme"],
+                        "effective_dim_minutes": (
+                            override
+                            if override is not None
+                            else dto.dim_minutes_default
+                        ),
+                    }
+                )
+            ctx["displays_json"] = json.dumps(displays)
+            ctx["groups_json"] = json.dumps(groups)
+        else:
+            ctx["displays_json"] = "[]"
+            ctx["groups_json"] = "[]"
         return _TEMPLATES.TemplateResponse(request, "admin/settings.html", ctx)
+
+    @app.get(
+        "/admin/playlists",
+        response_class=HTMLResponse,
+        response_model=None,
+        include_in_schema=False,
+    )
+    def admin_playlists(request: Request) -> HTMLResponse | RedirectResponse:
+        """Playlist editor for authed admins; others go to login."""
+        token = request.cookies.get(SESSION_COOKIE)
+        if token is None or not sessions.validate(token):
+            return RedirectResponse("/admin/login")
+        stored = playlist_store
+        playlists = stored.list() if stored is not None else []
+        try:
+            preview: dict[str, Any] | None = (
+                _occupancy_preview() if stored is not None else None
+            )
+        except (ConfigError, ScheduleError):
+            preview = None
+        ctx: dict[str, Any] = {
+            "lang": "en",
+            "nav_base": "/admin/settings",
+            "playlists_json": json.dumps(
+                [
+                    PlaylistDTO.from_domain(playlist).model_dump(mode="json")
+                    for playlist in playlists
+                ]
+            ),
+            "preview_json": json.dumps(preview) if preview is not None else "null",
+        }
+        return _TEMPLATES.TemplateResponse(request, "admin/playlists.html", ctx)
+
+    def _playlists_or_503() -> SqlitePlaylistRepo:
+        """Return the playlist store; 503 when the app has no database."""
+        if playlist_store is None:
+            raise HTTPException(status_code=503, detail="playlist storage unavailable")
+        return playlist_store
+
+    def _registry_or_503() -> Database:
+        """Return the database for display-registry reads; 503 without one."""
+        if deps.database is None:
+            raise HTTPException(status_code=503, detail="display registry unavailable")
+        return deps.database
+
+    def _group_list(db: Database) -> list[dict[str, Any]]:
+        """List every display group with its theme and dim override."""
+        with db.read() as conn:
+            rows = conn.execute(
+                "SELECT name, theme, carousel_enabled, dim_minutes_override"
+                " FROM display_groups ORDER BY name"
+            ).fetchall()
+        return [
+            {
+                "name": row["name"],
+                "theme": row["theme"],
+                "carousel_enabled": bool(row["carousel_enabled"]),
+                "dim_minutes_override": row["dim_minutes_override"],
+            }
+            for row in rows
+        ]
+
+    def _display_entry(
+        db: Database, display_id: str, default_dim: int
+    ) -> dict[str, Any]:
+        """One display with its effective dim (group override, else default)."""
+        with db.read() as conn:
+            row = conn.execute(
+                "SELECT d.id, d.name, d.ip_address, d.group_name,"
+                " d.current_theme, g.dim_minutes_override"
+                " FROM displays d LEFT JOIN display_groups g"
+                " ON g.name = d.group_name WHERE d.id = ?",
+                (display_id,),
+            ).fetchone()
+        assert row is not None  # the caller just inserted or updated this row
+        override = row["dim_minutes_override"]
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "ip_address": row["ip_address"],
+            "group_name": row["group_name"],
+            "current_theme": row["current_theme"],
+            "group_dim_override": override,
+            "effective_dim_minutes": (
+                override if override is not None else default_dim
+            ),
+            "dim_source": "group" if override is not None else "settings",
+        }
+
+    def _occupancy_preview() -> dict[str, Any]:
+        """Server-side Stage preview: current occupant plus per-playlist next.
+
+        ``on_stage_now`` marks the playlist holding the Stage at this
+        instant; ``next_at`` is the first 5-minute sample in the coming 24h
+        at which the playlist would hold it (None when never in-window).
+        """
+        store = _playlists_or_503()
+        settings = deps.settings_repo.load()
+        now = deps.clock.now()
+        playlists = store.list()
+        result = engine.resolve_day(now.date(), settings.zone, now)
+        event = engine.next_event(now)
+        current = resolve_stage(now, result.day, settings, event, playlists)
+        wins: dict[str, str] = {}
+        days = {now.date(): result.day}
+        for step in range(1, 289):
+            moment = now + timedelta(minutes=5 * step)
+            day = days.get(moment.date())
+            if day is None:
+                day = engine.resolve_day(moment.date(), settings.zone, moment).day
+                days[moment.date()] = day
+            occupant = resolve_stage(
+                moment, day, settings, engine.next_event(moment), playlists
+            )
+            if (
+                isinstance(occupant, PlaylistOccupant)
+                and occupant.playlist_id not in wins
+            ):
+                wins[occupant.playlist_id] = moment.isoformat()
+        entries = [
+            {
+                "id": playlist.id,
+                "title": playlist.title,
+                "active": playlist.active,
+                "on_stage_now": (
+                    isinstance(current, PlaylistOccupant)
+                    and current.playlist_id == playlist.id
+                ),
+                "next_at": (
+                    now.isoformat()
+                    if isinstance(current, PlaylistOccupant)
+                    and current.playlist_id == playlist.id
+                    else wins.get(playlist.id)
+                ),
+            }
+            for playlist in playlists
+        ]
+        return {
+            "now": now.isoformat(),
+            "stage": stage_id(current),
+            "playlists": entries,
+        }
+
+    @app.get(
+        "/api/playlists",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def list_playlists() -> dict[str, Any]:
+        """List every playlist with ordered items (admin session required)."""
+        store = _playlists_or_503()
+        return {
+            "playlists": [
+                PlaylistDTO.from_domain(playlist) for playlist in store.list()
+            ]
+        }
+
+    @app.post(
+        "/api/playlists",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+        status_code=201,
+    )
+    def create_playlist(payload: PlaylistCreateDTO) -> PlaylistDTO:
+        """Create a playlist; the id is generated when the body omits it."""
+        store = _playlists_or_503()
+        pid = payload.id or uuid.uuid4().hex[:12]
+        try:
+            playlist = payload.model_copy(update={"id": pid}).to_domain()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            store.save(playlist)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return PlaylistDTO.from_domain(playlist)
+
+    @app.get(
+        "/api/playlists/preview",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def preview_playlists() -> dict[str, Any]:
+        """Occupancy preview computed server-side over the Stage engine."""
+        return _occupancy_preview()
+
+    @app.get(
+        "/api/playlists/{playlist_id}",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def get_playlist(playlist_id: str) -> PlaylistDTO:
+        """Return one playlist with ordered items."""
+        playlist = _playlists_or_503().get(playlist_id)
+        if playlist is None:
+            raise HTTPException(status_code=404, detail="unknown playlist")
+        return PlaylistDTO.from_domain(playlist)
+
+    @app.put(
+        "/api/playlists/{playlist_id}",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def replace_playlist(playlist_id: str, payload: PlaylistDTO) -> PlaylistDTO:
+        """Replace a playlist atomically (path id must match the body id)."""
+        store = _playlists_or_503()
+        if payload.id != playlist_id:
+            raise HTTPException(status_code=422, detail="path id and body id differ")
+        try:
+            playlist = payload.to_domain()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if store.get(playlist_id) is None:
+            raise HTTPException(status_code=404, detail="unknown playlist")
+        try:
+            store.save(playlist)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return PlaylistDTO.from_domain(playlist)
+
+    @app.patch(
+        "/api/playlists/{playlist_id}",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def toggle_playlist(playlist_id: str, payload: ActiveToggleDTO) -> PlaylistDTO:
+        """Flip one playlist's active flag without touching its items."""
+        store = _playlists_or_503()
+        if not store.set_active(playlist_id, payload.active):
+            raise HTTPException(status_code=404, detail="unknown playlist")
+        playlist = store.get(playlist_id)
+        if playlist is None:  # pragma: no cover - toggle just succeeded
+            raise HTTPException(status_code=404, detail="unknown playlist")
+        return PlaylistDTO.from_domain(playlist)
+
+    @app.delete(
+        "/api/playlists/{playlist_id}",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def delete_playlist(playlist_id: str) -> dict[str, Any]:
+        """Delete a playlist; its items cascade."""
+        if not _playlists_or_503().delete(playlist_id):
+            raise HTTPException(status_code=404, detail="unknown playlist")
+        return {"ok": True}
+
+    @app.post(
+        "/api/playlists/{playlist_id}/items",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+        status_code=201,
+    )
+    def upload_playlist_item(
+        playlist_id: str, payload: PlaylistImageUploadDTO
+    ) -> dict[str, Any]:
+        """Store one uploaded image and append it to the playlist items.
+
+        The image travels as base64 JSON (no multipart parser on the
+        offline-first footprint); bytes flow into the shared image store
+        and the stored filename becomes the new playlist item.
+        """
+        store = _playlists_or_503()
+        playlist = store.get(playlist_id)
+        if playlist is None:
+            raise HTTPException(status_code=404, detail="unknown playlist")
+        try:
+            data = base64.b64decode(payload.image_base64, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise HTTPException(status_code=400, detail="invalid base64") from exc
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="image exceeds 5MB limit")
+        try:
+            stored = store_image(data, media_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        order = max((item.sort_order for item in playlist.items), default=-1) + 1
+        try:
+            store.save(
+                _replace(
+                    playlist,
+                    items=playlist.items
+                    + (
+                        PlaylistItem(
+                            image_path=stored.name,
+                            duration_s=payload.duration_s,
+                            sort_order=order,
+                        ),
+                    ),
+                )
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "image_path": stored.name,
+            "duration_s": payload.duration_s,
+            "sort_order": order,
+        }
+
+    @app.delete(
+        "/api/playlists/{playlist_id}/items/{sort_order}",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def delete_playlist_item(playlist_id: str, sort_order: int) -> dict[str, Any]:
+        """Remove the item at one sort position, keeping the rest in place."""
+        store = _playlists_or_503()
+        playlist = store.get(playlist_id)
+        if playlist is None:
+            raise HTTPException(status_code=404, detail="unknown playlist")
+        remaining = tuple(
+            item for item in playlist.items if item.sort_order != sort_order
+        )
+        if len(remaining) == len(playlist.items):
+            raise HTTPException(status_code=404, detail="unknown playlist item")
+        store.save(_replace(playlist, items=remaining))
+        return {"ok": True}
+
+    @app.get(
+        "/api/displays",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def list_displays() -> dict[str, Any]:
+        """List registered displays with effective theme+dim plus groups."""
+        db = _registry_or_503()
+        default_dim = deps.settings_repo.load().dim_minutes_default
+        groups = _group_list(db)
+        by_name = {group["name"]: group for group in groups}
+        with db.read() as conn:
+            rows = conn.execute(
+                "SELECT id, name, ip_address, group_name, current_theme"
+                " FROM displays ORDER BY id"
+            ).fetchall()
+        displays: list[dict[str, Any]] = []
+        for row in rows:
+            group = by_name.get(str(row["group_name"]), {})
+            override = group.get("dim_minutes_override")
+            displays.append(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "ip_address": row["ip_address"],
+                    "group_name": row["group_name"],
+                    "current_theme": row["current_theme"],
+                    "group_dim_override": override,
+                    "effective_dim_minutes": (
+                        override if override is not None else default_dim
+                    ),
+                    "dim_source": "group" if override is not None else "settings",
+                }
+            )
+        return {"displays": displays, "groups": groups}
+
+    @app.post(
+        "/api/displays",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+        status_code=201,
+    )
+    def register_display(payload: DisplayRegisterDTO) -> dict[str, Any]:
+        """Register one display against an existing group."""
+        db = _registry_or_503()
+        default_dim = deps.settings_repo.load().dim_minutes_default
+        with db.read() as conn:
+            group = conn.execute(
+                "SELECT name FROM display_groups WHERE name = ?",
+                (payload.group_name,),
+            ).fetchone()
+        if group is None:
+            raise HTTPException(status_code=422, detail="unknown display group")
+        try:
+            with db.write() as conn:
+                conn.execute(
+                    "INSERT INTO displays (id, name, group_name) VALUES (?, ?, ?)",
+                    (payload.id, payload.name, payload.group_name),
+                )
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=409, detail="display id already registered"
+            ) from None
+        entry = _display_entry(db, payload.id, default_dim)
+        return entry
+
+    @app.patch(
+        "/api/displays/{display_id}",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def update_display(display_id: str, payload: DisplayUpdateDTO) -> dict[str, Any]:
+        """Set per-display overrides: theme choice and group assignment."""
+        db = _registry_or_503()
+        default_dim = deps.settings_repo.load().dim_minutes_default
+        if payload.current_theme is None and payload.group_name is None:
+            raise HTTPException(status_code=422, detail="nothing to update")
+        with db.write() as conn:
+            if payload.group_name is not None:
+                group = conn.execute(
+                    "SELECT name FROM display_groups WHERE name = ?",
+                    (payload.group_name,),
+                ).fetchone()
+                if group is None:
+                    raise HTTPException(status_code=422, detail="unknown display group")
+                cursor = conn.execute(
+                    "UPDATE displays SET group_name = ? WHERE id = ?",
+                    (payload.group_name, display_id),
+                )
+                if cursor.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="unknown display")
+            if payload.current_theme is not None:
+                cursor = conn.execute(
+                    "UPDATE displays SET current_theme = ? WHERE id = ?",
+                    (payload.current_theme, display_id),
+                )
+                if cursor.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="unknown display")
+        entry = _display_entry(db, display_id, default_dim)
+        return entry
+
+    @app.patch(
+        "/api/display-groups/{name}",
+        dependencies=[Depends(admin)],
+        include_in_schema=False,
+    )
+    def update_display_group(
+        name: str, payload: DisplayGroupUpdateDTO
+    ) -> dict[str, Any]:
+        """Set group overrides: theme default, dim minutes, carousel flag."""
+        db = _registry_or_503()
+        assignments: dict[str, Any] = {}
+        if payload.theme is not None:
+            assignments["theme"] = payload.theme
+        if payload.dim_minutes_override is not None:
+            assignments["dim_minutes_override"] = payload.dim_minutes_override
+        if payload.carousel_enabled is not None:
+            assignments["carousel_enabled"] = 1 if payload.carousel_enabled else 0
+        with db.write() as conn:
+            if assignments:
+                setters = ", ".join(f"{key} = ?" for key in assignments)
+                cursor = conn.execute(
+                    f"UPDATE display_groups SET {setters} WHERE name = ?",
+                    (*assignments.values(), name),
+                )
+                if cursor.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="unknown display group")
+            else:
+                exists = conn.execute(
+                    "SELECT name FROM display_groups WHERE name = ?", (name,)
+                ).fetchone()
+                if exists is None:
+                    raise HTTPException(status_code=404, detail="unknown display group")
+        with db.read() as conn:
+            row = conn.execute(
+                "SELECT name, theme, carousel_enabled, dim_minutes_override"
+                " FROM display_groups WHERE name = ?",
+                (name,),
+            ).fetchone()
+        if row is None:  # pragma: no cover - update just succeeded
+            raise HTTPException(status_code=404, detail="unknown display group")
+        return {
+            "name": row["name"],
+            "theme": row["theme"],
+            "carousel_enabled": bool(row["carousel_enabled"]),
+            "dim_minutes_override": row["dim_minutes_override"],
+        }
 
     return app
 
