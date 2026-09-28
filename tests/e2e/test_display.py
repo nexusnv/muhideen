@@ -190,3 +190,30 @@ def test_hero_marks_tomorrow_fajr(surface: SimpleNamespace, client: TestClient) 
     _advance_to(surface, datetime(2025, 10, 20, 21, 0))
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert 'id="next-tomorrow"' in html
+
+
+def test_display_per_card_iqamah_elements(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    import re
+
+    _seed_settings(surface)
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="cards"' in html
+    for key in ("fajr", "dhuhr", "asr", "maghrib", "isha"):
+        match = re.search(rf'id="iqamah-{key}">(\d{{2}}:\d{{2}})<', html)
+        assert match, f"missing HH:MM iqamah element for {key}"
+
+
+def test_display_reskin_regions(surface: SimpleNamespace, client: TestClient) -> None:
+    _seed_settings(surface)
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    for token in (
+        "countdown-box",
+        "iqamah-row",
+        "brand-block",
+        "glow-emerald",
+        'id="live-clock"',
+        'id="date-hijri"',
+    ):
+        assert token in html

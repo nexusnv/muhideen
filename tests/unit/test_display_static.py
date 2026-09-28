@@ -30,7 +30,8 @@ def test_css_legibility_rules_present() -> None:
     import re
 
     css = (STATIC / "app.css").read_text()
-    assert re.search(r"#hero-clock\s*\{[^}]*font-size:\s*12vh", css)
+    # Reskin hero: giant countdown digits (10m legibility), card times large.
+    assert re.search(r"\.cd-val\s*\{[^}]*font-size:\s*11vh", css)
     assert "3.5vh" in css
 
 
@@ -90,5 +91,36 @@ def test_state_template_ids_present() -> None:
         "data-bar-start",
         "hidden data-now",
         "data-dim-until",
+    ):
+        assert token in html
+
+
+# Phase 1C reskin tokens (class names locked to the new app.css).
+# Mapping note: countdown-box = H/M/S countdown boxes fed by data-countdown
+# targets; iqamah-row = per-card iqamah row; brand-block = footer brand block;
+# glow-emerald = hero gradient glow. Per-card iqamah id scheme: iqamah-<key>.
+
+
+def test_reskin_css_tokens_present() -> None:
+    css = (STATIC / "app.css").read_text()
+    for token in (
+        "countdown-box",
+        "iqamah-row",
+        "brand-block",
+        "glow-emerald",
+    ):
+        assert token in css
+
+
+def test_reskin_template_tokens_present() -> None:
+    html = (STATIC.parent / "views" / "templates" / "display.html").read_text()
+    for token in (
+        "countdown-box",
+        "iqamah-row",
+        "brand-block",
+        "glow-emerald",
+        'id="iqamah-{{ c.key }}"',
+        "hijri_long",
+        'id="live-clock"',
     ):
         assert token in html

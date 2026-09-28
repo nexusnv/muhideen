@@ -8,8 +8,9 @@
 </head>
 <body>
 {% if state == "ADHAN" %}
-<main id="overlay-adhan">
+<main id="overlay-adhan" class="hero-gradient glow-emerald">
   <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
+  <div id="hero-eyebrow">THE CALL TO PRAYER</div>
   <h1>{{ next_name_en }} · {{ next_name_ar }}</h1>
   <div id="adhan-bar"><div id="adhan-fill" data-bar-start="{{ adhan_iso }}" data-bar-end="{{ adhan_end_iso }}"></div></div>
 </main>
@@ -28,33 +29,63 @@
 </header>
 {% if banners %}<div id="banners">{% for b in banners %}<div class="banner">{{ b }}</div>{% endfor %}</div>{% endif %}
 {% if state == "PRE_ADHAN" %}<div id="note-pre">{{ pre_note }}</div>{% endif %}
-<main id="hero">
-  <h1 id="hero-clock" class="js-clock" data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}>{{ clock }}</h1>
+<main id="hero" class="hero-gradient glow-emerald">
+  <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
+  <div class="brand-corner">masjid <b>box</b></div>
   {% if state == "IQAMAH_COUNTDOWN" %}
-  <div id="iqamah-hero" data-countdown="{{ iqamah_iso }}"></div>
-  {% else %}
   <div id="hero-next">
-    <div id="next-name">{{ next_name_en }} · {{ next_name_ar }}</div>
+    <div id="hero-eyebrow">IQAMAH FOR <span id="next-name">{{ next_name_en }} · {{ next_name_ar }}</span> IN</div>
     <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
   </div>
+  <div class="countdown-wrap giant" data-cd-target="{{ iqamah_iso }}">
+    <div class="countdown-box"><span class="cd-val" data-cd-h>--</span><span class="cd-lab">HOURS</span></div>
+    <span class="cd-sep">:</span>
+    <div class="countdown-box"><span class="cd-val" data-cd-m>--</span><span class="cd-lab">MINUTES</span></div>
+    <span class="cd-sep">:</span>
+    <div class="countdown-box"><span class="cd-val" data-cd-s>--</span><span class="cd-lab">SECONDS</span></div>
+  </div>
+  <div id="iqamah-hero" data-countdown="{{ iqamah_iso }}" hidden></div>
+  {% else %}
+  <div id="hero-next">
+    <div id="hero-eyebrow">THE CALL TO PRAYER OF <span id="next-name">{{ next_name_en }} · {{ next_name_ar }}</span> IS IN</div>
+    <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
+  </div>
+  <div class="countdown-wrap" data-cd-target="{{ adhan_iso }}">
+    <div class="countdown-box"><span class="cd-val" data-cd-h>--</span><span class="cd-lab">HOURS</span></div>
+    <span class="cd-sep">:</span>
+    <div class="countdown-box"><span class="cd-val" data-cd-m>--</span><span class="cd-lab">MINUTES</span></div>
+    <span class="cd-sep">:</span>
+    <div class="countdown-box"><span class="cd-val" data-cd-s>--</span><span class="cd-lab">SECONDS</span></div>
+  </div>
+  <span data-countdown="{{ adhan_iso }}" hidden></span>
   {% endif %}
 </main>
-<section id="cards">
-  {% for c in cards %}
-  <div class="card{% if c.is_next %} next{% endif %}" id="card-{{ c.key }}">
-    <div class="n">{{ c.en }} · {{ c.ar }}</div>
-    <div class="t">{{ c.time }}</div>
+<section id="strip">
+  <div class="live-block">
+    <div id="live-clock" class="js-clock digital-font">{{ clock }}</div>
+    <div class="dates"><span id="date-greg">{{ gregorian }}</span><span id="date-hijri">{{ hijri_long }}</span></div>
   </div>
-  {% endfor %}
-</section>
-<section id="bounds">
-  {% for b in bounds %}
-  <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} {{ b.time }}</span>
-  {% endfor %}
-  {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
+  <section id="cards">
+    {% for c in cards %}
+    <div class="card{% if c.is_next %} next{% endif %}" id="card-{{ c.key }}">
+      <div class="n">{{ c.en }} · {{ c.ar }}</div>
+      <div class="t">{{ c.time }}</div>
+      <div class="iqamah-row"><span class="iqamah-lab">IQAMAH</span><span id="iqamah-{{ c.key }}">{{ c.iqamah }}</span></div>
+    </div>
+    {% endfor %}
+  </section>
 </section>
 {% if state == "NORMAL" %}
-<footer id="ftr"><span id="carousel-dot">●</span><span id="qr-hint">Admin: muhideen.local:8000/admin</span></footer>
+<footer id="ftr">
+  <div class="brand-block"><span class="brand-name">{{ masjid_name }}</span><span class="brand-zone">{{ zone }}</span></div>
+  <section id="bounds">
+    {% for b in bounds %}
+    <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} {{ b.time }}</span>
+    {% endfor %}
+    {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
+  </section>
+  <span id="carousel-dot">●</span><span id="qr-hint">Admin: muhideen.local:8000/admin</span>
+</footer>
 {% endif %}
 {% endif %}
 <script src="/static/app.js"></script>

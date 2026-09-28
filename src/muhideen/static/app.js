@@ -54,6 +54,25 @@
       var pct = end <= start ? 100 : Math.min(100, Math.max(0, (epoch - start) / (end - start) * 100));
       bars[k].style.width = pct + "%";
     }
+    var hms = document.querySelectorAll("[data-cd-target]");
+    for (var m = 0; m < hms.length; m++) {
+      var hmsTarget = new Date(hms[m].getAttribute("data-cd-target")).getTime();
+      var hEls = hms[m].querySelectorAll("[data-cd-h]");
+      var mEls = hms[m].querySelectorAll("[data-cd-m]");
+      var sEls = hms[m].querySelectorAll("[data-cd-s]");
+      if (hmsTarget !== hmsTarget) {
+        setHms(hEls, "--"); setHms(mEls, "--"); setHms(sEls, "--");
+        continue;
+      }
+      var rem2 = Math.max(0, hmsTarget - epoch);
+      var s2 = Math.floor(rem2 / 1000);
+      setHms(hEls, pad(Math.floor(s2 / 3600)));
+      setHms(mEls, pad(Math.floor((s2 % 3600) / 60)));
+      setHms(sEls, pad(s2 % 60));
+    }
+  }
+  function setHms(els, val) {
+    for (var q = 0; q < els.length; q++) els[q].textContent = val;
   }
   setInterval(tick, 1000);
   function sameAsDom(data) {
