@@ -25,7 +25,9 @@
     "boundary_countdown": false,
     "calc_only": false,
     "imsak_offset_min": 10,
-    "dhuha_offset_min": 28
+    "dhuha_offset_min": 28,
+    "countdown_before_adhan_min": 5,
+    "countdown_before_adhan_overrides": {}
   };
   function num(id) {
     var v = document.getElementById(id).value;
