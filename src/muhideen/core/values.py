@@ -234,3 +234,57 @@ class Settings:
                     "missing iqamah rule for prayer: "
                     + ", ".join(name.value for name in missing)
                 )
+
+
+@dataclass(frozen=True, slots=True)
+class PlaylistItem:
+    """One image slot in a playlist: path, on-stage seconds, display order."""
+
+    image_path: str
+    duration_s: int
+    sort_order: int = 0
+
+    def __post_init__(self) -> None:
+        """Enforce non-empty path, positive duration, non-negative order."""
+        if not self.image_path:
+            raise ValueError("playlist item needs an image path")
+        if self.duration_s <= 0:
+            raise ValueError(
+                f"playlist item duration must be positive: {self.duration_s}"
+            )
+        if self.sort_order < 0:
+            raise ValueError(
+                f"playlist item sort order cannot be negative: {self.sort_order}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class Playlist:
+    """A named set of image items with a schedule and a cycling policy.
+
+    The window is either clock-based (``window_start``/``window_end`` as
+    ``HH:MM`` strings, each optionally a marker name with its offset
+    applied) or anchored to one marker (``anchor_marker`` plus both
+    offsets, ignoring the clock bounds). ``None`` bounds stay open, so a
+    playlist with no bounds at all is always in-window while active.
+    Only image items are supported for now.
+    """
+
+    id: str
+    title: str
+    active: bool
+    window_start: str | None = None
+    window_end: str | None = None
+    anchor_marker: MarkerName | None = None
+    anchor_start_offset_min: int = 0
+    anchor_stop_offset_min: int = 0
+    cycle_mode: Literal["indefinite"] = "indefinite"
+    max_cycles: int | None = None
+    items: tuple[PlaylistItem, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Enforce non-empty identity; window math lives in domain."""
+        if not self.id:
+            raise ValueError("playlist needs a non-empty id")
+        if not self.title:
+            raise ValueError("playlist needs a non-empty title")
