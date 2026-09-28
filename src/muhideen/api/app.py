@@ -804,7 +804,6 @@ def create_app(deps: AppDeps) -> FastAPI:
         "/admin/playlists",
         response_class=HTMLResponse,
         response_model=None,
-        include_in_schema=False,
     )
     def admin_playlists(request: Request) -> HTMLResponse | RedirectResponse:
         """Playlist editor for authed admins; others go to login."""
@@ -945,7 +944,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.get(
         "/api/playlists",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def list_playlists() -> dict[str, Any]:
         """List every playlist with ordered items (admin session required)."""
@@ -959,7 +957,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.post(
         "/api/playlists",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
         status_code=201,
     )
     def create_playlist(payload: PlaylistCreateDTO) -> PlaylistDTO:
@@ -979,7 +976,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.get(
         "/api/playlists/preview",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def preview_playlists() -> dict[str, Any]:
         """Occupancy preview computed server-side over the Stage engine."""
@@ -988,7 +984,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.get(
         "/api/playlists/{playlist_id}",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def get_playlist(playlist_id: str) -> PlaylistDTO:
         """Return one playlist with ordered items."""
@@ -1000,7 +995,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.put(
         "/api/playlists/{playlist_id}",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def replace_playlist(playlist_id: str, payload: PlaylistDTO) -> PlaylistDTO:
         """Replace a playlist atomically (path id must match the body id)."""
@@ -1022,7 +1016,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.patch(
         "/api/playlists/{playlist_id}",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def toggle_playlist(playlist_id: str, payload: ActiveToggleDTO) -> PlaylistDTO:
         """Flip one playlist's active flag without touching its items."""
@@ -1037,7 +1030,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.delete(
         "/api/playlists/{playlist_id}",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def delete_playlist(playlist_id: str) -> dict[str, Any]:
         """Delete a playlist; its items cascade."""
@@ -1048,7 +1040,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.post(
         "/api/playlists/{playlist_id}/items",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
         status_code=201,
     )
     def upload_playlist_item(
@@ -1100,7 +1091,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.delete(
         "/api/playlists/{playlist_id}/items/{sort_order}",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def delete_playlist_item(playlist_id: str, sort_order: int) -> dict[str, Any]:
         """Remove the item at one sort position, keeping the rest in place."""
@@ -1119,7 +1109,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.get(
         "/api/displays",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def list_displays() -> dict[str, Any]:
         """List registered displays with effective theme+dim plus groups."""
@@ -1155,7 +1144,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.post(
         "/api/displays",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
         status_code=201,
     )
     def register_display(payload: DisplayRegisterDTO) -> dict[str, Any]:
@@ -1185,7 +1173,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.patch(
         "/api/displays/{display_id}",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def update_display(display_id: str, payload: DisplayUpdateDTO) -> dict[str, Any]:
         """Set per-display overrides: theme choice and group assignment."""
@@ -1220,7 +1207,6 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.patch(
         "/api/display-groups/{name}",
         dependencies=[Depends(admin)],
-        include_in_schema=False,
     )
     def update_display_group(
         name: str, payload: DisplayGroupUpdateDTO

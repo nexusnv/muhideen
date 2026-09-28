@@ -1,6 +1,18 @@
 """API layer: executable contract (Pydantic DTOs) + FastAPI app."""
 
-from muhideen.api.app import AppDeps, create_app, create_production_app
+from muhideen.api.app import (
+    ActiveToggleDTO,
+    AppDeps,
+    DisplayGroupUpdateDTO,
+    DisplayRegisterDTO,
+    DisplayUpdateDTO,
+    PlaylistCreateDTO,
+    PlaylistDTO,
+    PlaylistImageUploadDTO,
+    PlaylistItemDTO,
+    create_app,
+    create_production_app,
+)
 from muhideen.api.dto import (
     AuthRequestDTO,
     AuthResponseDTO,
@@ -18,14 +30,22 @@ from muhideen.api.dto import (
 )
 
 __all__ = [
+    "ActiveToggleDTO",
     "AppDeps",
     "AuthRequestDTO",
     "AuthResponseDTO",
     "ConfigUpdateEventDTO",
+    "DisplayGroupUpdateDTO",
+    "DisplayRegisterDTO",
+    "DisplayUpdateDTO",
     "HeartbeatRequestDTO",
     "HeartbeatResponseDTO",
     "IqamahRuleDTO",
     "NextEventDTO",
+    "PlaylistCreateDTO",
+    "PlaylistDTO",
+    "PlaylistImageUploadDTO",
+    "PlaylistItemDTO",
     "PrayerDayDTO",
     "SessionStatusDTO",
     "SettingsDTO",

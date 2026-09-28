@@ -13,6 +13,16 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
+from muhideen.api.app import (
+    ActiveToggleDTO,
+    DisplayGroupUpdateDTO,
+    DisplayRegisterDTO,
+    DisplayUpdateDTO,
+    PlaylistCreateDTO,
+    PlaylistDTO,
+    PlaylistImageUploadDTO,
+    PlaylistItemDTO,
+)
 from muhideen.api.dto import (
     AuthRequestDTO,
     AuthResponseDTO,
@@ -43,6 +53,22 @@ SECTION_DTOS: dict[str, list[type[BaseModel]]] = {
     "POST /api/auth/login": [AuthRequestDTO, AuthResponseDTO],
     "POST /api/auth/logout": [AuthResponseDTO],
     "GET /api/auth/session": [SessionStatusDTO],
+    "POST /api/playlists": [PlaylistCreateDTO, PlaylistDTO],
+    "GET /api/playlists": [],
+    "GET /api/playlists/preview": [],
+    "GET /api/playlists/{playlist_id}": [PlaylistDTO],
+    "PUT /api/playlists/{playlist_id}": [PlaylistDTO, PlaylistDTO],
+    "PATCH /api/playlists/{playlist_id}": [ActiveToggleDTO, PlaylistDTO],
+    "DELETE /api/playlists/{playlist_id}": [],
+    "POST /api/playlists/{playlist_id}/items": [
+        PlaylistImageUploadDTO,
+        PlaylistItemDTO,
+    ],
+    "DELETE /api/playlists/{playlist_id}/items/{sort_order}": [],
+    "GET /api/displays": [],
+    "POST /api/displays": [DisplayRegisterDTO],
+    "PATCH /api/displays/{display_id}": [DisplayUpdateDTO],
+    "PATCH /api/display-groups/{name}": [DisplayGroupUpdateDTO],
 }
 SECTION_FIXTURES: dict[str, list[str]] = {
     "GET /api/prayer-day": ["prayer-day.json"],
@@ -59,6 +85,22 @@ SECTION_FIXTURES: dict[str, list[str]] = {
     "POST /api/auth/login": ["auth-request.json", "auth-response.json"],
     "POST /api/auth/logout": ["auth-response.json"],
     "GET /api/auth/session": ["session.json"],
+    "POST /api/playlists": ["playlist-create.json", "playlist.json"],
+    "GET /api/playlists": [],
+    "GET /api/playlists/preview": [],
+    "GET /api/playlists/{playlist_id}": ["playlist.json"],
+    "PUT /api/playlists/{playlist_id}": ["playlist.json", "playlist.json"],
+    "PATCH /api/playlists/{playlist_id}": ["active-toggle.json", "playlist.json"],
+    "DELETE /api/playlists/{playlist_id}": [],
+    "POST /api/playlists/{playlist_id}/items": [
+        "playlist-image-upload.json",
+        "playlist-item.json",
+    ],
+    "DELETE /api/playlists/{playlist_id}/items/{sort_order}": [],
+    "GET /api/displays": [],
+    "POST /api/displays": ["display-register.json"],
+    "PATCH /api/displays/{display_id}": ["display-update.json"],
+    "PATCH /api/display-groups/{name}": ["display-group-update.json"],
 }
 
 
@@ -87,7 +129,15 @@ def _json_blocks(section_body: str) -> list[Any]:
 
 
 def _body_for(key: str) -> str:
-    return next(body for title, body in _sections().items() if title.startswith(key))
+    sections = _sections()
+    for title, body in sections.items():
+        if title == key:
+            return body
+    # Fallback: titles carrying query strings or prose suffixes
+    # (`GET /api/prayer-day?date=…`, `GET /api/events (SSE …)`).
+    # Exact titles win first so `POST /api/displays` never resolves to
+    # the earlier `POST /api/displays/heartbeat` section.
+    return next(body for title, body in sections.items() if title.startswith(key))
 
 
 def test_doc_json_examples_validate_against_dtos() -> None:

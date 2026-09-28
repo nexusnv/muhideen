@@ -173,6 +173,190 @@ Session status plus whether first-boot setup is still required. No auth required
 {"authenticated": true, "setup_required": false}
 ```
 
+## `POST /api/playlists`
+
+Admin session required. Create a playlist; the `id` is server-generated when the body omits it (`null`). Windows are `HH:MM` clock bounds (each end optionally a marker name); `anchor_marker` must name a Prayer Time Marker, never a boundary. More than 50 items is 422. The response is the stored playlist.
+
+```json
+{
+  "id": null,
+  "title": "Evening Reminders",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+## `GET /api/playlists`
+
+Admin session required. Lists every playlist with ordered items as a `playlists` envelope; each entry has the `POST /api/playlists` response shape (see `api/fixtures/playlist.json`).
+
+## `GET /api/playlists/preview`
+
+Admin session required. Server-side Stage preview computed over the Task 5 occupancy engine: `stage` is the current Stage id (`clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, `playlist:<id>`), and each entry reports `on_stage_now` plus the next 5-minute sample in the coming 24h at which it would hold the Stage (`next_at`, `null` when never in-window). 503 before setup, 404 without a schedule.
+
+## `GET /api/playlists/{playlist_id}`
+
+Admin session required. Returns one playlist with ordered items; unknown ids are 404.
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+## `PUT /api/playlists/{playlist_id}`
+
+Admin session required. Full-replace body; the path id and body id must match (else 422), unknown ids are 404. Request and response share the playlist shape.
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+## `PATCH /api/playlists/{playlist_id}`
+
+Admin session required. Flips one playlist's active flag without touching its items; unknown ids are 404.
+
+```json
+{"active": false}
+```
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+## `DELETE /api/playlists/{playlist_id}`
+
+Admin session required. Deletes a playlist; its items cascade. Unknown ids are 404; success returns an `ok` envelope.
+
+## `POST /api/playlists/{playlist_id}/items`
+
+Admin session required. Stores one uploaded image (base64 JSON, 5MB cap, JPG/PNG/WebP with EXIF stripped via the shared image store) and appends it to the playlist items; a full 50-item playlist is 422. The response echoes the new item slot.
+
+```json
+{"image_base64": "aGVsbG8=", "duration_s": 7}
+```
+
+```json
+{"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+```
+
+## `DELETE /api/playlists/{playlist_id}/items/{sort_order}`
+
+Admin session required. Removes the item at one sort position, keeping the rest in place. Unknown playlists and unknown positions are 404; success returns an `ok` envelope.
+
+## `GET /api/displays`
+
+Admin session required. Lists registered displays with effective theme and dim plus groups: each display carries its group dim override (or the settings default) and a `dim_source` of `group` or `settings`.
+
+## `POST /api/displays`
+
+Admin session required. Registers one display against an existing group; duplicate ids are 409, unknown groups are 422.
+
+```json
+{"id": "hall-1", "name": "Main Hall", "group_name": "Default"}
+```
+
+## `PATCH /api/displays/{display_id}`
+
+Admin session required. Sets per-display overrides (theme choice, group assignment); empty bodies are 422, unknown displays and unknown groups are 404/422.
+
+```json
+{"current_theme": "midnight", "group_name": null}
+```
+
+## `PATCH /api/display-groups/{name}`
+
+Admin session required. Sets group overrides (theme default, dim minutes 5–60, carousel flag); unknown groups are 404.
+
+```json
+{"theme": "midnight", "dim_minutes_override": 30, "carousel_enabled": false}
+```
+
 ## Errors
 
 Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, or set a `fixed` rule without `fixed_time`, leaving the stored settings unchanged. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.

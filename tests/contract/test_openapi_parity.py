@@ -16,13 +16,21 @@ from pydantic import BaseModel
 
 from muhideen.adapters.sse_bus import SSEBus
 from muhideen.api import (
+    ActiveToggleDTO,
     AuthRequestDTO,
     AuthResponseDTO,
     ConfigUpdateEventDTO,
+    DisplayGroupUpdateDTO,
+    DisplayRegisterDTO,
+    DisplayUpdateDTO,
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
     IqamahRuleDTO,
     NextEventDTO,
+    PlaylistCreateDTO,
+    PlaylistDTO,
+    PlaylistImageUploadDTO,
+    PlaylistItemDTO,
     PrayerDayDTO,
     SessionStatusDTO,
     SettingsDTO,
@@ -109,8 +117,15 @@ JSON_ENDPOINTS: dict[str, tuple[str, type[BaseModel]]] = {
     "/api/auth/login": ("post", AuthResponseDTO),
     "/api/auth/logout": ("post", AuthResponseDTO),
     "/api/auth/session": ("get", SessionStatusDTO),
+    # Playlist detail: GET/PUT/PATCH share the path; one entry covers GET
+    # while PUT/PATCH $refs are asserted explicitly below (like settings).
+    "/api/playlists/{playlist_id}": ("get", PlaylistDTO),
 }
 ALL_DTOS = (
+    ActiveToggleDTO,
+    DisplayGroupUpdateDTO,
+    DisplayRegisterDTO,
+    DisplayUpdateDTO,
     AuthRequestDTO,
     AuthResponseDTO,
     ConfigUpdateEventDTO,
@@ -118,6 +133,10 @@ ALL_DTOS = (
     HeartbeatResponseDTO,
     IqamahRuleDTO,
     NextEventDTO,
+    PlaylistCreateDTO,
+    PlaylistDTO,
+    PlaylistImageUploadDTO,
+    PlaylistItemDTO,
     PrayerDayDTO,
     SessionStatusDTO,
     SettingsDTO,
@@ -165,11 +184,20 @@ def test_openapi_declares_all_five_paths() -> None:
         "/api/auth/login",
         "/api/auth/logout",
         "/api/auth/session",
+        "/api/playlists",
+        "/api/playlists/preview",
+        "/api/playlists/{playlist_id}",
+        "/api/playlists/{playlist_id}/items",
+        "/api/playlists/{playlist_id}/items/{sort_order}",
+        "/api/displays",
+        "/api/displays/{display_id}",
+        "/api/display-groups/{name}",
         "/display",
         "/admin",
         "/admin/login",
         "/admin/setup",
         "/admin/settings",
+        "/admin/playlists",
     }
 
 
@@ -180,7 +208,12 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         responses = schema["paths"][path][method]["responses"]
         response_schema = responses["200"]["content"]["application/json"]["schema"]
         assert response_schema == {"$ref": f"#/components/schemas/{dto.__name__}"}
-        assert components[dto.__name__] == _normalized(dto.model_json_schema())
+        # `_strip_defaults`: FastAPI strips Pydantic's `default:` markers
+        # on DTOs that declare them (playlist shapes); older DTOs have
+        # none, so stripping is a no-op for them.
+        assert _strip_defaults(components[dto.__name__]) == _strip_defaults(
+            _normalized(dto.model_json_schema())
+        )
     # PUT shares GET's $ref: same SettingsDTO on the same path.
     put_schema = schema["paths"]["/api/settings"]["put"]["responses"]["200"]["content"][
         "application/json"
@@ -199,6 +232,61 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "application/json"
     ]["schema"]
     assert settings_body == {"$ref": "#/components/schemas/SettingsDTO"}
+    # Playlist detail: PUT/PATCH share GET's $ref (same PlaylistDTO).
+    put_playlist = schema["paths"]["/api/playlists/{playlist_id}"]["put"]
+    assert put_playlist["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/PlaylistDTO"}
+    assert put_playlist["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/PlaylistDTO"
+    }
+    patch_playlist = schema["paths"]["/api/playlists/{playlist_id}"]["patch"]
+    assert patch_playlist["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/PlaylistDTO"}
+    assert patch_playlist["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ActiveToggleDTO"
+    }
+    # Playlist creation is 201: response PlaylistDTO, body PlaylistCreateDTO.
+    create_playlist = schema["paths"]["/api/playlists"]["post"]
+    assert create_playlist["responses"]["201"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/PlaylistDTO"}
+    assert create_playlist["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/PlaylistCreateDTO"
+    }
+    # Image upload + display registry: dict envelopes, DTO request bodies.
+    upload_body = schema["paths"]["/api/playlists/{playlist_id}/items"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["schema"]
+    assert upload_body == {"$ref": "#/components/schemas/PlaylistImageUploadDTO"}
+    register_body = schema["paths"]["/api/displays"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert register_body == {"$ref": "#/components/schemas/DisplayRegisterDTO"}
+    update_body = schema["paths"]["/api/displays/{display_id}"]["patch"]["requestBody"][
+        "content"
+    ]["application/json"]["schema"]
+    assert update_body == {"$ref": "#/components/schemas/DisplayUpdateDTO"}
+    group_body = schema["paths"]["/api/display-groups/{name}"]["patch"]["requestBody"][
+        "content"
+    ]["application/json"]["schema"]
+    assert group_body == {"$ref": "#/components/schemas/DisplayGroupUpdateDTO"}
+    for dto in (
+        PlaylistDTO,
+        PlaylistCreateDTO,
+        PlaylistItemDTO,
+        ActiveToggleDTO,
+        PlaylistImageUploadDTO,
+        DisplayRegisterDTO,
+        DisplayUpdateDTO,
+        DisplayGroupUpdateDTO,
+    ):
+        # `_strip_defaults`: FastAPI strips Pydantic's `default:` markers
+        # when emitting components (same reason as the SSE `anyOf` below).
+        assert _strip_defaults(components[dto.__name__]) == _strip_defaults(
+            _normalized(dto.model_json_schema())
+        )
     for name in (
         "PrayerDayDTO",
         "NextEventDTO",
@@ -210,6 +298,14 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "AuthRequestDTO",
         "AuthResponseDTO",
         "SessionStatusDTO",
+        "PlaylistDTO",
+        "PlaylistCreateDTO",
+        "PlaylistItemDTO",
+        "ActiveToggleDTO",
+        "PlaylistImageUploadDTO",
+        "DisplayRegisterDTO",
+        "DisplayUpdateDTO",
+        "DisplayGroupUpdateDTO",
     ):
         assert name in components
 

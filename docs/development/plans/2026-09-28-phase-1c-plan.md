@@ -63,14 +63,18 @@ git commit -m "feat: vendor display fonts (OFL)"
 
 ```python
 def test_cards_carry_iqamah_times():
-    ctx = build_display_context(day=_day(), event=_event("NORMAL"), settings=_settings())
+    ctx = build_display_context(
+        day=_day(), event=_event("NORMAL"), settings=_settings()
+    )
     by_key = {c["key"]: c for c in ctx["cards"]}
     assert by_key["fajr"]["iqamah"] == "06:00"  # adhan + rule delay
     assert by_key["dhuhr"]["iqamah"] == "12:25"
 
 
 def test_hijri_long_format():
-    ctx = build_display_context(day=_day(), event=_event("NORMAL"), settings=_settings())
+    ctx = build_display_context(
+        day=_day(), event=_event("NORMAL"), settings=_settings()
+    )
     assert ctx["hijri_long"] == "28 Rabi' al-Awwal 1447"
 ```
 
@@ -165,6 +169,8 @@ Admin nav regroup (locked): Profile (name, zone) · Time & Date Marker (method, 
 - Modify: `src/muhideen/core/values.py` (ThemeSettings: palette, font, countdown_style, clock_format, hijri_form, boundary_strip, density + guards), `sqlite_repo` (theme.* keys), `dto.py`, `settings.json`, `api-contract.md`, templates/CSS (consume knobs), tests at each layer.
 
 Knob values are closed enums (e.g. `countdown_style ∈ {"boxes","inline"}`, `clock_format ∈ {"24h","24h-seconds","12h"}`); invalid → 422 via existing guards. Builder maps knobs to template flags; CSS implements both variants for countdown style at minimum.
+
+- [ ] **Step 6: `/display?id=` consumes stored theme/dim (render path)** — seed per-display theme/dim overrides, `GET /display?id=`, assert the stored knobs are applied in the rendered page (not defaults); e2e test pins it.
 
 - [ ] Steps 1–5 per standard. Commit `feat: theme knobs`.
 

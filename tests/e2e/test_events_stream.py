@@ -241,6 +241,44 @@ def test_published_tick_stage_matches_domain_resolution(
     assert data["stage"] == stage_id(resolve_stage(now, day, settings, current, []))
 
 
+def test_published_tick_stage_matches_open_window_playlist(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
+    from muhideen.core.values import Playlist, PlaylistItem
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    repo = SqlitePlaylistRepo(surface.db)
+    repo.save(
+        Playlist(
+            id="open",
+            title="Open",
+            active=True,
+            window_start=None,
+            window_end=None,
+            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+        )
+    )
+    gen = _Driver(
+        app_module._event_stream(
+            _engine(surface),
+            surface.clock,
+            surface.bus,
+            surface.settings_repo,
+            repo,
+        )
+    )
+    try:
+        next(gen)
+        surface.bus.publish("tick")
+        frame = next(gen)
+    finally:
+        gen.close()
+    event, data = _parse(frame)
+    assert event == "tick"
+    assert data["stage"] == "playlist:open"
+
+
 def test_config_update_carries_changed_groups(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
