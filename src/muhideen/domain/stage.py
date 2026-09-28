@@ -155,6 +155,8 @@ def resolve_stage(
         activation = (
             start if start is not None else datetime.min.replace(tzinfo=now.tzinfo)
         )
+        if start is not None and stop is not None and stop <= start and now < stop:
+            activation = start - timedelta(days=1)
         if best is None or activation > best[0]:
             best = (activation, PlaylistOccupant(playlist_id=playlist.id))
     return best[1] if best is not None else ClockOccupant()

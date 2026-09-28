@@ -7,7 +7,7 @@ Sources of truth: `PRD.md`, `ARCHITECTURE.md`, `docs/api-contract.md` + `api/fix
 ## Locked decisions
 
 1. **Two tiers only.** Global settings + per-display allowlist (theme choice, dim durations). No cascade engine, no display-grouping timeline. The research report's 4-tier model is not planned.
-2. **Main Stage model.** Hero area has exactly one occupier: scheduled Playlist, Adhan/Iqamah Countdown, or Clock default. Countdowns always override. Overlaps resolve by most-recent activation.
+2. **Main Stage model.** Hero area has exactly one occupier: scheduled Playlist, Adhan/Iqamah Countdown, or Clock default. Countdowns always override. Overlaps resolve by most-recent activation (i.e. the in-window playlist whose window opened most recently (window start; input order breaks ties)).
 3. **Countdown settings.** Pre-adhan takeover configurable globally (default 5, range 0–90) with per-prayer overrides. Post-adhan side unchanged (overlay duration, then iqamah countdown).
 4. **Theme split.** Themes change how facts look, never which facts show. App-wide: all prayer data, rules, schedules, playlists, countdown timings, hijri, dim defaults, boundary opt-in. Theme knobs: palette, fonts, countdown style, clock format, Hijri form, boundary strip, density. Per-display: theme choice, dim durations.
 5. **Vanilla only.** Tailwind Play CDN and Google Fonts links are forbidden (offline-first, PRD §4.2). Reskin in hand-written CSS; vendor Outfit + JetBrains Mono woff2.

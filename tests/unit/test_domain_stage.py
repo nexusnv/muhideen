@@ -182,6 +182,37 @@ def test_overlap_most_recent_activation_wins() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("order", [["night", "dawn"], ["dawn", "night"]])
+def test_midnight_overlap_most_recent_activation_wins(order: list[str]) -> None:
+    from muhideen.domain.stage import PlaylistOccupant, resolve_stage
+
+    now = _at(1, 0)
+    windows = {
+        "night": _playlist("night", "22:00", "02:00"),
+        "dawn": _playlist("dawn", "00:30", "01:30"),
+    }
+    playlists = tuple(windows[pid] for pid in order)
+    assert resolve_stage(
+        now, _day(), _settings(), _dhuhr_event(now), playlists
+    ) == PlaylistOccupant(playlist_id="dawn")
+
+
+@pytest.mark.unit
+def test_open_window_tie_keeps_input_order() -> None:
+    from muhideen.domain.stage import PlaylistOccupant, resolve_stage
+
+    now = _at(10, 0)
+    first = _playlist("first")
+    second = _playlist("second")
+    assert resolve_stage(
+        now, _day(), _settings(), _dhuhr_event(now), (first, second)
+    ) == PlaylistOccupant(playlist_id="first")
+    assert resolve_stage(
+        now, _day(), _settings(), _dhuhr_event(now), (second, first)
+    ) == PlaylistOccupant(playlist_id="second")
+
+
+@pytest.mark.unit
 def test_pre_adhan_countdown_overrides_playlist() -> None:
     from muhideen.domain.stage import CountdownOccupant, PlaylistOccupant, resolve_stage
 
