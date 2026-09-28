@@ -133,6 +133,7 @@ def test_state_walkthrough_pre_adhan_hides_footer(
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert 'id="note-pre"' in html
     assert 'id="ftr"' not in html
+    assert 'id="bound-syuruq"' in html
     assert "Preparing for" in html
 
 

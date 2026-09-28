@@ -31,7 +31,7 @@ def test_css_legibility_rules_present() -> None:
 
     css = (STATIC / "app.css").read_text()
     # Reskin hero: giant countdown digits (10m legibility), card times large.
-    assert re.search(r"\.cd-val\s*\{[^}]*font-size:\s*11vh", css)
+    assert re.search(r"\.cd-val\s*\{[^}]*font-size:\s*12vh", css)
     assert "3.5vh" in css
 
 

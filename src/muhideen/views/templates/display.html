@@ -75,15 +75,15 @@
     {% endfor %}
   </section>
 </section>
+<section id="bounds">
+  {% for b in bounds %}
+  <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} {{ b.time }}</span>
+  {% endfor %}
+  {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
+</section>
 {% if state == "NORMAL" %}
 <footer id="ftr">
   <div class="brand-block"><span class="brand-name">{{ masjid_name }}</span><span class="brand-zone">{{ zone }}</span></div>
-  <section id="bounds">
-    {% for b in bounds %}
-    <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} {{ b.time }}</span>
-    {% endfor %}
-    {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
-  </section>
   <span id="carousel-dot">●</span><span id="qr-hint">Admin: muhideen.local:8000/admin</span>
 </footer>
 {% endif %}

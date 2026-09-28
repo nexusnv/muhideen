@@ -28,7 +28,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-u
 #next-time { font-size: 2.4vh; opacity: 0.9; margin-top: 0.5vh; }
 .countdown-wrap { display: flex; align-items: flex-start; justify-content: center; gap: 1.2vw; margin-top: 1vh; }
 .countdown-box { display: flex; flex-direction: column; align-items: center; gap: 1vh; }
-.cd-val { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11vh; font-weight: 800; line-height: 1; color: var(--hero-ink); }
+.cd-val { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12vh; font-weight: 800; line-height: 1; color: var(--hero-ink); }
 .countdown-wrap.giant .cd-val { font-size: 13vh; }
 .cd-sep { font-size: 9vh; font-weight: 800; line-height: 1; opacity: 0.9; }
 .cd-lab { background: var(--hero-ink); color: var(--hero-2); font-size: 1.9vh; font-weight: 700; letter-spacing: 0.12em; border-radius: 0.7vh; padding: 0.5vh 1.6vh; }
