@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS settings (
   -- keys: masjid_name, zone_code|lat,lon,method, hijri_offset(-2..2),
   -- adhan_duration_s, dim_minutes_default, dim_minutes_jumuah,
   -- imsak_offset_min(0..10), dhuha_offset_min(15..30),
+  -- countdown_min_default(0..90), countdown_min_<prayer>(0..90, absent=default),
   -- boundary_countdown(0|1), calc_only(0|1), carousel_enabled, theme_default,
   -- qr_visible_default
 );
@@ -72,6 +73,7 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
   ('dim_minutes_jumuah', '45'),
   ('imsak_offset_min', '10'),
   ('dhuha_offset_min', '28'),
+  ('countdown_min_default', '5'),
   ('boundary_countdown', '0'),
   ('method', 'MABIMS');
 

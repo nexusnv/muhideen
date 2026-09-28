@@ -34,6 +34,7 @@ _SEEDED_SETTINGS = {
     "dim_minutes_jumuah": "45",
     "imsak_offset_min": "10",
     "dhuha_offset_min": "28",
+    "countdown_min_default": "5",
     "boundary_countdown": "0",
     "method": "MABIMS",
 }

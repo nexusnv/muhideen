@@ -406,3 +406,100 @@ def test_settings_boundary_offset_edges_accepted() -> None:
         masjid_name="M", zone="SGR01", hijri_offset=0, dhuha_offset_min=30
     )
     assert dhuha_high.dhuha_offset_min == 30
+
+
+@pytest.mark.unit
+def test_settings_countdown_defaults() -> None:
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+    assert settings.countdown_before_adhan_min == 5
+    assert settings.countdown_before_adhan_overrides == {}
+
+
+@pytest.mark.unit
+def test_settings_countdown_default_range_rejected() -> None:
+    for bad in (-1, 91):
+        with pytest.raises(ValueError, match="countdown_before_adhan_min out of range"):
+            Settings(
+                masjid_name="M",
+                zone="SGR01",
+                hijri_offset=0,
+                countdown_before_adhan_min=bad,
+            )
+
+
+@pytest.mark.unit
+def test_settings_countdown_default_edges_accepted() -> None:
+    assert (
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            countdown_before_adhan_min=0,
+        ).countdown_before_adhan_min
+        == 0
+    )
+    assert (
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            countdown_before_adhan_min=90,
+        ).countdown_before_adhan_min
+        == 90
+    )
+
+
+@pytest.mark.unit
+def test_settings_countdown_overrides_round_trip() -> None:
+    settings = Settings(
+        masjid_name="M",
+        zone="SGR01",
+        hijri_offset=0,
+        countdown_before_adhan_overrides={"fajr": 10},
+    )
+    assert settings.countdown_before_adhan_overrides == {"fajr": 10}
+    assert settings.countdown_before_adhan_overrides["fajr"] == 10
+
+
+@pytest.mark.unit
+def test_settings_countdown_override_values_guarded() -> None:
+    for bad in (-1, 91):
+        with pytest.raises(ValueError, match="countdown override out of range"):
+            Settings(
+                masjid_name="M",
+                zone="SGR01",
+                hijri_offset=0,
+                countdown_before_adhan_overrides={"fajr": bad},
+            )
+
+
+@pytest.mark.unit
+def test_settings_countdown_override_rejects_unknown_and_boundary() -> None:
+    with pytest.raises(ValueError, match="unknown prayer for countdown override"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            countdown_before_adhan_overrides={"bogus": 10},
+        )
+    with pytest.raises(ValueError, match="boundary time marker"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            countdown_before_adhan_overrides={"imsak": 10},
+        )
+
+
+@pytest.mark.unit
+def test_countdown_window_override_wins_else_default() -> None:
+    from muhideen.domain.countdown import countdown_window
+
+    settings = Settings(
+        masjid_name="M",
+        zone="SGR01",
+        hijri_offset=0,
+        countdown_before_adhan_overrides={"fajr": 10},
+    )
+    assert countdown_window(settings, MarkerName.FAJR) == 10
+    assert countdown_window(settings, MarkerName.DHUHR) == 5

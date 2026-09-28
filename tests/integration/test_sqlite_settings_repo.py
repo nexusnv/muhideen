@@ -220,3 +220,96 @@ def test_offset_keys_default_when_missing(tmp_path: Path) -> None:
         )
     loaded = repo.load()
     assert (loaded.imsak_offset_min, loaded.dhuha_offset_min) == (10, 28)
+
+
+def test_countdown_keys_round_trip(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    settings = Settings(
+        masjid_name="Masjid Test",
+        zone="SGR01",
+        hijri_offset=0,
+        countdown_before_adhan_min=7,
+        countdown_before_adhan_overrides={"fajr": 10, "isha": 3},
+    )
+    repo.save(settings)
+    loaded = repo.load()
+    assert loaded.countdown_before_adhan_min == 7
+    assert loaded.countdown_before_adhan_overrides == {"fajr": 10, "isha": 3}
+
+
+def test_countdown_keys_default_when_missing(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0))
+    with db.write() as conn:
+        conn.execute("DELETE FROM settings WHERE key LIKE 'countdown_min%'")
+    loaded = repo.load()
+    assert loaded.countdown_before_adhan_min == 5
+    assert loaded.countdown_before_adhan_overrides == {}
+
+
+def test_countdown_seeded_default_present(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    _seed_identity(db)
+    loaded = SqliteSettingsRepo(db).load()
+    assert loaded.countdown_before_adhan_min == 5
+    assert loaded.countdown_before_adhan_overrides == {}
+
+
+@pytest.mark.parametrize("value", ["abc", "-1", "91"])
+def test_countdown_default_corrupt_raises_config_error(
+    tmp_path: Path, value: str
+) -> None:
+    db = _db(tmp_path)
+    _seed_identity(db)
+    with db.write() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            ("countdown_min_default", value),
+        )
+    with pytest.raises(ConfigError):
+        SqliteSettingsRepo(db).load()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("countdown_min_fajr", "abc"),
+        ("countdown_min_fajr", "91"),
+        ("countdown_min_bogus", "10"),
+        ("countdown_min_imsak", "10"),
+    ],
+)
+def test_countdown_override_corrupt_raises_config_error(
+    tmp_path: Path, key: str, value: str
+) -> None:
+    db = _db(tmp_path)
+    _seed_identity(db)
+    with db.write() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+    with pytest.raises(ConfigError):
+        SqliteSettingsRepo(db).load()
+
+
+def test_save_drops_removed_countdown_overrides(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(
+        Settings(
+            masjid_name="Masjid Test",
+            zone="SGR01",
+            hijri_offset=0,
+            countdown_before_adhan_overrides={"fajr": 10},
+        )
+    )
+    assert repo.load().countdown_before_adhan_overrides == {"fajr": 10}
+    repo.save(Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0))
+    loaded = repo.load()
+    assert loaded.countdown_before_adhan_overrides == {}
+    assert "countdown_min_fajr" not in _settings_kv(db)

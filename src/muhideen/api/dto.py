@@ -300,7 +300,11 @@ class IqamahRuleDTO(ContractDTO):
 
 
 class SettingsDTO(ContractDTO):
-    """Full-replace admin settings body and response (all fields required)."""
+    """Full-replace admin settings body and response.
+
+    All fields required except the pre-adhan countdown knobs, which default
+    so older wizard bodies still validate (additive contract change).
+    """
 
     masjid_name: Annotated[str, Field(min_length=1, max_length=200)]
     zone: Annotated[str, Field(min_length=1, max_length=32)]
@@ -316,6 +320,10 @@ class SettingsDTO(ContractDTO):
     calc_only: bool
     imsak_offset_min: Annotated[int, Field(ge=0, le=10)]
     dhuha_offset_min: Annotated[int, Field(ge=15, le=30)]
+    countdown_before_adhan_min: Annotated[int, Field(ge=0, le=90)] = 5
+    countdown_before_adhan_overrides: dict[str, Annotated[int, Field(ge=0, le=90)]] = (
+        Field(default_factory=dict)
+    )
 
     @classmethod
     def from_domain(cls, settings: Settings) -> SettingsDTO:
@@ -337,6 +345,10 @@ class SettingsDTO(ContractDTO):
             calc_only=settings.calc_only,
             imsak_offset_min=settings.imsak_offset_min,
             dhuha_offset_min=settings.dhuha_offset_min,
+            countdown_before_adhan_min=settings.countdown_before_adhan_min,
+            countdown_before_adhan_overrides=dict(
+                settings.countdown_before_adhan_overrides
+            ),
         )
 
     def to_domain(self) -> Settings:
@@ -356,6 +368,10 @@ class SettingsDTO(ContractDTO):
             calc_only=self.calc_only,
             imsak_offset_min=self.imsak_offset_min,
             dhuha_offset_min=self.dhuha_offset_min,
+            countdown_before_adhan_min=self.countdown_before_adhan_min,
+            countdown_before_adhan_overrides=dict(
+                self.countdown_before_adhan_overrides
+            ),
         )
 
 

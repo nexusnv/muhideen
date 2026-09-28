@@ -225,6 +225,13 @@ class SqliteSettingsRepo:
                 calc_only=_parse_bool(kv.get("calc_only", "0")),
                 imsak_offset_min=int(kv.get("imsak_offset_min", "10")),
                 dhuha_offset_min=int(kv.get("dhuha_offset_min", "28")),
+                countdown_before_adhan_min=int(kv.get("countdown_min_default", "5")),
+                countdown_before_adhan_overrides={
+                    key.removeprefix("countdown_min_"): int(value)
+                    for key, value in kv.items()
+                    if key.startswith("countdown_min_")
+                    and key != "countdown_min_default"
+                },
                 lat=_parse_optional_float(kv.get("lat")),
                 lon=_parse_optional_float(kv.get("lon")),
                 iqamah_rules=_rules_from_rows(rule_rows) or DEFAULT_IQAMAH_RULES,
@@ -244,6 +251,16 @@ class SqliteSettingsRepo:
             ("method", settings.method),
             ("imsak_offset_min", str(settings.imsak_offset_min)),
             ("dhuha_offset_min", str(settings.dhuha_offset_min)),
+            (
+                "countdown_min_default",
+                str(settings.countdown_before_adhan_min),
+            ),
+            *[
+                (f"countdown_min_{prayer}", str(minutes))
+                for prayer, minutes in sorted(
+                    settings.countdown_before_adhan_overrides.items()
+                )
+            ],
             ("boundary_countdown", "1" if settings.boundary_countdown else "0"),
             ("calc_only", "1" if settings.calc_only else "0"),
         ]
@@ -263,6 +280,9 @@ class SqliteSettingsRepo:
         with self._db.write() as conn:
             if settings.lat is None:
                 conn.execute("DELETE FROM settings WHERE key IN (?, ?)", ("lat", "lon"))
+            # Overrides are keyed per prayer: clear the namespace first so a
+            # dropped override cannot linger and resurrect on the next load.
+            conn.execute("DELETE FROM settings WHERE key LIKE 'countdown_min%'")
             conn.executemany(
                 "INSERT INTO settings (key, value) VALUES (?, ?)"
                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value",

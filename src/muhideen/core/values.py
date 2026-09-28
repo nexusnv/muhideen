@@ -16,7 +16,7 @@ at the boundary.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from enum import StrEnum
 from typing import Literal
@@ -162,6 +162,10 @@ class Settings:
     calc_only: bool = False
     imsak_offset_min: int = 10
     dhuha_offset_min: int = 28
+    countdown_before_adhan_min: int = 5
+    countdown_before_adhan_overrides: dict[str, int] = field(
+        default_factory=dict[str, int], hash=False
+    )
 
     def __post_init__(self) -> None:
         """Enforce offset/coordinate guards and non-empty rule coverage."""
@@ -177,6 +181,27 @@ class Settings:
             raise ValueError(f"imsak_offset_min out of range: {self.imsak_offset_min}")
         if not 15 <= self.dhuha_offset_min <= 30:
             raise ValueError(f"dhuha_offset_min out of range: {self.dhuha_offset_min}")
+        if not 0 <= self.countdown_before_adhan_min <= 90:
+            raise ValueError(
+                "countdown_before_adhan_min out of range: "
+                f"{self.countdown_before_adhan_min}"
+            )
+        for prayer_key, minutes in self.countdown_before_adhan_overrides.items():
+            try:
+                marker = MarkerName(prayer_key)
+            except ValueError:
+                raise ValueError(
+                    f"unknown prayer for countdown override: {prayer_key!r}"
+                ) from None
+            if marker_kind(marker) is MarkerKind.BOUNDARY:
+                raise ValueError(
+                    "boundary time marker cannot have a countdown override: "
+                    f"{prayer_key}"
+                )
+            if not 0 <= minutes <= 90:
+                raise ValueError(
+                    f"countdown override out of range for {prayer_key}: {minutes}"
+                )
         seen: set[MarkerName] = set()
         for rule in self.iqamah_rules:
             if marker_kind(rule.prayer) is MarkerKind.BOUNDARY:

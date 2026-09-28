@@ -69,7 +69,7 @@ Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-onl
 
 ## `GET /api/settings`
 
-Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the `boundary_countdown` opt-in and `calc_only` offline mode.
+Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the `boundary_countdown` opt-in and `calc_only` offline mode, and the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default).
 
 ```json
 {
@@ -93,7 +93,9 @@ Admin session required. Full installation settings including the boundary offset
   "method": "MABIMS",
   "dhuha_offset_min": 28,
   "boundary_countdown": false,
-  "calc_only": false
+  "calc_only": false,
+  "countdown_before_adhan_min": 5,
+  "countdown_before_adhan_overrides": {"fajr": 10}
 }
 ```
 
@@ -123,7 +125,9 @@ Admin session required. Full-replace body; the response echoes the stored settin
   "method": "MABIMS",
   "dhuha_offset_min": 28,
   "boundary_countdown": false,
-  "calc_only": false
+  "calc_only": false,
+  "countdown_before_adhan_min": 5,
+  "countdown_before_adhan_overrides": {"fajr": 10}
 }
 ```
 
