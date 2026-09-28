@@ -43,7 +43,7 @@ Server-computed state per PRD §8. Client never computes. All timestamps ISO8601
 
 ## `GET /api/events` (SSE `text/event-stream`)
 
-Events: `state` (on transition), `tick` (1/min heartbeat with server `now`), `config-update` (settings/theme/carousel changed → refetch). `state` payloads always carry `time_synced` (FR-1.6) and carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`. OpenAPI documents the three payload schemas inline as an `anyOf` (under `type: object`) beneath the `text/event-stream` content.
+Events: `state` (on transition), `tick` (1/min heartbeat with server `now` + Main Stage id `stage`; the display reloads when `stage` changes), `config-update` (settings/theme/carousel changed → refetch). `state` payloads always carry `time_synced` (FR-1.6) and carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `stage` is one of `clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, or `playlist:<id>`. `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`. OpenAPI documents the three payload schemas inline as an `anyOf` (under `type: object`) beneath the `text/event-stream` content.
 
 ## `POST /api/displays/heartbeat`
 
@@ -178,6 +178,6 @@ Session status plus whether first-boot setup is still required. No auth required
 Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, or set a `fixed` rule without `fixed_time`, leaving the stored settings unchanged. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
 
 ## Versioning
-Additive fields allowed without bump — e.g. `time_synced` on `next-event` and SSE `state` payloads (slice 1A-8). Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.
+Additive fields allowed without bump — e.g. `time_synced` on `next-event` and SSE `state` payloads (slice 1A-8), and `stage` on SSE `tick` payloads. Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.
 
 Pre-consumer amendments: before the first frontend consumer lands (1B-1), semantic corrections may amend v1 fixtures + this document in place with a CHANGELOG migration note instead of standing up `/api/v2`; slice 1A-4a is exercised under this clause.

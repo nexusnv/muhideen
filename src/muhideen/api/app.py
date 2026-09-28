@@ -75,6 +75,8 @@ from muhideen.core.ports import (
     TimeSyncProbe,
     UserRepo,
 )
+from muhideen.core.values import NextEvent
+from muhideen.domain.stage import resolve_stage, stage_id
 from muhideen.engine import Engine
 from muhideen.views.admin import login_context, settings_context, setup_context
 from muhideen.views.display import build_display_context
@@ -140,6 +142,16 @@ def _frame(event: str, payload_json: str) -> str:
     return f"event: {event}\ndata: {payload_json}\n\n"
 
 
+def _tick_stage(engine: Engine, settings_repo: SettingsRepo, event: NextEvent) -> str:
+    """Stage id for one tick, resolved at the event's own pinned now.
+
+    No playlists are registered yet, so only countdown/clock stages occur.
+    """
+    settings = settings_repo.load()
+    day = engine.resolve_day(event.now.date(), settings.zone, event.now).day
+    return stage_id(resolve_stage(event.now, day, settings, event, []))
+
+
 @dataclass
 class _Background:
     """Handles for the optional background ticker + scheduler threads."""
@@ -172,7 +184,7 @@ def _run_ticker(engine: Engine, clock: Clock, stop: threading.Event) -> None:
 
 
 async def _event_stream(
-    engine: Engine, clock: Clock, bus: SSEBus
+    engine: Engine, clock: Clock, bus: SSEBus, settings_repo: SettingsRepo
 ) -> AsyncGenerator[str]:
     """SSE body: poll the thread-safe subscriber queue without blocking a thread.
 
@@ -213,7 +225,9 @@ async def _event_stream(
                         exclude_none=True
                     )
                 else:
-                    payload = TickEventDTO.from_domain(current).model_dump_json()
+                    payload = TickEventDTO.from_domain(
+                        current, _tick_stage(engine, settings_repo, current)
+                    ).model_dump_json()
                 yield _frame(name, payload)
             elif name == "config-update":
                 if not changed:
@@ -381,7 +395,9 @@ def create_app(deps: AppDeps) -> FastAPI:
     def events() -> EventStreamResponse:
         """SSE stream of state/tick/config-update events."""
         engine.next_event(deps.clock.now())
-        return EventStreamResponse(_event_stream(engine, deps.clock, deps.event_bus))
+        return EventStreamResponse(
+            _event_stream(engine, deps.clock, deps.event_bus, deps.settings_repo)
+        )
 
     @app.post(
         "/api/displays/heartbeat",

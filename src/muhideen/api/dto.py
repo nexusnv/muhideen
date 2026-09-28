@@ -220,15 +220,16 @@ class StateEventDTO(ContractDTO):
 
 
 class TickEventDTO(ContractDTO):
-    """SSE `tick` event payload: server `now` + state, sent 1/min."""
+    """SSE `tick` event payload: server `now` + state + Stage id, sent 1/min."""
 
     now: datetime
     state: StateLiteral
+    stage: str
 
     @classmethod
-    def from_domain(cls, event: NextEvent) -> TickEventDTO:
-        """Map a NextEvent to the per-minute tick frame (now + state)."""
-        return cls(now=event.now, state=event.state.name)
+    def from_domain(cls, event: NextEvent, stage: str) -> TickEventDTO:
+        """Map a NextEvent plus its Stage id to the per-minute tick frame."""
+        return cls(now=event.now, state=event.state.name, stage=stage)
 
 
 class ConfigUpdateEventDTO(ContractDTO):

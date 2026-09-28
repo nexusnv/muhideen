@@ -99,6 +99,7 @@
   heartbeat();
   setInterval(heartbeat, 30000);
   var firstStateSeen = false;
+  var lastStage = null;
   try {
     var src = new EventSource("/api/events");
     src.addEventListener("state", function (e) {
@@ -113,7 +114,16 @@
       window.location.reload();
     });
     src.addEventListener("tick", function (e) {
-      try { anchor(JSON.parse(e.data).now); } catch (err) { /* keep baseline */ }
+      var tick = null;
+      try { tick = JSON.parse(e.data); } catch (err) { tick = null; }
+      if (tick === null) return;
+      if (tick.now) anchor(tick.now);
+      if (typeof tick.stage !== "string") return;
+      if (lastStage !== null && tick.stage !== lastStage) {
+        window.location.reload();
+        return;
+      }
+      lastStage = tick.stage;
     });
     src.addEventListener("config-update", function () { window.location.reload(); });
     var pollStarted = false;

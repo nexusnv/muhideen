@@ -84,7 +84,9 @@ class _Driver:
 
 def _stream(surface: SimpleNamespace) -> _Driver:
     return _Driver(
-        app_module._event_stream(_engine(surface), surface.clock, surface.bus)
+        app_module._event_stream(
+            _engine(surface), surface.clock, surface.bus, surface.settings_repo
+        )
     )
 
 
@@ -173,7 +175,11 @@ def test_sse_frames_run_next_event_off_the_event_loop(
         calc=MabimsCalcEngine(clock=surface.clock, tz=cast(ZoneInfo, tz)),
         time_sync=probe,
     )
-    gen = _Driver(app_module._event_stream(engine, surface.clock, surface.bus))
+    gen = _Driver(
+        app_module._event_stream(
+            engine, surface.clock, surface.bus, surface.settings_repo
+        )
+    )
     try:
         frame = next(gen)
     finally:
@@ -209,6 +215,30 @@ def test_published_tick_frame(surface: SimpleNamespace, client: TestClient) -> N
     event, data = _parse(frame)
     assert event == "tick"
     assert "now" in data and "state" in data
+    assert isinstance(data.get("stage"), str)
+
+
+def test_published_tick_stage_matches_domain_resolution(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    from muhideen.domain.stage import resolve_stage, stage_id
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    gen = _stream(surface)
+    try:
+        next(gen)
+        surface.bus.publish("tick")
+        frame = next(gen)
+    finally:
+        gen.close()
+    event, data = _parse(frame)
+    assert event == "tick"
+    engine = _engine(surface)
+    now = surface.clock.now()
+    current = engine.next_event(now)
+    settings = surface.settings_repo.load()
+    day = engine.resolve_day(now.date(), settings.zone, now).day
+    assert data["stage"] == stage_id(resolve_stage(now, day, settings, current, []))
 
 
 def test_config_update_carries_changed_groups(

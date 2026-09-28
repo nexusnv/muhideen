@@ -101,6 +101,15 @@ def test_state_template_ids_present() -> None:
 # glow-emerald = hero gradient glow. Per-card iqamah id scheme: iqamah-<key>.
 
 
+def test_js_stage_reload_wiring_present() -> None:
+    js = (STATIC / "app.js").read_text()
+    for token in (
+        "lastStage",
+        ".stage",
+    ):
+        assert token in js
+
+
 def test_reskin_css_tokens_present() -> None:
     css = (STATIC / "app.css").read_text()
     for token in (
