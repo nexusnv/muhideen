@@ -25,6 +25,8 @@ _TABLES = {
     "display_groups",
     "displays",
     "users",
+    "playlists",
+    "playlist_items",
 }
 
 _SEEDED_SETTINGS = {
@@ -83,8 +85,8 @@ def test_connect_applies_pragmas(tmp_path: Path) -> None:
 
 def test_migrate_sets_user_version_head(tmp_path: Path) -> None:
     db = Database(tmp_path / "muhideen.db")
-    assert migrate(db) == 1
-    assert current_version(db) == 1
+    assert migrate(db) == 2
+    assert current_version(db) == 2
 
 
 def test_migrate_creates_all_prd_tables_and_index(tmp_path: Path) -> None:
@@ -159,8 +161,8 @@ def test_migrate_is_idempotent(tmp_path: Path) -> None:
     migrate(db)
     kv_before = _settings_kv(db)
     rules_before = _rule_rows(db)
-    assert migrate(db) == 1
-    assert current_version(db) == 1
+    assert migrate(db) == 2
+    assert current_version(db) == 2
     assert _settings_kv(db) == kv_before == _SEEDED_SETTINGS
     assert _rule_rows(db) == rules_before == _FR_1_4_RULES
 
@@ -177,8 +179,8 @@ def test_down_then_up_round_trip_restores_seeds(tmp_path: Path) -> None:
     db = Database(tmp_path / "muhideen.db")
     migrate(db)
     migrate_down(db)
-    assert migrate(db) == 1
-    assert current_version(db) == 1
+    assert migrate(db) == 2
+    assert current_version(db) == 2
     assert _table_names(db) == _TABLES
     assert _settings_kv(db) == _SEEDED_SETTINGS
     assert _rule_rows(db) == _FR_1_4_RULES
@@ -192,8 +194,8 @@ def test_migrate_re_runs_script_when_version_bump_was_lost(tmp_path: Path) -> No
     migrate(db)
     with db.write() as conn:
         conn.execute("PRAGMA user_version = 0")  # simulate the lost bump
-    assert migrate(db) == 1  # re-executes 0001 over already-present tables
-    assert current_version(db) == 1
+    assert migrate(db) == 2  # re-executes all scripts over present tables
+    assert current_version(db) == 2
     assert _table_names(db) == _TABLES
     assert _settings_kv(db) == _SEEDED_SETTINGS
     assert _rule_rows(db) == _FR_1_4_RULES
@@ -221,3 +223,61 @@ def test_user_version_stmt_rejects_non_builtin_int() -> None:
     with pytest.raises(TypeError, match="built-in int"):
         _user_version_stmt("1")
     assert _user_version_stmt(1) == "PRAGMA user_version = 1"
+
+
+def test_migrate_0002_creates_playlist_schema(tmp_path: Path) -> None:
+    db = Database(tmp_path / "muhideen.db")
+    migrate(db)
+    with db.read() as conn:
+        playlist_columns = [
+            row[1] for row in conn.execute("PRAGMA table_info(playlists)").fetchall()
+        ]
+        item_columns = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(playlist_items)").fetchall()
+        ]
+        fk_rows = conn.execute("PRAGMA foreign_key_list(playlist_items)").fetchall()
+        index_names = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master"
+                " WHERE type = 'index' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+        }
+    assert playlist_columns == [
+        "id",
+        "title",
+        "active",
+        "window_start",
+        "window_end",
+        "anchor_marker",
+        "anchor_start_offset_min",
+        "anchor_stop_offset_min",
+        "cycle_mode",
+        "max_cycles",
+    ]
+    assert item_columns == [
+        "id",
+        "playlist_id",
+        "image_path",
+        "duration_s",
+        "sort_order",
+    ]
+    assert [(row[2], row[3], row[6]) for row in fk_rows] == [
+        ("playlists", "playlist_id", "CASCADE")
+    ]
+    assert "idx_playlist_items_order" in index_names
+
+
+def test_migrate_down_to_one_drops_only_playlist_tables(
+    tmp_path: Path,
+) -> None:
+    db = Database(tmp_path / "muhideen.db")
+    migrate(db)
+    assert migrate_down(db, 1) == 1
+    assert current_version(db) == 1
+    assert _table_names(db) == _TABLES - {"playlists", "playlist_items"}
+    assert _settings_kv(db) == _SEEDED_SETTINGS
+    assert _rule_rows(db) == _FR_1_4_RULES
+    assert migrate(db) == 2
+    assert _table_names(db) == _TABLES
