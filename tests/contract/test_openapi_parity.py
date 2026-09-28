@@ -16,30 +16,32 @@ from pydantic import BaseModel
 
 from muhideen.adapters.sse_bus import SSEBus
 from muhideen.api import (
-    ActiveToggleDTO,
     AuthRequestDTO,
     AuthResponseDTO,
     ConfigUpdateEventDTO,
-    DisplayGroupUpdateDTO,
-    DisplayRegisterDTO,
-    DisplayUpdateDTO,
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
     IqamahRuleDTO,
     NextEventDTO,
-    PlaylistCreateDTO,
-    PlaylistDTO,
-    PlaylistImageUploadDTO,
-    PlaylistItemDTO,
     PrayerDayDTO,
     SessionStatusDTO,
     SettingsDTO,
     StateEventDTO,
     TickEventDTO,
     VersionDTO,
+)
+from muhideen.api.app import (
+    ActiveToggleDTO,
+    AppDeps,
+    DisplayGroupUpdateDTO,
+    DisplayRegisterDTO,
+    DisplayUpdateDTO,
+    PlaylistCreateDTO,
+    PlaylistDTO,
+    PlaylistImageUploadDTO,
+    PlaylistItemDTO,
     create_app,
 )
-from muhideen.api.app import AppDeps
 from muhideen.core.values import PrayerDay, Settings
 
 pytestmark = pytest.mark.contract
@@ -168,6 +170,11 @@ def _strip_defaults(node: Any) -> Any:
 def test_api_package_exports_all_contract_dtos() -> None:
     for dto in ALL_DTOS:
         assert issubclass(dto, BaseModel)
+    # The app factory lives in muhideen.api.app (not at the package root:
+    # re-exporting it there reintroduces the views<->api import cycle).
+    import muhideen.api.app as api_app
+
+    assert api_app.create_app is create_app
     assert callable(create_app)
 
 
