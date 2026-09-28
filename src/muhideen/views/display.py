@@ -5,11 +5,12 @@ Imports ``api.dto`` + ``core`` only — never ``domain``/``engine``/adapters.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 from zoneinfo import ZoneInfo
 
 from muhideen.api.dto import NextEventDTO, PrayerDayDTO
-from muhideen.core.values import ScheduleSource, Settings
+from muhideen.core.errors import ConfigError
+from muhideen.core.values import IqamahRule, ScheduleSource, Settings
 
 PRAYER_ORDER = ("fajr", "dhuhr", "asr", "maghrib", "isha")
 
@@ -28,6 +29,60 @@ BOUNDARY_LABELS = {
     "dhuha": ("Dhuha", "الضحى"),
 }
 
+HIJRI_MONTHS = (
+    "Muharram",
+    "Safar",
+    "Rabi' al-Awwal",
+    "Rabi' al-Thani",
+    "Jumada al-Ula",
+    "Jumada al-Akhirah",
+    "Rajab",
+    "Sha'ban",
+    "Ramadan",
+    "Shawwal",
+    "Dhuʻl-Qa'dah",
+    "Dhuʻl-Hijjah",
+)
+
+
+def _hijri_long(hijri_date: str | None) -> str:
+    """Long Hijri label from the ``YYYY-MM-DD`` wire value (presentation-only).
+
+    ``None`` renders as an em dash (matching ``hijri``); an unparseable
+    value falls back to the raw wire string.
+    """
+    if hijri_date is None:
+        return "—"
+    try:
+        year_s, month_s, day_s = hijri_date.split("-")
+        month = int(month_s)
+        if not 1 <= month <= 12:
+            raise ValueError(f"hijri month out of range: {hijri_date}")
+        return f"{int(day_s)} {HIJRI_MONTHS[month - 1]} {int(year_s)}"
+    except ValueError:
+        return hijri_date
+
+
+def _iqamah_hhmm(
+    *, day_date: date, hhmm: str, tz: tzinfo | None, rule: IqamahRule
+) -> str:
+    """Per-card iqamah ``HH:MM`` from core rule data (mirrors domain delays).
+
+    Kept in ``views`` (``api.dto`` + ``core`` only) because the forbidden
+    contract bars ``domain`` imports here; semantics match
+    ``resolve_iqamah``: delay adds minutes, fixed pins a clock time.
+    """
+    adhan_at = datetime.combine(day_date, time.fromisoformat(hhmm), tzinfo=tz)
+    if rule.mode == "delay":
+        return (adhan_at + timedelta(minutes=rule.delay_minutes)).strftime("%H:%M")
+    if rule.fixed_time is None:
+        raise ConfigError(
+            f"fixed iqamah rule without time for prayer: {rule.prayer.value}"
+        )
+    return datetime.combine(adhan_at.date(), rule.fixed_time, tzinfo=tz).strftime(
+        "%H:%M"
+    )
+
 
 def build_display_context(
     *, day: PrayerDayDTO, event: NextEventDTO, settings: Settings
@@ -45,16 +100,27 @@ def build_display_context(
     labels = (
         PRAYER_LABELS["jumuah"] if next_key == "jumuah" else PRAYER_LABELS[next_key]
     )
-    cards = [
-        {
-            "key": key,
-            "en": PRAYER_LABELS[key][0],
-            "ar": PRAYER_LABELS[key][1],
-            "time": times[key],
-            "is_next": key == next_key or (key == "dhuhr" and next_key == "jumuah"),
-        }
-        for key in PRAYER_ORDER
-    ]
+    rules = {rule.prayer.value: rule for rule in settings.iqamah_rules}
+    cards: list[dict[str, object]] = []
+    for key in PRAYER_ORDER:
+        is_jumuah_card = key == "dhuhr" and next_key == "jumuah"
+        rule_key = "jumuah" if is_jumuah_card else key
+        rule = rules.get(rule_key)
+        if rule is None:
+            raise ConfigError(f"missing iqamah rule for prayer: {rule_key}")
+        en, ar = PRAYER_LABELS["jumuah"] if is_jumuah_card else PRAYER_LABELS[key]
+        cards.append(
+            {
+                "key": key,
+                "en": en,
+                "ar": ar,
+                "time": times[key],
+                "is_next": key == next_key or is_jumuah_card,
+                "iqamah": _iqamah_hhmm(
+                    day_date=day.date, hhmm=times[key], tz=tzinfo, rule=rule
+                ),
+            }
+        )
     bounds: list[dict[str, object]] = []
     if settings.imsak_offset_min != 0:
         bounds.append({"key": "imsak", "time": day.boundaries.imsak})
@@ -85,6 +151,7 @@ def build_display_context(
         "zone": settings.zone,
         "gregorian": day.date.isoformat(),
         "hijri": day.hijri_date or "—",
+        "hijri_long": _hijri_long(day.hijri_date),
         "clock": event.now.strftime("%H:%M:%S"),
         "next_name_en": labels[0],
         "next_name_ar": labels[1],
