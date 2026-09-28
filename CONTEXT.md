@@ -50,6 +50,15 @@ A prayer-time algorithm (MABIMS, MWL, ISNA, Egyptian) plus latitude, longitude, 
 
 ## System Vocabulary
 
+### Main Stage
+The hero area of the display. Exactly one occupier at a time: a scheduled Playlist, an Adhan or Iqamah Countdown, or the Clock. Countdowns override any other occupier; the Clock is the default when nothing else is active.
+
+### Playlist
+A named set of image items with a schedule (clock-time window and/or prayer-marker-anchored start and stop), a cycling policy, per-item durations, and an active flag. Only image items are supported for now.
+
+### Countdown
+A self-activating Stage occupier: Adhan countdown before a prayer time, Iqamah countdown after it. Always outranks a Playlist for the Stage.
+
 ### Prayer State
 Exactly one of `NORMAL`, `PRE_ADHAN`, `ADHAN`, `IQAMAH_COUNTDOWN`, `SALAH_DIM`. Computed by the backend; the display never computes it. Driven only by Prayer Time Markers; Boundary Time Markers always render under `NORMAL`.
 

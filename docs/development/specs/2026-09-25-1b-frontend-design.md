@@ -1,6 +1,6 @@
 # Phase 1B — Frontend Against Fixtures (Design Spec)
 
-Status: design approved section-by-section (§1–§7) in brainstorming, 2026-09-25.
+Status: delivered by 1B-1/1B-2/1B-3 (merged); English-only per pre-flight (BM toggle removed); manual browser checklist (§8/§10) still open — owner sign-off required.
 Covers slices 1B-1 (display `classic-green`), 1B-2 (states + dim), 1B-3 (admin wizard).
 Single spec for the whole phase (locked decision).
 

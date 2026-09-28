@@ -16,7 +16,7 @@ at the boundary.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from enum import StrEnum
 from typing import Literal
@@ -140,8 +140,66 @@ DEFAULT_IQAMAH_RULES: tuple[IqamahRule, ...] = (
     IqamahRule(prayer=MarkerName.ISHA, mode="delay", delay_minutes=15),
     IqamahRule(prayer=MarkerName.JUMUAH, mode="delay", delay_minutes=10),
 )
-"""PRD FR-1.4 iqamah defaults: Subuh 15, Dhuhr/Asr/Maghrib 10, Isha 15,
+"""PRD FR-1.4 iqamah defaults: Fajr 15, Dhuhr/Asr/Maghrib 10, Isha 15,
 Jumuah its own rule. Boundary Time Markers have no iqamah, so no rule."""
+
+
+ThemePalette = Literal["classic-green", "midnight", "sand"]
+"""Closed palette enum: default green, dark midnight, warm sand."""
+
+ThemeFont = Literal["outfit", "system"]
+"""Closed font enum: vendored Outfit or the offline system stack."""
+
+ThemeCountdownStyle = Literal["boxes", "inline"]
+"""Closed countdown enum: H/M/S boxes or a single inline line."""
+
+ThemeClockFormat = Literal["24h", "24h-seconds", "12h"]
+"""Closed clock enum: hours+minutes with or without seconds, 12h AM/PM."""
+
+ThemeHijriForm = Literal["long", "short"]
+"""Closed Hijri enum: long month name or the raw wire date."""
+
+ThemeBoundaryStrip = Literal["show", "hide"]
+"""Closed boundary-strip enum: render the Imsak/Syuruq/Dhuha strip or not."""
+
+ThemeDensity = Literal["comfortable", "compact"]
+"""Closed density enum: default spacing or a compact variant."""
+
+
+@dataclass(frozen=True, slots=True)
+class ThemeSettings:
+    """Closed-enum display knobs: palette, font, and layout variants.
+
+    Every field is a closed enum — unknown values raise ``ValueError`` so
+    the repo boundary and the DTO layer both surface them as 422/ConfigError
+    instead of rendering an undefined variant.
+    """
+
+    palette: ThemePalette = "classic-green"
+    font: ThemeFont = "outfit"
+    countdown_style: ThemeCountdownStyle = "boxes"
+    clock_format: ThemeClockFormat = "24h-seconds"
+    hijri_form: ThemeHijriForm = "long"
+    boundary_strip: ThemeBoundaryStrip = "show"
+    density: ThemeDensity = "comfortable"
+
+    def __post_init__(self) -> None:
+        """Reject any knob value outside its closed enum."""
+        allowed: dict[str, tuple[str, ...]] = {
+            "palette": ("classic-green", "midnight", "sand"),
+            "font": ("outfit", "system"),
+            "countdown_style": ("boxes", "inline"),
+            "clock_format": ("24h", "24h-seconds", "12h"),
+            "hijri_form": ("long", "short"),
+            "boundary_strip": ("show", "hide"),
+            "density": ("comfortable", "compact"),
+        }
+        for knob, choices in allowed.items():
+            value = getattr(self, knob)
+            if value not in choices:
+                raise ValueError(
+                    f"{knob} must be one of {', '.join(choices)}: {value!r}"
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +220,11 @@ class Settings:
     calc_only: bool = False
     imsak_offset_min: int = 10
     dhuha_offset_min: int = 28
+    countdown_before_adhan_min: int = 5
+    countdown_before_adhan_overrides: dict[str, int] = field(
+        default_factory=dict[str, int], hash=False
+    )
+    theme: ThemeSettings = field(default_factory=ThemeSettings)
 
     def __post_init__(self) -> None:
         """Enforce offset/coordinate guards and non-empty rule coverage."""
@@ -177,6 +240,27 @@ class Settings:
             raise ValueError(f"imsak_offset_min out of range: {self.imsak_offset_min}")
         if not 15 <= self.dhuha_offset_min <= 30:
             raise ValueError(f"dhuha_offset_min out of range: {self.dhuha_offset_min}")
+        if not 0 <= self.countdown_before_adhan_min <= 90:
+            raise ValueError(
+                "countdown_before_adhan_min out of range: "
+                f"{self.countdown_before_adhan_min}"
+            )
+        for prayer_key, minutes in self.countdown_before_adhan_overrides.items():
+            try:
+                marker = MarkerName(prayer_key)
+            except ValueError:
+                raise ValueError(
+                    f"unknown prayer for countdown override: {prayer_key!r}"
+                ) from None
+            if marker_kind(marker) is MarkerKind.BOUNDARY:
+                raise ValueError(
+                    "boundary time marker cannot have a countdown override: "
+                    f"{prayer_key}"
+                )
+            if not 0 <= minutes <= 90:
+                raise ValueError(
+                    f"countdown override out of range for {prayer_key}: {minutes}"
+                )
         seen: set[MarkerName] = set()
         for rule in self.iqamah_rules:
             if marker_kind(rule.prayer) is MarkerKind.BOUNDARY:
@@ -209,3 +293,57 @@ class Settings:
                     "missing iqamah rule for prayer: "
                     + ", ".join(name.value for name in missing)
                 )
+
+
+@dataclass(frozen=True, slots=True)
+class PlaylistItem:
+    """One image slot in a playlist: path, on-stage seconds, display order."""
+
+    image_path: str
+    duration_s: int
+    sort_order: int = 0
+
+    def __post_init__(self) -> None:
+        """Enforce non-empty path, positive duration, non-negative order."""
+        if not self.image_path:
+            raise ValueError("playlist item needs an image path")
+        if self.duration_s <= 0:
+            raise ValueError(
+                f"playlist item duration must be positive: {self.duration_s}"
+            )
+        if self.sort_order < 0:
+            raise ValueError(
+                f"playlist item sort order cannot be negative: {self.sort_order}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class Playlist:
+    """A named set of image items with a schedule and a cycling policy.
+
+    The window is either clock-based (``window_start``/``window_end`` as
+    ``HH:MM`` strings, each optionally a marker name with its offset
+    applied) or anchored to one marker (``anchor_marker`` plus both
+    offsets, ignoring the clock bounds). ``None`` bounds stay open, so a
+    playlist with no bounds at all is always in-window while active.
+    Only image items are supported for now.
+    """
+
+    id: str
+    title: str
+    active: bool
+    window_start: str | None = None
+    window_end: str | None = None
+    anchor_marker: MarkerName | None = None
+    anchor_start_offset_min: int = 0
+    anchor_stop_offset_min: int = 0
+    cycle_mode: Literal["indefinite"] = "indefinite"
+    max_cycles: int | None = None
+    items: tuple[PlaylistItem, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Enforce non-empty identity; window math lives in domain."""
+        if not self.id:
+            raise ValueError("playlist needs a non-empty id")
+        if not self.title:
+            raise ValueError("playlist needs a non-empty title")

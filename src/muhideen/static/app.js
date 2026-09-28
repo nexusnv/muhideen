@@ -20,19 +20,26 @@
     return serverNow + (performance.now() - baseMono);
   }
   if (clockEl && clockEl.getAttribute("data-now")) anchor(clockEl.getAttribute("data-now"));
+  var clockFmt = document.body ? document.body.getAttribute("data-clock-format") : null;
   function fmt(epoch) {
-    var base = { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" };
+    var use12 = clockFmt === "12h";
+    var withSeconds = clockFmt !== "24h" && clockFmt !== "12h";
+    var locale = use12 ? "en-US" : "en-GB";
+    var base = { hour12: use12, hour: "2-digit", minute: "2-digit" };
+    if (withSeconds) base.second = "2-digit";
     if (tzName) {
       try {
-        var opts = { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: tzName };
-        return new Date(epoch).toLocaleTimeString("en-GB", opts);
+        var opts = { hour12: use12, hour: "2-digit", minute: "2-digit", timeZone: tzName };
+        if (withSeconds) opts.second = "2-digit";
+        return new Date(epoch).toLocaleTimeString(locale, opts);
       } catch (err) { tzName = null; }
     }
     if (tzOffset === tzOffset) {
-      var shifted = { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC" };
-      return new Date(epoch + tzOffset * 60000).toLocaleTimeString("en-GB", shifted);
+      var shifted = { hour12: use12, hour: "2-digit", minute: "2-digit", timeZone: "UTC" };
+      if (withSeconds) shifted.second = "2-digit";
+      return new Date(epoch + tzOffset * 60000).toLocaleTimeString(locale, shifted);
     }
-    return new Date(epoch).toLocaleTimeString("en-GB", base);
+    return new Date(epoch).toLocaleTimeString(locale, base);
   }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
   function tick() {
@@ -54,6 +61,25 @@
       var pct = end <= start ? 100 : Math.min(100, Math.max(0, (epoch - start) / (end - start) * 100));
       bars[k].style.width = pct + "%";
     }
+    var hms = document.querySelectorAll("[data-cd-target]");
+    for (var m = 0; m < hms.length; m++) {
+      var hmsTarget = new Date(hms[m].getAttribute("data-cd-target")).getTime();
+      var hEls = hms[m].querySelectorAll("[data-cd-h]");
+      var mEls = hms[m].querySelectorAll("[data-cd-m]");
+      var sEls = hms[m].querySelectorAll("[data-cd-s]");
+      if (hmsTarget !== hmsTarget) {
+        setHms(hEls, "--"); setHms(mEls, "--"); setHms(sEls, "--");
+        continue;
+      }
+      var rem2 = Math.max(0, hmsTarget - epoch);
+      var s2 = Math.floor(rem2 / 1000);
+      setHms(hEls, pad(Math.floor(s2 / 3600)));
+      setHms(mEls, pad(Math.floor((s2 % 3600) / 60)));
+      setHms(sEls, pad(s2 % 60));
+    }
+  }
+  function setHms(els, val) {
+    for (var q = 0; q < els.length; q++) els[q].textContent = val;
   }
   setInterval(tick, 1000);
   function sameAsDom(data) {
@@ -80,6 +106,7 @@
   heartbeat();
   setInterval(heartbeat, 30000);
   var firstStateSeen = false;
+  var lastStage = null;
   try {
     var src = new EventSource("/api/events");
     src.addEventListener("state", function (e) {
@@ -94,7 +121,16 @@
       window.location.reload();
     });
     src.addEventListener("tick", function (e) {
-      try { anchor(JSON.parse(e.data).now); } catch (err) { /* keep baseline */ }
+      var tick = null;
+      try { tick = JSON.parse(e.data); } catch (err) { tick = null; }
+      if (tick === null) return;
+      if (tick.now) anchor(tick.now);
+      if (typeof tick.stage !== "string") return;
+      if (lastStage !== null && tick.stage !== lastStage) {
+        window.location.reload();
+        return;
+      }
+      lastStage = tick.stage;
     });
     src.addEventListener("config-update", function () { window.location.reload(); });
     var pollStarted = false;

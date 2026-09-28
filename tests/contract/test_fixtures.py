@@ -14,6 +14,16 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from muhideen.api.app import (
+    ActiveToggleDTO,
+    DisplayGroupUpdateDTO,
+    DisplayRegisterDTO,
+    DisplayUpdateDTO,
+    PlaylistCreateDTO,
+    PlaylistDTO,
+    PlaylistImageUploadDTO,
+    PlaylistItemDTO,
+)
 from muhideen.api.dto import (
     AuthRequestDTO,
     AuthResponseDTO,
@@ -201,6 +211,52 @@ def test_session_fixture_round_trips() -> None:
     assert dto.model_dump(mode="json") == payload
 
 
+def test_playlist_fixture_round_trips() -> None:
+    payload = _load("playlist.json")
+    dto = PlaylistDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
+def test_playlist_create_fixture_round_trips() -> None:
+    payload = _load("playlist-create.json")
+    dto = PlaylistCreateDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
+def test_playlist_from_domain_matches_fixture() -> None:
+    from muhideen.core.values import Playlist, PlaylistItem
+
+    playlist = Playlist(
+        id="p1",
+        title="Title p1",
+        active=True,
+        window_start="09:00",
+        window_end="18:00",
+        items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+    )
+    assert PlaylistDTO.from_domain(playlist).model_dump(mode="json") == _load(
+        "playlist.json"
+    )
+
+
+def test_playlist_toggle_and_item_fixtures_round_trip() -> None:
+    toggle = ActiveToggleDTO.model_validate(_load("active-toggle.json"))
+    assert toggle.model_dump(mode="json") == _load("active-toggle.json")
+    upload = PlaylistImageUploadDTO.model_validate(_load("playlist-image-upload.json"))
+    assert upload.model_dump(mode="json") == _load("playlist-image-upload.json")
+    item = PlaylistItemDTO.model_validate(_load("playlist-item.json"))
+    assert item.model_dump(mode="json") == _load("playlist-item.json")
+
+
+def test_display_registry_fixtures_round_trip() -> None:
+    register = DisplayRegisterDTO.model_validate(_load("display-register.json"))
+    assert register.model_dump(mode="json") == _load("display-register.json")
+    update = DisplayUpdateDTO.model_validate(_load("display-update.json"))
+    assert update.model_dump(mode="json") == _load("display-update.json")
+    group = DisplayGroupUpdateDTO.model_validate(_load("display-group-update.json"))
+    assert group.model_dump(mode="json") == _load("display-group-update.json")
+
+
 def test_all_contract_surfaces_have_fixtures() -> None:
     for name in (
         "prayer-day.json",
@@ -212,6 +268,51 @@ def test_all_contract_surfaces_have_fixtures() -> None:
         "auth-request.json",
         "auth-response.json",
         "session.json",
+        "playlist.json",
+        "playlist-create.json",
+        "active-toggle.json",
+        "playlist-image-upload.json",
+        "playlist-item.json",
+        "display-register.json",
+        "display-update.json",
+        "display-group-update.json",
     ):
         _load(name)
     assert (FIXTURES / "events-stream.txt").read_text().strip()
+
+
+def test_settings_theme_fixture_round_trips() -> None:
+    from muhideen.core.values import Settings, ThemeSettings
+
+    payload = _load("settings.json")
+    assert payload["theme"] == {
+        "palette": "classic-green",
+        "font": "outfit",
+        "countdown_style": "boxes",
+        "clock_format": "24h-seconds",
+        "hijri_form": "long",
+        "boundary_strip": "show",
+        "density": "comfortable",
+    }
+    dto = SettingsDTO.model_validate(payload)
+    assert dto.model_dump(mode="json")["theme"] == payload["theme"]
+    assert dto.to_domain().theme == ThemeSettings()
+    assert (
+        SettingsDTO.from_domain(
+            Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+        ).model_dump(mode="json")["theme"]
+        == payload["theme"]
+    )
+
+
+def test_settings_rejects_unknown_theme_knob() -> None:
+    from pydantic import ValidationError as _ValidationError
+
+    payload = _load("settings.json")
+    payload["theme"] = {**payload["theme"], "palette": "neon"}
+    with pytest.raises(_ValidationError):
+        SettingsDTO.model_validate(payload)
+    payload = _load("settings.json")
+    payload["theme"] = {**payload["theme"], "clock_format": "13h"}
+    with pytest.raises(_ValidationError):
+        SettingsDTO.model_validate(payload)

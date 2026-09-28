@@ -43,7 +43,7 @@ Server-computed state per PRD §8. Client never computes. All timestamps ISO8601
 
 ## `GET /api/events` (SSE `text/event-stream`)
 
-Events: `state` (on transition), `tick` (1/min heartbeat with server `now`), `config-update` (settings/theme/carousel changed → refetch). `state` payloads always carry `time_synced` (FR-1.6) and carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`. OpenAPI documents the three payload schemas inline as an `anyOf` (under `type: object`) beneath the `text/event-stream` content.
+Events: `state` (on transition), `tick` (1/min heartbeat with server `now` + Main Stage id `stage`; the display reloads when `stage` changes), `config-update` (settings/theme/playlist changed → refetch). `state` payloads always carry `time_synced` (FR-1.6) and carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `stage` is one of `clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, or `playlist:<id>`. `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`. OpenAPI documents the three payload schemas inline as an `anyOf` (under `type: object`) beneath the `text/event-stream` content.
 
 ## `POST /api/displays/heartbeat`
 
@@ -69,7 +69,7 @@ Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-onl
 
 ## `GET /api/settings`
 
-Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the `boundary_countdown` opt-in and `calc_only` offline mode.
+Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the `boundary_countdown` opt-in and `calc_only` offline mode, the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default), and the `theme` knobs (closed enums: `palette` ∈ `classic-green|midnight|sand`, `font` ∈ `outfit|system`, `countdown_style` ∈ `boxes|inline`, `clock_format` ∈ `24h|24h-seconds|12h`, `hijri_form` ∈ `long|short`, `boundary_strip` ∈ `show|hide`, `density` ∈ `comfortable|compact`; anything else is 422). Per-display `display_settings` rows (`theme.*` plus `dim_minutes_override` 5–60) override the knobs and dim for one `GET /display?id=` render.
 
 ```json
 {
@@ -93,7 +93,18 @@ Admin session required. Full installation settings including the boundary offset
   "method": "MABIMS",
   "dhuha_offset_min": 28,
   "boundary_countdown": false,
-  "calc_only": false
+  "calc_only": false,
+  "countdown_before_adhan_min": 5,
+  "countdown_before_adhan_overrides": {"fajr": 10},
+  "theme": {
+    "palette": "classic-green",
+    "font": "outfit",
+    "countdown_style": "boxes",
+    "clock_format": "24h-seconds",
+    "hijri_form": "long",
+    "boundary_strip": "show",
+    "density": "comfortable"
+  }
 }
 ```
 
@@ -123,7 +134,18 @@ Admin session required. Full-replace body; the response echoes the stored settin
   "method": "MABIMS",
   "dhuha_offset_min": 28,
   "boundary_countdown": false,
-  "calc_only": false
+  "calc_only": false,
+  "countdown_before_adhan_min": 5,
+  "countdown_before_adhan_overrides": {"fajr": 10},
+  "theme": {
+    "palette": "classic-green",
+    "font": "outfit",
+    "countdown_style": "boxes",
+    "clock_format": "24h-seconds",
+    "hijri_form": "long",
+    "boundary_strip": "show",
+    "density": "comfortable"
+  }
 }
 ```
 
@@ -169,11 +191,195 @@ Session status plus whether first-boot setup is still required. No auth required
 {"authenticated": true, "setup_required": false}
 ```
 
+## `POST /api/playlists`
+
+Admin session required. Create a playlist; the `id` is server-generated when the body omits it (`null`). Windows are `HH:MM` clock bounds (each end optionally a marker name); `anchor_marker` must name a Prayer Time Marker, never a boundary. More than 50 items is 422. The response is the stored playlist.
+
+```json
+{
+  "id": null,
+  "title": "Evening Reminders",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+## `GET /api/playlists`
+
+Admin session required. Lists every playlist with ordered items as a `playlists` envelope; each entry has the `POST /api/playlists` response shape (see `api/fixtures/playlist.json`).
+
+## `GET /api/playlists/preview`
+
+Admin session required. Server-side Stage preview computed over the Task 5 occupancy engine: `stage` is the current Stage id (`clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, `playlist:<id>`), and each entry reports `on_stage_now` plus the next 5-minute sample in the coming 24h at which it would hold the Stage (`next_at`, `null` when never in-window). 503 before setup, 404 without a schedule.
+
+## `GET /api/playlists/{playlist_id}`
+
+Admin session required. Returns one playlist with ordered items; unknown ids are 404.
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+## `PUT /api/playlists/{playlist_id}`
+
+Admin session required. Full-replace body; the path id and body id must match (else 422), unknown ids are 404. Request and response share the playlist shape.
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+## `PATCH /api/playlists/{playlist_id}`
+
+Admin session required. Flips one playlist's active flag without touching its items; unknown ids are 404.
+
+```json
+{"active": false}
+```
+
+```json
+{
+  "id": "p1",
+  "title": "Title p1",
+  "active": true,
+  "window_start": "09:00",
+  "window_end": "18:00",
+  "anchor_marker": null,
+  "anchor_start_offset_min": 0,
+  "anchor_stop_offset_min": 0,
+  "cycle_mode": "indefinite",
+  "max_cycles": null,
+  "items": [
+    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+  ]
+}
+```
+
+## `DELETE /api/playlists/{playlist_id}`
+
+Admin session required. Deletes a playlist; its items cascade. Unknown ids are 404; success returns an `ok` envelope.
+
+## `POST /api/playlists/{playlist_id}/items`
+
+Admin session required. Stores one uploaded image (base64 JSON, 5MB cap, JPG/PNG/WebP with EXIF stripped via the shared image store) and appends it to the playlist items; a full 50-item playlist is 422. The response echoes the new item slot.
+
+```json
+{"image_base64": "aGVsbG8=", "duration_s": 7}
+```
+
+```json
+{"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
+```
+
+## `DELETE /api/playlists/{playlist_id}/items/{sort_order}`
+
+Admin session required. Removes the item at one sort position, keeping the rest in place. Unknown playlists and unknown positions are 404; success returns an `ok` envelope.
+
+## `GET /api/displays`
+
+Admin session required. Lists registered displays with effective theme and dim plus groups: each display carries its group dim override (or the settings default) and a `dim_source` of `group` or `settings`.
+
+## `POST /api/displays`
+
+Admin session required. Registers one display against an existing group; duplicate ids are 409, unknown groups are 422.
+
+```json
+{"id": "hall-1", "name": "Main Hall", "group_name": "Default"}
+```
+
+## `PATCH /api/displays/{display_id}`
+
+Admin session required. Sets per-display overrides (theme choice, group assignment); empty bodies are 422, unknown displays and unknown groups are 404/422. An explicit `group_name` null clears the assignment (the effective dim falls back to settings); an explicit `current_theme` null is not an update, so a null-theme-only body is 422.
+
+```json
+{"current_theme": "midnight", "group_name": null}
+```
+
+## `PATCH /api/display-groups/{name}`
+
+Admin session required. Sets group overrides (theme default, dim minutes 5–60, carousel flag); unknown groups are 404.
+
+```json
+{"theme": "midnight", "dim_minutes_override": 30, "carousel_enabled": false}
+```
+
 ## Errors
 
-Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, or set a `fixed` rule without `fixed_time`, leaving the stored settings unchanged. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
+Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, set a `fixed` rule without `fixed_time`, or set a theme knob outside its closed enum, leaving the stored settings unchanged. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
 
 ## Versioning
-Additive fields allowed without bump — e.g. `time_synced` on `next-event` and SSE `state` payloads (slice 1A-8). Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.
+Additive fields allowed without bump — e.g. `time_synced` on `next-event` and SSE `state` payloads (slice 1A-8), and `stage` on SSE `tick` payloads. Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.
 
 Pre-consumer amendments: before the first frontend consumer lands (1B-1), semantic corrections may amend v1 fixtures + this document in place with a CHANGELOG migration note instead of standing up `/api/v2`; slice 1A-4a is exercised under this clause.

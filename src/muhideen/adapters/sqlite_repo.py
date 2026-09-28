@@ -15,6 +15,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import date, datetime, time
 from pathlib import Path
+from typing import cast
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerificationError
@@ -28,6 +29,14 @@ from muhideen.core.values import (
     PrayerDay,
     ScheduleSource,
     Settings,
+    ThemeBoundaryStrip,
+    ThemeClockFormat,
+    ThemeCountdownStyle,
+    ThemeDensity,
+    ThemeFont,
+    ThemeHijriForm,
+    ThemePalette,
+    ThemeSettings,
 )
 
 
@@ -165,6 +174,59 @@ def _parse_optional_float(raw: str | None) -> float | None:
     return float(raw) if raw is not None else None
 
 
+DISPLAY_SETTINGS_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "theme.palette",
+        "theme.font",
+        "theme.countdown_style",
+        "theme.clock_format",
+        "theme.hijri_form",
+        "theme.boundary_strip",
+        "theme.density",
+        "dim_minutes_override",
+    }
+)
+"""Per-display override keys: the seven theme knobs plus the dim pin.
+
+Anything else (identity, schedule, iqamah) stays global — a display
+override must never fork the schedule, only its presentation.
+"""
+
+
+def _theme_from_kv(kv: dict[str, str]) -> ThemeSettings:
+    """Build ThemeSettings from settings rows; missing keys take defaults.
+
+    Unknown stored values raise ``ValueError`` (mapped to ``ConfigError``
+    by the caller), matching the countdown-key corruption handling.
+    """
+    return ThemeSettings(
+        palette=cast(ThemePalette, kv.get("theme.palette", "classic-green")),
+        font=cast(ThemeFont, kv.get("theme.font", "outfit")),
+        countdown_style=cast(
+            ThemeCountdownStyle, kv.get("theme.countdown_style", "boxes")
+        ),
+        clock_format=cast(
+            ThemeClockFormat, kv.get("theme.clock_format", "24h-seconds")
+        ),
+        hijri_form=cast(ThemeHijriForm, kv.get("theme.hijri_form", "long")),
+        boundary_strip=cast(ThemeBoundaryStrip, kv.get("theme.boundary_strip", "show")),
+        density=cast(ThemeDensity, kv.get("theme.density", "comfortable")),
+    )
+
+
+def _theme_pairs(theme: ThemeSettings) -> list[tuple[str, str]]:
+    """Render one ThemeSettings as its seven ``theme.*`` settings rows."""
+    return [
+        ("theme.palette", theme.palette),
+        ("theme.font", theme.font),
+        ("theme.countdown_style", theme.countdown_style),
+        ("theme.clock_format", theme.clock_format),
+        ("theme.hijri_form", theme.hijri_form),
+        ("theme.boundary_strip", theme.boundary_strip),
+        ("theme.density", theme.density),
+    ]
+
+
 def _rules_from_rows(rows: list[sqlite3.Row]) -> tuple[IqamahRule, ...]:
     """Map iqamah_rows to domain rules in stored order."""
     rules: list[IqamahRule] = []
@@ -225,9 +287,17 @@ class SqliteSettingsRepo:
                 calc_only=_parse_bool(kv.get("calc_only", "0")),
                 imsak_offset_min=int(kv.get("imsak_offset_min", "10")),
                 dhuha_offset_min=int(kv.get("dhuha_offset_min", "28")),
+                countdown_before_adhan_min=int(kv.get("countdown_min_default", "5")),
+                countdown_before_adhan_overrides={
+                    key.removeprefix("countdown_min_"): int(value)
+                    for key, value in kv.items()
+                    if key.startswith("countdown_min_")
+                    and key != "countdown_min_default"
+                },
                 lat=_parse_optional_float(kv.get("lat")),
                 lon=_parse_optional_float(kv.get("lon")),
                 iqamah_rules=_rules_from_rows(rule_rows) or DEFAULT_IQAMAH_RULES,
+                theme=_theme_from_kv(kv),
             )
         except (ValueError, KeyError) as exc:
             raise ConfigError(str(exc)) from exc
@@ -244,6 +314,17 @@ class SqliteSettingsRepo:
             ("method", settings.method),
             ("imsak_offset_min", str(settings.imsak_offset_min)),
             ("dhuha_offset_min", str(settings.dhuha_offset_min)),
+            (
+                "countdown_min_default",
+                str(settings.countdown_before_adhan_min),
+            ),
+            *[
+                (f"countdown_min_{prayer}", str(minutes))
+                for prayer, minutes in sorted(
+                    settings.countdown_before_adhan_overrides.items()
+                )
+            ],
+            *_theme_pairs(settings.theme),
             ("boundary_countdown", "1" if settings.boundary_countdown else "0"),
             ("calc_only", "1" if settings.calc_only else "0"),
         ]
@@ -263,6 +344,9 @@ class SqliteSettingsRepo:
         with self._db.write() as conn:
             if settings.lat is None:
                 conn.execute("DELETE FROM settings WHERE key IN (?, ?)", ("lat", "lon"))
+            # Overrides are keyed per prayer: clear the namespace first so a
+            # dropped override cannot linger and resurrect on the next load.
+            conn.execute("DELETE FROM settings WHERE key LIKE 'countdown_min%'")
             conn.executemany(
                 "INSERT INTO settings (key, value) VALUES (?, ?)"
                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -273,6 +357,73 @@ class SqliteSettingsRepo:
                 "INSERT INTO iqamah_rules"
                 " (prayer, mode, delay_minutes, fixed_time) VALUES (?, ?, ?, ?)",
                 rule_values,
+            )
+
+
+class SqliteDisplaySettingsRepo:
+    """Per-display presentation overrides over ``display_settings``.
+
+    Reads return only allowlisted rows (``DISPLAY_SETTINGS_ALLOWLIST``);
+    writes validate the key and the value up front — unknown theme values
+    and out-of-range dim minutes raise ``ValueError`` before touching the
+    database. Unknown display ids read back as ``{}``; writes to them fail
+    on the ``displays`` foreign key.
+    """
+
+    def __init__(self, db: Database) -> None:
+        """Hold the shared database for the display_settings table."""
+        self._db = db
+
+    def overrides_for(self, display_id: str) -> dict[str, str]:
+        """Return the allowlisted override rows for one display id."""
+        with self._db.read() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM display_settings WHERE display_id = ?",
+                (display_id,),
+            ).fetchall()
+        return {
+            row["key"]: row["value"]
+            for row in rows
+            if row["key"] in DISPLAY_SETTINGS_ALLOWLIST
+        }
+
+    def set_override(self, display_id: str, key: str, value: str) -> None:
+        """Store one override after allowlist + value validation."""
+        if key not in DISPLAY_SETTINGS_ALLOWLIST:
+            raise ValueError(f"not an overridable display setting: {key!r}")
+        if key.startswith("theme."):
+            self._check_theme_value(key, value)
+        else:
+            self._check_dim_value(key, value)
+        with self._db.write() as conn:
+            conn.execute(
+                "INSERT INTO display_settings (display_id, key, value)"
+                " VALUES (?, ?, ?)"
+                " ON CONFLICT(display_id, key) DO UPDATE SET value = excluded.value",
+                (display_id, key, value),
+            )
+
+    @staticmethod
+    def _check_theme_value(key: str, value: str) -> None:
+        """Validate one theme knob value through the closed-enum guards."""
+        suffix = key.removeprefix("theme.")
+        try:
+            ThemeSettings(**{suffix: value})  # type: ignore[arg-type]
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"invalid display theme override {key}={value!r}") from exc
+
+    @staticmethod
+    def _check_dim_value(key: str, value: str) -> None:
+        """Validate the per-display dim pin (5–60, mirroring groups)."""
+        try:
+            minutes = int(value)
+        except ValueError:
+            raise ValueError(
+                f"invalid display dim override {key}={value!r}: not an integer"
+            ) from None
+        if not 5 <= minutes <= 60:
+            raise ValueError(
+                f"invalid display dim override {key}={value!r}: out of range 5-60"
             )
 
 

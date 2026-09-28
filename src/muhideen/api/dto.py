@@ -34,6 +34,14 @@ from muhideen.core.values import (
     PrayerDay,
     ScheduleSource,
     Settings,
+    ThemeBoundaryStrip,
+    ThemeClockFormat,
+    ThemeCountdownStyle,
+    ThemeDensity,
+    ThemeFont,
+    ThemeHijriForm,
+    ThemePalette,
+    ThemeSettings,
 )
 
 StateLiteral = Literal["NORMAL", "PRE_ADHAN", "ADHAN", "IQAMAH_COUNTDOWN", "SALAH_DIM"]
@@ -64,6 +72,7 @@ __all__ = [
     "SSE_PAYLOAD_MODELS",
     "StateEventDTO",
     "StateLiteral",
+    "ThemeDTO",
     "TickEventDTO",
     "TimeHHMM",
     "VersionDTO",
@@ -220,15 +229,16 @@ class StateEventDTO(ContractDTO):
 
 
 class TickEventDTO(ContractDTO):
-    """SSE `tick` event payload: server `now` + state, sent 1/min."""
+    """SSE `tick` event payload: server `now` + state + Stage id, sent 1/min."""
 
     now: datetime
     state: StateLiteral
+    stage: str
 
     @classmethod
-    def from_domain(cls, event: NextEvent) -> TickEventDTO:
-        """Map a NextEvent to the per-minute tick frame (now + state)."""
-        return cls(now=event.now, state=event.state.name)
+    def from_domain(cls, event: NextEvent, stage: str) -> TickEventDTO:
+        """Map a NextEvent plus its Stage id to the per-minute tick frame."""
+        return cls(now=event.now, state=event.state.name, stage=stage)
 
 
 class ConfigUpdateEventDTO(ContractDTO):
@@ -299,8 +309,50 @@ class IqamahRuleDTO(ContractDTO):
         )
 
 
+class ThemeDTO(ContractDTO):
+    """Closed-enum display knobs: every value outside the enum is 422."""
+
+    palette: ThemePalette = "classic-green"
+    font: ThemeFont = "outfit"
+    countdown_style: ThemeCountdownStyle = "boxes"
+    clock_format: ThemeClockFormat = "24h-seconds"
+    hijri_form: ThemeHijriForm = "long"
+    boundary_strip: ThemeBoundaryStrip = "show"
+    density: ThemeDensity = "comfortable"
+
+    @classmethod
+    def from_domain(cls, theme: ThemeSettings) -> ThemeDTO:
+        """Map installed theme knobs to the wire shape."""
+        return cls(
+            palette=theme.palette,
+            font=theme.font,
+            countdown_style=theme.countdown_style,
+            clock_format=theme.clock_format,
+            hijri_form=theme.hijri_form,
+            boundary_strip=theme.boundary_strip,
+            density=theme.density,
+        )
+
+    def to_domain(self) -> ThemeSettings:
+        """Map the wire knobs back to the validated value object."""
+        return ThemeSettings(
+            palette=self.palette,
+            font=self.font,
+            countdown_style=self.countdown_style,
+            clock_format=self.clock_format,
+            hijri_form=self.hijri_form,
+            boundary_strip=self.boundary_strip,
+            density=self.density,
+        )
+
+
 class SettingsDTO(ContractDTO):
-    """Full-replace admin settings body and response (all fields required)."""
+    """Full-replace admin settings body and response.
+
+    All fields required except the pre-adhan countdown knobs and the
+    theme knobs, which default so older wizard bodies still validate
+    (additive contract change).
+    """
 
     masjid_name: Annotated[str, Field(min_length=1, max_length=200)]
     zone: Annotated[str, Field(min_length=1, max_length=32)]
@@ -316,6 +368,11 @@ class SettingsDTO(ContractDTO):
     calc_only: bool
     imsak_offset_min: Annotated[int, Field(ge=0, le=10)]
     dhuha_offset_min: Annotated[int, Field(ge=15, le=30)]
+    countdown_before_adhan_min: Annotated[int, Field(ge=0, le=90)] = 5
+    countdown_before_adhan_overrides: dict[str, Annotated[int, Field(ge=0, le=90)]] = (
+        Field(default_factory=dict)
+    )
+    theme: ThemeDTO = Field(default_factory=ThemeDTO)
 
     @classmethod
     def from_domain(cls, settings: Settings) -> SettingsDTO:
@@ -337,6 +394,11 @@ class SettingsDTO(ContractDTO):
             calc_only=settings.calc_only,
             imsak_offset_min=settings.imsak_offset_min,
             dhuha_offset_min=settings.dhuha_offset_min,
+            countdown_before_adhan_min=settings.countdown_before_adhan_min,
+            countdown_before_adhan_overrides=dict(
+                settings.countdown_before_adhan_overrides
+            ),
+            theme=ThemeDTO.from_domain(settings.theme),
         )
 
     def to_domain(self) -> Settings:
@@ -356,6 +418,11 @@ class SettingsDTO(ContractDTO):
             calc_only=self.calc_only,
             imsak_offset_min=self.imsak_offset_min,
             dhuha_offset_min=self.dhuha_offset_min,
+            countdown_before_adhan_min=self.countdown_before_adhan_min,
+            countdown_before_adhan_overrides=dict(
+                self.countdown_before_adhan_overrides
+            ),
+            theme=self.theme.to_domain(),
         )
 
 

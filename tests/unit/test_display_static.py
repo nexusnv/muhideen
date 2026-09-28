@@ -30,7 +30,8 @@ def test_css_legibility_rules_present() -> None:
     import re
 
     css = (STATIC / "app.css").read_text()
-    assert re.search(r"#hero-clock\s*\{[^}]*font-size:\s*12vh", css)
+    # Reskin hero: giant countdown digits (10m legibility), card times large.
+    assert re.search(r"\.cd-val\s*\{[^}]*font-size:\s*12vh", css)
     assert "3.5vh" in css
 
 
@@ -92,3 +93,78 @@ def test_state_template_ids_present() -> None:
         "data-dim-until",
     ):
         assert token in html
+
+
+# Phase 1C reskin tokens (class names locked to the new app.css).
+# Mapping note: countdown-box = H/M/S countdown boxes fed by data-countdown
+# targets; iqamah-row = per-card iqamah row; brand-block = footer brand block;
+# glow-emerald = hero gradient glow. Per-card iqamah id scheme: iqamah-<key>.
+
+
+def test_js_stage_reload_wiring_present() -> None:
+    js = (STATIC / "app.js").read_text()
+    for token in (
+        "lastStage",
+        ".stage",
+    ):
+        assert token in js
+
+
+def test_reskin_css_tokens_present() -> None:
+    css = (STATIC / "app.css").read_text()
+    for token in (
+        "countdown-box",
+        "iqamah-row",
+        "brand-block",
+        "glow-emerald",
+    ):
+        assert token in css
+
+
+def test_reskin_template_tokens_present() -> None:
+    html = (STATIC.parent / "views" / "templates" / "display.html").read_text()
+    for token in (
+        "countdown-box",
+        "iqamah-row",
+        "brand-block",
+        "glow-emerald",
+        'id="iqamah-{{ c.key }}"',
+        "hijri_long",
+        'id="live-clock"',
+    ):
+        assert token in html
+
+
+def test_theme_css_variants_present() -> None:
+    css = (STATIC / "app.css").read_text()
+    for token in (
+        "countdown-inline",
+        "palette-midnight",
+        "palette-sand",
+        "font-system",
+        "density-compact",
+    ):
+        assert token in css
+
+
+def test_theme_template_tokens_present() -> None:
+    html = (STATIC.parent / "views" / "templates" / "display.html").read_text()
+    for token in (
+        "countdown-inline",
+        "hijri_display",
+        "show_boundaries",
+        "body_class",
+        "data-clock-format",
+        "data-dim-minutes",
+        "data-dim-source",
+    ):
+        assert token in html
+
+
+def test_js_honours_clock_format() -> None:
+    js = (STATIC / "app.js").read_text()
+    for token in (
+        "data-clock-format",
+        "clockFmt",
+    ):
+        assert token in js

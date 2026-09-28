@@ -1,6 +1,5 @@
-"""API layer: executable contract (Pydantic DTOs) + FastAPI app."""
+"""API layer: executable contract (Pydantic DTOs)."""
 
-from muhideen.api.app import AppDeps, create_app, create_production_app
 from muhideen.api.dto import (
     AuthRequestDTO,
     AuthResponseDTO,
@@ -13,12 +12,12 @@ from muhideen.api.dto import (
     SessionStatusDTO,
     SettingsDTO,
     StateEventDTO,
+    ThemeDTO,
     TickEventDTO,
     VersionDTO,
 )
 
 __all__ = [
-    "AppDeps",
     "AuthRequestDTO",
     "AuthResponseDTO",
     "ConfigUpdateEventDTO",
@@ -30,8 +29,7 @@ __all__ = [
     "SessionStatusDTO",
     "SettingsDTO",
     "StateEventDTO",
+    "ThemeDTO",
     "TickEventDTO",
     "VersionDTO",
-    "create_app",
-    "create_production_app",
 ]

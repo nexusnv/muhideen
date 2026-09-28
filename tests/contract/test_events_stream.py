@@ -124,7 +124,7 @@ def test_state_event_from_domain_excludes_absent_targets() -> None:
     assert dump["next_prayer"] == "dhuhr"
 
 
-def test_tick_event_from_domain_carries_now_and_state() -> None:
+def test_tick_event_from_domain_carries_now_state_and_stage() -> None:
     next_event = NextEvent(
         state=PrayerState.NORMAL,
         now=datetime(2025, 10, 20, 11, 45, tzinfo=KL),
@@ -136,10 +136,18 @@ def test_tick_event_from_domain_carries_now_and_state() -> None:
         next_boundary=None,
         boundary_at=None,
     )
-    assert TickEventDTO.from_domain(next_event).model_dump(mode="json") == {
+    assert TickEventDTO.from_domain(next_event, "clock").model_dump(mode="json") == {
         "now": "2025-10-20T11:45:00+08:00",
         "state": "NORMAL",
+        "stage": "clock",
     }
+
+
+def test_tick_event_requires_stage() -> None:
+    with pytest.raises(ValidationError):
+        TickEventDTO.model_validate(
+            {"now": "2025-10-20T11:45:00+08:00", "state": "NORMAL"}
+        )
 
 
 def test_config_update_requires_non_empty_changed_list() -> None:

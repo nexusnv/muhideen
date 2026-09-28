@@ -84,7 +84,9 @@ class _Driver:
 
 def _stream(surface: SimpleNamespace) -> _Driver:
     return _Driver(
-        app_module._event_stream(_engine(surface), surface.clock, surface.bus)
+        app_module._event_stream(
+            _engine(surface), surface.clock, surface.bus, surface.settings_repo
+        )
     )
 
 
@@ -173,7 +175,11 @@ def test_sse_frames_run_next_event_off_the_event_loop(
         calc=MabimsCalcEngine(clock=surface.clock, tz=cast(ZoneInfo, tz)),
         time_sync=probe,
     )
-    gen = _Driver(app_module._event_stream(engine, surface.clock, surface.bus))
+    gen = _Driver(
+        app_module._event_stream(
+            engine, surface.clock, surface.bus, surface.settings_repo
+        )
+    )
     try:
         frame = next(gen)
     finally:
@@ -209,6 +215,110 @@ def test_published_tick_frame(surface: SimpleNamespace, client: TestClient) -> N
     event, data = _parse(frame)
     assert event == "tick"
     assert "now" in data and "state" in data
+    assert isinstance(data.get("stage"), str)
+
+
+def test_published_tick_stage_matches_domain_resolution(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    from muhideen.domain.stage import resolve_stage, stage_id
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    gen = _stream(surface)
+    try:
+        next(gen)
+        surface.bus.publish("tick")
+        frame = next(gen)
+    finally:
+        gen.close()
+    event, data = _parse(frame)
+    assert event == "tick"
+    engine = _engine(surface)
+    now = surface.clock.now()
+    current = engine.next_event(now)
+    settings = surface.settings_repo.load()
+    day = engine.resolve_day(now.date(), settings.zone, now).day
+    assert data["stage"] == stage_id(resolve_stage(now, day, settings, current, []))
+
+
+def test_published_tick_stage_matches_open_window_playlist(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
+    from muhideen.core.values import Playlist, PlaylistItem
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    repo = SqlitePlaylistRepo(surface.db)
+    repo.save(
+        Playlist(
+            id="open",
+            title="Open",
+            active=True,
+            window_start=None,
+            window_end=None,
+            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+        )
+    )
+    gen = _Driver(
+        app_module._event_stream(
+            _engine(surface),
+            surface.clock,
+            surface.bus,
+            surface.settings_repo,
+            repo,
+        )
+    )
+    try:
+        next(gen)
+        surface.bus.publish("tick")
+        frame = next(gen)
+    finally:
+        gen.close()
+    event, data = _parse(frame)
+    assert event == "tick"
+    assert data["stage"] == "playlist:open"
+
+
+def test_published_tick_stage_falls_back_to_clock_on_corrupt_playlist(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
+    from muhideen.core.values import Playlist, PlaylistItem
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    repo = SqlitePlaylistRepo(surface.db)
+    repo.save(
+        Playlist(
+            id="broken",
+            title="Broken",
+            active=True,
+            window_start=None,
+            window_end=None,
+            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+        )
+    )
+    with surface.db.write() as conn:
+        conn.execute(
+            "UPDATE playlists SET anchor_marker = 'bogus' WHERE id = 'broken'",
+        )
+    gen = _Driver(
+        app_module._event_stream(
+            _engine(surface),
+            surface.clock,
+            surface.bus,
+            surface.settings_repo,
+            repo,
+        )
+    )
+    try:
+        next(gen)
+        surface.bus.publish("tick")
+        frame = next(gen)
+    finally:
+        gen.close()
+    event, data = _parse(frame)
+    assert event == "tick"
+    assert data["stage"] == "clock"
 
 
 def test_config_update_carries_changed_groups(

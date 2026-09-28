@@ -48,28 +48,33 @@ Strict order. Each slice's exit unblocks named frontend work.
 
 | Slice | Goal | Entry | Exit |
 |---|---|---|---|
-| 1B-1 Display `classic-green` | Match `preview.jpg` density: header, hero clock + next-prayer (always a Prayer Time Marker), **5 prayer cards + a secondary Boundary Time Marker strip (Imsak/Syuruq/Dhuha)**, footer. Monotonic tick + SSE resync + 60s poll fallback. DTOs only; boundary countdown rendered only when `next_boundary` is present; the imsak strip item is hidden when `imsak_offset_min == 0` (disabled). Backend pre-step (same plan, backend track): additive `hijri_date` on `GET /api/prayer-day` (`hijridate` dep, `adapters/hijri_date.py`, fixture + contract + vendored wheel) | 1A-4a fixtures | Renders from `mock_api` :8001; 10m legibility + AA contrast checked; no `domain/` imports |
-| 1B-2 States + dim | PRE_ADHAN hide, ADHAN overlay, IQAMAH countdown, SALAH_DIM blackout/minimal clock, admin skip; boundary markers verified never to trigger PRE_ADHAN/ADHAN (events-stream scenarios include the gated pointer) | 1A-4 semantics | All 5 states + Jumuah/boundary-marker edges visually verified against `events-stream.txt` scenarios |
-| 1B-3 Admin wizard | Setup (name, zone/latlon, mode, password, hijri offset), settings API thin client (incl. `boundary_countdown` opt-in plus `imsak_offset_min`/`dhuha_offset_min` tunables, both submitted on every full-replace `PUT`), QR (`muhideen.local`, one-time token, hidden during prayer); wizard uses same settings API as later screens (no fork) | 1A-7 | Mobile-width pass; wizard uses same settings API as later screens (no fork) |
+| 1B-1 Display `classic-green` (landed) | Match `preview.jpg` density: header, hero clock + next-prayer (always a Prayer Time Marker), **5 prayer cards + a secondary Boundary Time Marker strip (Imsak/Syuruq/Dhuha)**, footer. Monotonic tick + SSE resync + 60s poll fallback. DTOs only; boundary countdown rendered only when `next_boundary` is present; the imsak strip item is hidden when `imsak_offset_min == 0` (disabled). Backend pre-step (same plan, backend track): additive `hijri_date` on `GET /api/prayer-day` (`hijridate` dep, `adapters/hijri_date.py`, fixture + contract + vendored wheel) | 1A-4a fixtures | Renders from `mock_api` :8001; 10m legibility + AA contrast checked; no `domain/` imports |
+| 1B-2 States + dim (landed) | PRE_ADHAN hide, ADHAN overlay, IQAMAH countdown, SALAH_DIM blackout/minimal clock, admin skip; boundary markers verified never to trigger PRE_ADHAN/ADHAN (events-stream scenarios include the gated pointer) | 1A-4 semantics | All 5 states + Jumuah/boundary-marker edges visually verified against `events-stream.txt` scenarios |
+| 1B-3 Admin wizard (landed) | Setup (name, zone/latlon, mode, password, hijri offset), settings API thin client (incl. `boundary_countdown` opt-in plus `imsak_offset_min`/`dhuha_offset_min` tunables, both submitted on every full-replace `PUT`), QR (`muhideen.local`, one-time token, hidden during prayer); wizard uses same settings API as later screens (no fork) | 1A-7 | Mobile-width pass; wizard uses same settings API as later screens (no fork) |
 
-## Phase 2 — Content and Management
+## Phase 1C — Polish (display reskin, Main Stage, admin)
 
-| Slice | Goal | Depends |
-|---|---|---|
-| 2A Carousel manager | Upload/re-encode (Pillow, EXIF strip, 5MB/50-item caps), ordering, toggle, pause rule | 1A-5, 1B-1 |
-| 2B Theme pipeline | Zip validation (allowlist, no symlinks, 2MB), sandbox iframe + CSP + `postMessage` JSON, preview-then-publish atomic per group | 1B-1, 1A-7 |
-| 2C Backup/restore + logs | `sqlite+media` export/import, journald view, version footer | 1A-5 |
-| 2D Audio | Admin-uploaded chime only, per-Prayer-Time-Marker enable (chimes follow Adhan, which only Prayer Time Markers have), volume + quiet hours | 1B-2 |
-| 2E Extra themes | `minimal-dark`, `info-board` via `new_theme.py` | 2B |
+| Slice | Goal | Entry | Exit |
+|---|---|---|---|
+| 1C-1 Display reskin | Reskin `/display` to the approved example (vanilla CSS, vendored fonts): gradient hero with countdown + iqamah views, five cards with per-card iqamah rows, branded footer; Hijri long format; Playwright screenshot acceptance | 1B-2 semantics + Theme knob split | Matches approved example at 1080p; no Tailwind/CDN; offline-first intact |
+| 1C-2 Stage engine + countdown settings | Main Stage occupancy (Countdown > Playlist > Clock); pre-adhan takeover setting (global 5 + per-prayer overrides, 0–90); playlist scheduling (clock windows + marker anchors), cycling, per-item durations, most-recent activation | 1C-1 | Occupancy matrix green incl. overlap + countdown-override cases |
+| 1C-3 Playlist backend + editor | Image upload/storage (Pillow, EXIF strip, 5MB/50 caps), item ordering, active toggle; admin playlist editor (schedules, cycling, items) | 1C-2 | Upload/ordering/toggle round-trips green; editor drives the engine |
+| 1C-4 Admin restyle + per-display overrides | Restyle + regroup admin (bounded, same fields/endpoints); per-display theme + dim overrides | 1C-3 | Same-API parity tests green; mobile-width pass |
 
-## Phase 3 — Multi-Display and Appliance Polish
+## Unscheduled Backlog (planned, no timeline)
 
-| Slice | Goal | Depends |
-|---|---|---|
-| 3A Groups + targeting | Group CRUD, per-group theme/carousel/dim override, global defaults | 1A-5, 1B-1 |
-| 3B CEC power | `cec-utils` on/off windows, master toggle, per-group opt-out, never off mid-admin | 1A-8 |
-| 3C Community + thin client | Theme library docs, Zero 2 W thin-client image (display-only vs headless-server) | 2B |
-| 3D Go appliance eval | Drop-in binary behind frozen contract; decision recorded, no display/theme changes | 1A-3 contract stable |
+Absorbed from retired Phase 2/3 where noted; everything else is parked, not promised:
+
+* Display grouping UI + per-group overrides beyond theme/dim (Tier model stays 2-tier until this is scheduled)
+* Manual timetable entry + CSV import (MANUAL source already exists in schema)
+* Backup/restore + logs UI (was 2C)
+* Audio chime upload (was 2D)
+* Extra themes + theme zip pipeline (was 2B/2E)
+* Emergency announcement overlay (research §5.3)
+* Portrait-orientation layouts (beyond FR-2.5 best-effort)
+* CEC power, thin client, Go appliance (was 3B/3C/3D)
+
+Out of scope entirely (v2, not planned): PDF calendars, social graphics, mobile apps, web widgets/pages, video carousel, cloud services.
 
 ## Explicitly Out of Scope (MVP)
 
