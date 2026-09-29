@@ -167,29 +167,89 @@
     return prayer.charAt(0).toUpperCase() + prayer.slice(1);
   }
   if (iqamahBox) {
+    function td(text) {
+      var cell = document.createElement("td");
+      if (text !== null) cell.textContent = text;
+      return cell;
+    }
     function renderIqamah() {
       var rules = readRules();
       var order = ["fajr", "dhuhr", "asr", "maghrib", "isha", "jumuah"];
       rules.sort(function (a, b) { return order.indexOf(a.prayer) - order.indexOf(b.prayer); });
-      var html = '<table class="matrix-table" aria-label="Iqamah rules">'
-        + "<thead><tr><th>Prayer</th><th>Mode</th><th>Delay (min)</th><th>Fixed time</th></tr></thead><tbody>";
+      // Built with DOM APIs (no innerHTML): rule values come from stored
+      // settings, and textContent/value assignment keeps them inert.
+      while (iqamahBox.firstChild) iqamahBox.removeChild(iqamahBox.firstChild);
+      var table = document.createElement("table");
+      table.className = "matrix-table";
+      table.setAttribute("aria-label", "Iqamah rules");
+      var head = document.createElement("thead");
+      var headRow = document.createElement("tr");
+      var headers = ["Prayer", "Mode", "Delay (min)", "Fixed time"];
+      for (var h = 0; h < headers.length; h++) {
+        var th = document.createElement("th");
+        th.textContent = headers[h];
+        headRow.appendChild(th);
+      }
+      head.appendChild(headRow);
+      table.appendChild(head);
+      var body = document.createElement("tbody");
       for (var i = 0; i < rules.length; i++) {
         (function (r, idx) {
           var isFixed = r.mode === "fixed";
-          html += "<tr>"
-            + "<td><strong>" + esc(labelOf(r.prayer)) + "</strong></td>"
-            + '<td><select data-iqamah-mode="' + idx + '">'
-            + '<option value="delay"' + (isFixed ? "" : " selected") + ">Delay after adhan</option>"
-            + '<option value="fixed"' + (isFixed ? " selected" : "") + ">Fixed time</option>"
-            + "</select></td>"
-            + '<td><input data-iqamah-delay="' + idx + '" type="number" min="0" max="120" value="' + esc(r.delay_minutes) + '"' + (isFixed ? " disabled" : "") + "></td>"
-            + '<td><input data-iqamah-fixed="' + idx + '" class="time" type="text" inputmode="numeric" placeholder="HH:MM" value="' + esc(r.fixed_time || "") + '"' + (isFixed ? "" : " disabled") + "></td>"
-            + "</tr>";
+          var tr = document.createElement("tr");
+          var nameCell = td(null);
+          var strong = document.createElement("strong");
+          strong.textContent = labelOf(r.prayer);
+          nameCell.appendChild(strong);
+          tr.appendChild(nameCell);
+          var modeCell = td(null);
+          var mode = document.createElement("select");
+          mode.setAttribute("data-iqamah-mode", String(idx));
+          var delayOpt = document.createElement("option");
+          delayOpt.value = "delay";
+          delayOpt.textContent = "Delay after adhan";
+          var fixedOpt = document.createElement("option");
+          fixedOpt.value = "fixed";
+          fixedOpt.textContent = "Fixed time";
+          mode.appendChild(delayOpt);
+          mode.appendChild(fixedOpt);
+          mode.value = isFixed ? "fixed" : "delay";
+          modeCell.appendChild(mode);
+          tr.appendChild(modeCell);
+          var delayCell = td(null);
+          var delay = document.createElement("input");
+          delay.setAttribute("data-iqamah-delay", String(idx));
+          delay.type = "number";
+          delay.min = "0";
+          delay.max = "120";
+          delay.value = String(r.delay_minutes);
+          delay.disabled = isFixed;
+          delayCell.appendChild(delay);
+          tr.appendChild(delayCell);
+          var fixedCell = td(null);
+          var fixed = document.createElement("input");
+          fixed.setAttribute("data-iqamah-fixed", String(idx));
+          fixed.className = "time";
+          fixed.type = "text";
+          fixed.setAttribute("inputmode", "numeric");
+          fixed.placeholder = "HH:MM";
+          fixed.value = r.fixed_time || "";
+          fixed.disabled = !isFixed;
+          fixedCell.appendChild(fixed);
+          tr.appendChild(fixedCell);
+          body.appendChild(tr);
         })(rules[i], i);
       }
-      html += "</tbody></table>"
-        + '<p class="hint">Delay counts minutes after the adhan. Fixed rings at that clock time — use 24h <code>HH:MM</code>.</p>';
-      iqamahBox.innerHTML = html;
+      table.appendChild(body);
+      iqamahBox.appendChild(table);
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Delay counts minutes after the adhan. Fixed rings at that clock time \u2014 use 24h ";
+      var code = document.createElement("code");
+      code.textContent = "HH:MM";
+      hint.appendChild(code);
+      hint.appendChild(document.createTextNode("."));
+      iqamahBox.appendChild(hint);
     }
     function onIqamahChange(ev) {
       var t = ev.target;
@@ -368,14 +428,26 @@
       return r.json();
     }).then(function (data) {
       if (!data) return;
+      // DOM APIs only (no innerHTML): titles stay inert via textContent.
+      while (summaryBox.firstChild) summaryBox.removeChild(summaryBox.firstChild);
+      var badge = document.createElement("span");
       if (!data.playlists.length) {
-        summaryBox.innerHTML = '<span class="badge">0 playlists</span> <span class="hint">Slideshows are off — the clock stays.</span>';
+        badge.className = "badge";
+        badge.textContent = "0 playlists";
+        summaryBox.appendChild(badge);
+        summaryBox.appendChild(document.createTextNode(" "));
+        var hint = document.createElement("span");
+        hint.className = "hint";
+        hint.textContent = "Slideshows are off \u2014 the clock stays.";
+        summaryBox.appendChild(hint);
         return;
       }
+      badge.className = "badge badge-live";
+      badge.textContent = data.playlists.length + " playlists";
+      summaryBox.appendChild(badge);
       var names = [];
-      for (var i = 0; i < data.playlists.length; i++) names.push(esc(data.playlists[i].title));
-      summaryBox.innerHTML = '<span class="badge badge-live">' + data.playlists.length + " playlists</span> "
-        + names.join(", ");
+      for (var i = 0; i < data.playlists.length; i++) names.push(data.playlists[i].title);
+      summaryBox.appendChild(document.createTextNode(" " + names.join(", ")));
     }).catch(function () { /* summary renders on next load */ });
   }
   var editor = document.getElementById("playlist-editor");
