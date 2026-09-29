@@ -131,6 +131,11 @@ class IqamahRule:
     delay_minutes: int = 10
     fixed_time: time | None = None
 
+    def __post_init__(self) -> None:
+        """Reject negative delays: iqamah before adhan inverts the state."""
+        if self.delay_minutes < 0:
+            raise ValueError(f"delay_minutes cannot be negative: {self.delay_minutes}")
+
 
 DEFAULT_IQAMAH_RULES: tuple[IqamahRule, ...] = (
     IqamahRule(prayer=MarkerName.FAJR, mode="delay", delay_minutes=15),

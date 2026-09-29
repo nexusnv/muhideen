@@ -37,9 +37,9 @@ DHUHR_TUNE_MIN = 2
 DEFAULT_IMSAK_OFFSET_MIN = 10
 DEFAULT_DHUHA_OFFSET_MIN = 28
 
-# Only this slice's pinned method exists; other FR-1.3 methods (MWL, ISNA,
-# Egyptian) are future work and fall back to MABIMS parameters today.
-_PINNED_METHOD = "MABIMS"
+# Only MABIMS parameters are pinned; other FR-1.3 contract methods (MWL,
+# ISNA, Egyptian) are future work and fall back to MABIMS parameters today.
+_SUPPORTED_METHODS = frozenset({"MABIMS", "MWL", "ISNA", "Egyptian"})
 
 
 def _params() -> CalculationParameters:
@@ -76,7 +76,11 @@ class MabimsCalcEngine:
         imsak_offset_min: int = DEFAULT_IMSAK_OFFSET_MIN,
         dhuha_offset_min: int = DEFAULT_DHUHA_OFFSET_MIN,
     ) -> PrayerDay:
-        """Compute one day's eight markers via adhanpy; `ValueError` if unsupported.
+        """Compute one day's eight markers via adhanpy; `ValueError` if unknown.
+
+        Contract methods beyond MABIMS (MWL, ISNA, Egyptian — FR-1.3 future
+        work) fall back to MABIMS parameters today; only truly unknown
+        method strings are a cache miss (`ValueError`).
 
         adhanpy supplies 6 markers (fajr, sunrise→syuruq, dhuhr, asr,
         maghrib, isha); imsak/dhuha are derived offsets
@@ -86,7 +90,7 @@ class MabimsCalcEngine:
         The result is stamped `ScheduleSource.CALC` with the pinned clock
         and passed through `ensure_ordered` before anything returns.
         """
-        if method != _PINNED_METHOD:
+        if method not in _SUPPORTED_METHODS:
             # engine.py converts ValueError to a cache miss, so an unknown
             # configured method degrades the chain instead of 500-ing.
             raise ValueError(f"unsupported calculation method: {method}")
