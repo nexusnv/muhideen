@@ -167,7 +167,7 @@
     return prayer.charAt(0).toUpperCase() + prayer.slice(1);
   }
   if (iqamahBox) {
-    (function renderIqamah() {
+    function renderIqamah() {
       var rules = readRules();
       var order = ["fajr", "dhuhr", "asr", "maghrib", "isha", "jumuah"];
       rules.sort(function (a, b) { return order.indexOf(a.prayer) - order.indexOf(b.prayer); });
@@ -190,38 +190,42 @@
       html += "</tbody></table>"
         + '<p class="hint">Delay counts minutes after the adhan. Fixed rings at that clock time — use 24h <code>HH:MM</code>.</p>';
       iqamahBox.innerHTML = html;
-      iqamahBox.addEventListener("change", function (ev) {
-        var t = ev.target;
-        var rulesNow = readRules();
-        function idxOf(attr) {
-          var v = t.getAttribute && t.getAttribute(attr);
-          return v === null ? -1 : Number(v);
-        }
-        var mi = idxOf("data-iqamah-mode");
-        if (mi >= 0) {
-          rulesNow[mi].mode = t.value;
-          if (t.value === "fixed" && !rulesNow[mi].fixed_time) rulesNow[mi].fixed_time = "13:00";
-          if (t.value === "delay") rulesNow[mi].fixed_time = null;
-          writeRules(rulesNow);
-          renderIqamah();
-          return;
-        }
-        var di = idxOf("data-iqamah-delay");
-        if (di >= 0) {
-          rulesNow[di].delay_minutes = t.value === "" ? 0 : Number(t.value);
-          writeRules(rulesNow);
-          return;
-        }
-        var fi = idxOf("data-iqamah-fixed");
-        if (fi >= 0) {
-          var v = (t.value || "").trim();
-          rulesNow[fi].fixed_time = v === "" ? null : v;
-          writeRules(rulesNow);
-          if (v !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) t.setAttribute("aria-invalid", "true");
-          else t.removeAttribute("aria-invalid");
-        }
-      });
-    })();
+    }
+    function onIqamahChange(ev) {
+      var t = ev.target;
+      var rulesNow = readRules();
+      function idxOf(attr) {
+        var v = t.getAttribute && t.getAttribute(attr);
+        return v === null ? -1 : Number(v);
+      }
+      var mi = idxOf("data-iqamah-mode");
+      if (mi >= 0) {
+        rulesNow[mi].mode = t.value;
+        if (t.value === "fixed" && !rulesNow[mi].fixed_time) rulesNow[mi].fixed_time = "13:00";
+        if (t.value === "delay") rulesNow[mi].fixed_time = null;
+        writeRules(rulesNow);
+        renderIqamah();
+        return;
+      }
+      var di = idxOf("data-iqamah-delay");
+      if (di >= 0) {
+        rulesNow[di].delay_minutes = t.value === "" ? 0 : Number(t.value);
+        writeRules(rulesNow);
+        return;
+      }
+      var fi = idxOf("data-iqamah-fixed");
+      if (fi >= 0) {
+        var v = (t.value || "").trim();
+        rulesNow[fi].fixed_time = v === "" ? null : v;
+        writeRules(rulesNow);
+        if (v !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) t.setAttribute("aria-invalid", "true");
+        else t.removeAttribute("aria-invalid");
+      }
+    }
+    renderIqamah();
+    // Attached once: renderIqamah only replaces innerHTML, which keeps
+    // listeners on iqamahBox itself intact across re-renders.
+    iqamahBox.addEventListener("change", onIqamahChange);
   }
   var save = document.getElementById("s-save");
   if (save) save.addEventListener("click", function () {
