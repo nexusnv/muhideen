@@ -3,16 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Login</title>
+<title>Login · Muhideen</title>
 <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
-<main id="admin-login">
-  <h1>Login</h1>
-  <label><span>Password</span><input id="password" type="password" autocomplete="current-password"></label>
-  <div id="login-msg" role="alert"></div>
-  <button id="login-go" type="button">Login</button>
-</main>
+<div class="auth-wrap">
+  <main class="auth-card" id="admin-login">
+    <div class="brand-box">
+      <div class="brand-mark" aria-hidden="true">M</div>
+      <div>
+        <div class="brand-title">Muhideen</div>
+        <div class="brand-subtitle">Masjid console</div>
+      </div>
+    </div>
+    <h1>Welcome back</h1>
+    <p class="lede">Enter the admin password to manage prayer times, displays and slideshows.</p>
+    <label class="field"><span class="lbl">Password</span><input id="password" type="password" autocomplete="current-password" autofocus></label>
+    <div id="login-msg" class="alert" role="alert"></div>
+    <button id="login-go" class="btn btn-primary" type="button">Login</button>
+    <p class="hint" style="margin-top:1rem;">On a new device, ask your administrator for the LAN address — this console never leaves the masjid network.</p>
+  </main>
+</div>
 <script src="/static/admin.js"></script>
 </body>
 </html>

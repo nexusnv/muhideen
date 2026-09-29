@@ -3,36 +3,52 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Setup</title>
+<title>Setup · Muhideen</title>
 <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
-<main id="wizard">
-  <h1>Setup</h1>
-  <section data-step="1">
-    <label><span>Masjid name</span><input id="w-name" type="text"></label>
-    <label>Zone<input id="w-zone" type="text" placeholder="SGR01"></label>
-  </section>
-  <section data-step="2" hidden>
-    <label><input id="w-calc" type="checkbox"> <span>Offline calculation only</span></label>
-    <label>Lat<input id="w-lat" type="number" step="any"></label>
-    <label>Lon<input id="w-lon" type="number" step="any"></label>
-  </section>
-  <section data-step="3" hidden>
-    <label><span>Password</span><input id="w-pass" type="password" autocomplete="new-password"></label>
-    <label><span>Confirm password</span><input id="w-pass2" type="password" autocomplete="new-password"></label>
-  </section>
-  <section data-step="4" hidden>
-    <label>Hijri offset<input id="w-hijri" type="number" min="-2" max="2" value="0"></label>
-  </section>
-  <section data-step="5" hidden>
-    <div id="w-review"></div>
-    <p>Setup closes after the first admin is created.</p>
-  </section>
-  <div id="w-msg" role="alert"></div>
-  <button id="w-back" type="button" hidden>Back</button>
-  <button id="w-next" type="button">Next</button>
-</main>
+<div class="auth-wrap">
+  <main class="auth-card" id="wizard">
+    <div class="brand-box">
+      <div class="brand-mark" aria-hidden="true">M</div>
+      <div>
+        <div class="brand-title">Muhideen</div>
+        <div class="brand-subtitle">First-boot setup</div>
+      </div>
+    </div>
+    <h1>Set up your masjid</h1>
+    <p class="lede">Five short steps. You can change everything later in Settings.</p>
+    <div class="steps" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <section data-step="1">
+      <label class="field"><span class="lbl">Masjid name *</span><input id="w-name" type="text" placeholder="Masjid Al-Noor" autocomplete="off"></label>
+      <label class="field" style="margin-top:.6rem;"><span class="lbl">JAKIM zone * (e.g. SGR01)</span><input id="w-zone" type="text" placeholder="SGR01" style="font-family:var(--mono);"></label>
+    </section>
+    <section data-step="2" hidden>
+      <label class="switch" style="margin-bottom:.8rem;"><input id="w-calc" type="checkbox"><span class="slider"></span><span class="sw-label">Offline calculation only</span></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;">
+        <label class="field"><span class="lbl">Latitude</span><input id="w-lat" type="number" step="any" placeholder="3.07"></label>
+        <label class="field"><span class="lbl">Longitude</span><input id="w-lon" type="number" step="any" placeholder="101.69"></label>
+      </div>
+      <p class="hint">Leave blank to follow the zone timetable.</p>
+    </section>
+    <section data-step="3" hidden>
+      <label class="field"><span class="lbl">Admin password (min 8 characters)</span><input id="w-pass" type="password" autocomplete="new-password"></label>
+      <label class="field" style="margin-top:.6rem;"><span class="lbl">Confirm password</span><input id="w-pass2" type="password" autocomplete="new-password"></label>
+    </section>
+    <section data-step="4" hidden>
+      <label class="field"><span class="lbl">Hijri date offset (−2…+2 days)</span><input id="w-hijri" type="number" min="-2" max="2" value="0"></label>
+    </section>
+    <section data-step="5" hidden>
+      <div id="w-review" class="alert"></div>
+      <p class="hint">Setup closes after the first admin is created.</p>
+    </section>
+    <div id="w-msg" class="alert" role="alert"></div>
+    <div class="wizard-nav">
+      <button id="w-back" type="button" class="btn btn-ghost" hidden>Back</button>
+      <button id="w-next" type="button" class="btn btn-primary">Next</button>
+    </div>
+  </main>
+</div>
 <script src="/static/admin.js"></script>
 </body>
 </html>
