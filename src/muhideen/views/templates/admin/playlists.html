@@ -3,47 +3,96 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Playlists</title>
+<title>Playlists · Muhideen</title>
 <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
+<div class="admin-shell">
 {% include "admin/_nav.html" %}
-<main id="admin-playlists">
-  <h1>Playlists</h1>
-  <section id="occupancy-preview" class="admin-section" data-preview='{{ preview_json }}'>
-    <h2>On Stage now</h2>
-    <div id="preview-body"></div>
-  </section>
-  <section class="admin-section">
-    <h2>All playlists</h2>
-    <div id="playlist-list" data-playlists='{{ playlists_json }}'></div>
-    <button id="pl-new" class="btn" type="button">New playlist</button>
-  </section>
-  <section id="playlist-editor" class="admin-section">
-    <h2>Editor</h2>
-    <div class="form-grid">
-      <label><span>Title</span><input id="pl-title" type="text"></label>
-      <label><span><input id="pl-active" type="checkbox" checked> Active</span></label>
-      <label><span>Window start (HH:MM or marker)</span><input id="pl-start" type="text" placeholder="09:00"></label>
-      <label><span>Window end (HH:MM or marker)</span><input id="pl-end" type="text" placeholder="18:00"></label>
-      <label><span>Anchor marker (optional)</span><input id="pl-anchor" type="text" placeholder="maghrib"></label>
-      <label><span>Anchor start offset (min)</span><input id="pl-anchor-start" type="number" value="0"></label>
-      <label><span>Anchor stop offset (min)</span><input id="pl-anchor-stop" type="number" value="0"></label>
-      <label><span>Max cycles (blank for uncapped)</span><input id="pl-cycles" type="number" min="1"></label>
+<div class="workspace">
+  <header class="command-bar">
+    <div class="identity">
+      <div>
+        <div class="crumb">Muhideen · Slideshows</div>
+        <h1>Playlists</h1>
+      </div>
+      <span class="status-pill live"><span class="status-dot"></span>Stage engine</span>
     </div>
-    <div id="pl-items"></div>
-    <div>
-      <label><span>Add image</span><input id="pl-upload" type="file" accept="image/jpeg,image/png,image/webp"></label>
-      <label><span>Seconds on stage</span><input id="pl-duration" type="number" min="1" value="10"></label>
-      <button id="pl-upload-go" class="btn" type="button">Upload</button>
-    </div>
-    <div id="pl-msg" role="alert"></div>
-    <div>
+    <div class="command-actions">
+      <a class="btn btn-ghost btn-sm" href="/admin/settings">← Settings</a>
       <button id="pl-save" class="btn btn-primary" type="button">Save playlist</button>
-      <button id="pl-delete" class="btn btn-danger" type="button">Delete</button>
     </div>
-  </section>
-</main>
+  </header>
+  <main id="admin-playlists">
+    <div class="page-head">
+      <div>
+        <h2>What plays on the idle screen</h2>
+        <p>Each playlist holds images shown between prayers. A playlist takes the stage only inside its window — otherwise the clock stays.</p>
+      </div>
+      <button id="pl-new" class="btn" type="button">+ New playlist</button>
+    </div>
+
+    <section id="occupancy-preview" class="admin-section" data-preview='{{ preview_json }}'>
+      <div class="card-head"><h2><span class="ico">●</span><span>On stage now</span></h2><span class="pill-note">Next 24 h scan</span></div>
+      <div class="card-body"><div id="preview-body"></div></div>
+    </section>
+
+    <section class="admin-section">
+      <div class="card-head"><h2><span class="ico">▤</span><span>All playlists</span></h2></div>
+      <div class="card-body"><div id="playlist-list" data-playlists='{{ playlists_json }}'></div></div>
+    </section>
+
+    <section id="playlist-editor" class="admin-section">
+      <div class="card-head">
+        <h2><span class="ico">✎</span><span>Editor</span></h2>
+        <button id="pl-delete" class="btn btn-danger btn-sm" type="button">Delete</button>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-info"><h4>Title <span class="req">*</span></h4><p>Shown in this list only — never on the public screen.</p></div>
+          <div class="setting-control control-mid"><input id="pl-title" type="text" maxlength="200" placeholder="Friday announcements"></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Active</h4><p>Paused playlists are kept but never take the stage.</p></div>
+          <div class="setting-control"><label class="switch"><input id="pl-active" type="checkbox" checked><span class="slider"></span><span class="sw-label"></span></label></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Daily window</h4><p><code>HH:MM</code> or a marker name (<code>maghrib</code>, <code>isha</code>…). Blank means no bound.</p></div>
+          <div class="setting-control">
+            <label class="field"><span class="lbl">Start</span><input id="pl-start" type="text" placeholder="09:00" inputmode="numeric"></label>
+            <label class="field"><span class="lbl">End</span><input id="pl-end" type="text" placeholder="18:00" inputmode="numeric"></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Prayer anchor <span style="color:var(--faint);">(optional)</span></h4><p>Pin the window relative to a prayer, e.g. from 30 min before Maghrib until 60 min after.</p></div>
+          <div class="setting-control">
+            <label class="field"><span class="lbl">Marker</span><input id="pl-anchor" type="text" placeholder="maghrib"></label>
+            <label class="field"><span class="lbl">Start offset (min)</span><input id="pl-anchor-start" type="number" value="0"></label>
+            <label class="field"><span class="lbl">Stop offset (min)</span><input id="pl-anchor-stop" type="number" value="0"></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Loop limit</h4><p>Blank loops forever. Otherwise stops after N cycles.</p></div>
+          <div class="setting-control control-narrow"><input id="pl-cycles" type="number" min="1" placeholder="Uncapped"></div>
+        </div>
+        <h3 class="group-title">Slides</h3>
+        <div id="pl-items"></div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Add image</h4><p>JPG, PNG or WebP, up to 5 MB. Max 50 slides per playlist.</p></div>
+          <div class="setting-control">
+            <label class="field"><span class="lbl">Seconds on stage</span><input id="pl-duration" type="number" min="1" value="10"></label>
+          </div>
+        </div>
+        <div class="file-row">
+          <input id="pl-upload" type="file" accept="image/jpeg,image/png,image/webp">
+          <button id="pl-upload-go" class="btn" type="button">Upload</button>
+        </div>
+        <div id="pl-msg" class="alert" role="alert"></div>
+      </div>
+    </section>
+  </main>
+</div>
+</div>
 <script src="/static/admin.js"></script>
 </body>
 </html>

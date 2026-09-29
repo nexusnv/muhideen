@@ -2,7 +2,12 @@
   "use strict";
   function msg(id, text) {
     var el = document.getElementById(id);
-    if (el) el.textContent = text;
+    if (el) {
+      el.textContent = text;
+      if (text && (id === "s-msg" || id === "pl-msg")) {
+        try { el.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (e) { /* noop */ }
+      }
+    }
   }
   var DEFAULTS = {
     "masjid_name": "",
@@ -43,7 +48,8 @@
     return v === "" ? null : Number(v);
   }
   var loginGo = document.getElementById("login-go");
-  if (loginGo) loginGo.addEventListener("click", function () {
+  var loginPw = document.getElementById("password");
+  function doLogin() {
     fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -51,18 +57,29 @@
     }).then(function (r) {
       if (r.status === 200) { window.location.href = "/admin/settings"; return; }
       if (r.status === 429) { msg("login-msg", "Too many attempts, wait a minute"); return; }
-      msg("login-msg", "Wrong password");
+      msg("login-msg", "Wrong password — try again");
     }).catch(function () { msg("login-msg", "Network error"); });
+  }
+  if (loginGo) loginGo.addEventListener("click", doLogin);
+  if (loginPw) loginPw.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { ev.preventDefault(); doLogin(); }
   });
   var wizard = document.getElementById("wizard");
   if (wizard) {
     var step = 1;
+    function paintSteps() {
+      var bars = wizard.querySelectorAll(".steps i");
+      for (var bi = 0; bi < bars.length; bi++) {
+        bars[bi].className = bi < step ? "done" : "";
+      }
+    }
     function show(n) {
       step = n;
       var secs = wizard.querySelectorAll("[data-step]");
       for (var i = 0; i < secs.length; i++) secs[i].hidden = Number(secs[i].getAttribute("data-step")) !== n;
       document.getElementById("w-back").hidden = n === 1;
-      document.getElementById("w-next").textContent = n === 5 ? "Done" : "Next";
+      document.getElementById("w-next").textContent = n === 5 ? "Finish setup" : "Next";
+      paintSteps();
       if (n === 5) {
         document.getElementById("w-review").textContent =
           document.getElementById("w-name").value + " / " + document.getElementById("w-zone").value;
@@ -135,6 +152,141 @@
     });
     show(1);
   }
+  /* Iqamah rules editor: delay minutes or a fixed HH:MM per prayer.
+     Keeps #iqamah-rules[data-rules] as the source of truth for Save. */
+  var iqamahBox = document.getElementById("iqamah-rules");
+  function readRules() {
+    try {
+      return JSON.parse(iqamahBox.getAttribute("data-rules") || "[]");
+    } catch (e) { return []; }
+  }
+  function writeRules(rules) {
+    iqamahBox.setAttribute("data-rules", JSON.stringify(rules));
+  }
+  function labelOf(prayer) {
+    return prayer.charAt(0).toUpperCase() + prayer.slice(1);
+  }
+  if (iqamahBox) {
+    function td(text) {
+      var cell = document.createElement("td");
+      if (text !== null) cell.textContent = text;
+      return cell;
+    }
+    function renderIqamah() {
+      var rules = readRules();
+      var order = ["fajr", "dhuhr", "asr", "maghrib", "isha", "jumuah"];
+      rules.sort(function (a, b) { return order.indexOf(a.prayer) - order.indexOf(b.prayer); });
+      // Built with DOM APIs (no innerHTML): rule values come from stored
+      // settings, and textContent/value assignment keeps them inert.
+      while (iqamahBox.firstChild) iqamahBox.removeChild(iqamahBox.firstChild);
+      var table = document.createElement("table");
+      table.className = "matrix-table";
+      table.setAttribute("aria-label", "Iqamah rules");
+      var head = document.createElement("thead");
+      var headRow = document.createElement("tr");
+      var headers = ["Prayer", "Mode", "Delay (min)", "Fixed time"];
+      for (var h = 0; h < headers.length; h++) {
+        var th = document.createElement("th");
+        th.textContent = headers[h];
+        headRow.appendChild(th);
+      }
+      head.appendChild(headRow);
+      table.appendChild(head);
+      var body = document.createElement("tbody");
+      for (var i = 0; i < rules.length; i++) {
+        (function (r, idx) {
+          var isFixed = r.mode === "fixed";
+          var tr = document.createElement("tr");
+          var nameCell = td(null);
+          var strong = document.createElement("strong");
+          strong.textContent = labelOf(r.prayer);
+          nameCell.appendChild(strong);
+          tr.appendChild(nameCell);
+          var modeCell = td(null);
+          var mode = document.createElement("select");
+          mode.setAttribute("data-iqamah-mode", String(idx));
+          var delayOpt = document.createElement("option");
+          delayOpt.value = "delay";
+          delayOpt.textContent = "Delay after adhan";
+          var fixedOpt = document.createElement("option");
+          fixedOpt.value = "fixed";
+          fixedOpt.textContent = "Fixed time";
+          mode.appendChild(delayOpt);
+          mode.appendChild(fixedOpt);
+          mode.value = isFixed ? "fixed" : "delay";
+          modeCell.appendChild(mode);
+          tr.appendChild(modeCell);
+          var delayCell = td(null);
+          var delay = document.createElement("input");
+          delay.setAttribute("data-iqamah-delay", String(idx));
+          delay.type = "number";
+          delay.min = "0";
+          delay.max = "120";
+          delay.value = String(r.delay_minutes);
+          delay.disabled = isFixed;
+          delayCell.appendChild(delay);
+          tr.appendChild(delayCell);
+          var fixedCell = td(null);
+          var fixed = document.createElement("input");
+          fixed.setAttribute("data-iqamah-fixed", String(idx));
+          fixed.className = "time";
+          fixed.type = "text";
+          fixed.setAttribute("inputmode", "numeric");
+          fixed.placeholder = "HH:MM";
+          fixed.value = r.fixed_time || "";
+          fixed.disabled = !isFixed;
+          fixedCell.appendChild(fixed);
+          tr.appendChild(fixedCell);
+          body.appendChild(tr);
+        })(rules[i], i);
+      }
+      table.appendChild(body);
+      iqamahBox.appendChild(table);
+      var hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Delay counts minutes after the adhan. Fixed rings at that clock time \u2014 use 24h ";
+      var code = document.createElement("code");
+      code.textContent = "HH:MM";
+      hint.appendChild(code);
+      hint.appendChild(document.createTextNode("."));
+      iqamahBox.appendChild(hint);
+    }
+    function onIqamahChange(ev) {
+      var t = ev.target;
+      var rulesNow = readRules();
+      function idxOf(attr) {
+        var v = t.getAttribute && t.getAttribute(attr);
+        return v === null ? -1 : Number(v);
+      }
+      var mi = idxOf("data-iqamah-mode");
+      if (mi >= 0) {
+        rulesNow[mi].mode = t.value;
+        if (t.value === "fixed" && !rulesNow[mi].fixed_time) rulesNow[mi].fixed_time = "13:00";
+        if (t.value === "delay") rulesNow[mi].fixed_time = null;
+        writeRules(rulesNow);
+        renderIqamah();
+        return;
+      }
+      var di = idxOf("data-iqamah-delay");
+      if (di >= 0) {
+        rulesNow[di].delay_minutes = t.value === "" ? 0 : Number(t.value);
+        writeRules(rulesNow);
+        return;
+      }
+      var fi = idxOf("data-iqamah-fixed");
+      if (fi >= 0) {
+        var v = (t.value || "").trim();
+        rulesNow[fi].fixed_time = v === "" ? null : v;
+        writeRules(rulesNow);
+        if (v !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) t.setAttribute("aria-invalid", "true");
+        else t.removeAttribute("aria-invalid");
+      }
+    }
+    renderIqamah();
+    // Attached once: renderIqamah only replaces innerHTML, which keeps
+    // listeners on iqamahBox itself intact across re-renders.
+    iqamahBox.addEventListener("change", onIqamahChange);
+  }
   var save = document.getElementById("s-save");
   if (save) save.addEventListener("click", function () {
     var rules = JSON.parse(document.getElementById("iqamah-rules").getAttribute("data-rules"));
@@ -185,6 +337,8 @@
   if (qrToggle) qrToggle.addEventListener("click", function () {
     var body = document.getElementById("qr-body");
     body.hidden = !body.hidden;
+    qrToggle.textContent = body.hidden ? "Show connect QR" : "Hide connect QR";
+    qrToggle.setAttribute("aria-expanded", String(!body.hidden));
   });
   function esc(text) {
     return String(text).replace(/[&<>"]/g, function (c) {
@@ -208,30 +362,34 @@
     }).then(function (data) {
       if (!data) return;
       var html = "";
+      if (!data.displays.length) {
+        html += '<p class="hint">No screens registered yet — they appear here after their first heartbeat.</p>';
+      }
       for (var i = 0; i < data.displays.length; i++) {
         (function (d) {
           html += '<div class="display-row" data-display="' + esc(d.id) + '">'
             + "<strong>" + esc(d.name) + "</strong>"
-            + '<label>Group <select data-group-for="' + esc(d.id) + '">';
+            + ' <span class="badge">' + esc(d.id) + "</span>"
+            + '<label class="field"><span class="lbl">Group</span><select data-group-for="' + esc(d.id) + '">';
           for (var g = 0; g < data.groups.length; g++) {
             html += '<option value="' + esc(data.groups[g].name) + '"'
               + (data.groups[g].name === d.group_name ? " selected" : "") + ">"
               + esc(data.groups[g].name) + "</option>";
           }
           html += "</select></label>"
-            + "<span>Dim " + esc(d.effective_dim_minutes) + " min</span>"
-            + '<button class="btn" type="button" data-save-display="' + esc(d.id) + '">Apply</button>'
+            + '<span class="badge badge-live">Dim ' + esc(d.effective_dim_minutes) + " min</span>"
+            + '<button class="btn btn-sm" type="button" data-save-display="' + esc(d.id) + '">Apply</button>'
             + "</div>";
         })(data.displays[i]);
       }
-      html += "<h3>Group dim overrides (minutes, blank for global default)</h3>";
+      html += '<h3 class="group-title">Group dim overrides (minutes, blank for global default)</h3>';
       for (var j = 0; j < data.groups.length; j++) {
         (function (gr) {
           html += '<div class="display-row" data-dimgroup="' + esc(gr.name) + '">'
             + "<strong>" + esc(gr.name) + "</strong>"
-            + '<label>Dim override <input data-dim-for="' + esc(gr.name) + '" type="number" min="5" max="60" value="'
+            + '<label class="field"><span class="lbl">Dim override</span><input data-dim-for="' + esc(gr.name) + '" type="number" min="5" max="60" placeholder="Global" value="'
             + (gr.dim_minutes_override === null ? "" : esc(gr.dim_minutes_override)) + '"></label>'
-            + '<button class="btn" type="button" data-save-dim="' + esc(gr.name) + '">Apply</button>'
+            + '<button class="btn btn-sm" type="button" data-save-dim="' + esc(gr.name) + '">Apply</button>'
             + "</div>";
         })(data.groups[j]);
       }
@@ -270,9 +428,26 @@
       return r.json();
     }).then(function (data) {
       if (!data) return;
+      // DOM APIs only (no innerHTML): titles stay inert via textContent.
+      while (summaryBox.firstChild) summaryBox.removeChild(summaryBox.firstChild);
+      var badge = document.createElement("span");
+      if (!data.playlists.length) {
+        badge.className = "badge";
+        badge.textContent = "0 playlists";
+        summaryBox.appendChild(badge);
+        summaryBox.appendChild(document.createTextNode(" "));
+        var hint = document.createElement("span");
+        hint.className = "hint";
+        hint.textContent = "Slideshows are off \u2014 the clock stays.";
+        summaryBox.appendChild(hint);
+        return;
+      }
+      badge.className = "badge badge-live";
+      badge.textContent = data.playlists.length + " playlists";
+      summaryBox.appendChild(badge);
       var names = [];
-      for (var i = 0; i < data.playlists.length; i++) names.push(esc(data.playlists[i].title));
-      summaryBox.textContent = data.playlists.length + " playlists: " + names.join(", ");
+      for (var i = 0; i < data.playlists.length; i++) names.push(data.playlists[i].title);
+      summaryBox.appendChild(document.createTextNode(" " + names.join(", ")));
     }).catch(function () { /* summary renders on next load */ });
   }
   var editor = document.getElementById("playlist-editor");
@@ -313,24 +488,35 @@
     }
     function renderItems() {
       var box = document.getElementById("pl-items");
+      if (!currentItems.length) {
+        box.innerHTML = '<p class="hint">No slides yet — upload the first image below.</p>';
+        return;
+      }
       var html = "";
       for (var i = 0; i < currentItems.length; i++) {
-        html += '<div class="pl-item"><span>' + esc(currentItems[i].image_path)
-          + " (" + esc(currentItems[i].duration_s) + "s)</span>"
-          + '<button class="btn" type="button" data-remove-item="' + currentItems[i].sort_order + '">Remove</button></div>';
+        html += '<div class="pl-item">'
+          + '<img class="thumb" loading="lazy" src="/static/uploads/' + esc(currentItems[i].image_path) + '" alt="" onerror="this.style.display=\'none\'">'
+          + '<span class="meta">' + esc(currentItems[i].image_path)
+          + " · " + esc(currentItems[i].duration_s) + "s</span>"
+          + '<button class="btn btn-sm" type="button" data-remove-item="' + currentItems[i].sort_order + '">Remove</button></div>';
       }
       box.innerHTML = html;
     }
     function renderList(playlists) {
       var box = document.getElementById("playlist-list");
+      if (!playlists.length) {
+        box.innerHTML = '<p class="hint">No playlists yet — create one to start the idle slideshow.</p>';
+        return;
+      }
       var html = "";
       for (var i = 0; i < playlists.length; i++) {
         (function (p) {
           html += '<div class="playlist-row" data-playlist="' + esc(p.id) + '">'
             + "<strong>" + esc(p.title) + "</strong>"
-            + "<span>" + (p.active ? "active" : "paused") + ", " + p.items.length + " items</span>"
-            + '<button class="btn" type="button" data-edit="' + esc(p.id) + '">Edit</button>'
-            + '<button class="btn" type="button" data-toggle="' + esc(p.id) + '" data-active="' + (!p.active) + '">'
+            + (p.active ? ' <span class="badge badge-live">active</span>' : ' <span class="badge">paused</span>')
+            + "<span class='hint'>" + p.items.length + " slides</span>"
+            + '<button class="btn btn-sm" type="button" data-edit="' + esc(p.id) + '">Edit</button>'
+            + '<button class="btn btn-sm" type="button" data-toggle="' + esc(p.id) + '" data-active="' + (!p.active) + '">'
             + (p.active ? "Pause" : "Activate") + "</button></div>";
         })(playlists[i]);
       }

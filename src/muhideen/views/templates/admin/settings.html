@@ -3,106 +3,230 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Settings</title>
+<title>Settings · Muhideen</title>
 <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
+<div class="admin-shell">
 {% include "admin/_nav.html" %}
-<main id="admin-settings">
-  <h1>Settings</h1>
-  <section id="section-profile" class="admin-section">
-    <h2>Profile</h2>
-    <div class="form-grid">
-      <label><span>Masjid name</span><input id="s-name" type="text" value="{{ current.masjid_name }}"></label>
-      <label><span>Zone</span><input id="s-zone" type="text" value="{{ current.zone }}"></label>
+<div class="workspace">
+  <header class="command-bar">
+    <div class="identity">
+      <div>
+        <div class="crumb">Muhideen · Settings</div>
+        <h1>{{ current.masjid_name }}</h1>
+      </div>
+      <span class="zone-pill">📍 {{ current.zone }}</span>
     </div>
-  </section>
-  <section id="section-time" class="admin-section">
-    <h2>Time and Date Marker</h2>
-    <div class="form-grid">
-      <label><span>Method</span><input id="s-method" type="text" value="{{ current.method }}"></label>
-      <label><span>Lat</span><input id="s-lat" type="number" step="any" value="{{ current.lat if current.lat is not none else '' }}"></label>
-      <label><span>Lon</span><input id="s-lon" type="number" step="any" value="{{ current.lon if current.lon is not none else '' }}"></label>
-      <label><span><input id="s-calc" type="checkbox"{% if current.calc_only %} checked{% endif %}> Offline calculation only</span></label>
-      <label><span>Imsak offset (min)</span><input id="s-imsak" type="number" min="0" max="10" value="{{ current.imsak_offset_min }}"></label>
-      <label><span>Dhuha offset (min)</span><input id="s-dhuha" type="number" min="15" max="30" value="{{ current.dhuha_offset_min }}"></label>
-      <label><span>Hijri offset</span><input id="s-hijri" type="number" min="-2" max="2" value="{{ current.hijri_offset }}"></label>
-      <label><span>Adhan duration (s)</span><input id="s-adhan" type="number" min="1" value="{{ current.adhan_duration_s }}"></label>
-      <label><span>Dim (min)</span><input id="s-dim" type="number" min="5" max="60" value="{{ current.dim_minutes_default }}"></label>
-      <label><span>Jumuah dim (min)</span><input id="s-dimj" type="number" min="5" max="60" value="{{ current.dim_minutes_jumuah }}"></label>
-      <label><span><input id="s-boundary" type="checkbox"{% if current.boundary_countdown %} checked{% endif %}> Boundary countdown</span></label>
+    <div class="command-actions">
+      <span class="status-pill live"><span class="status-dot"></span>Live · v{{ version }}</span>
+      <button id="s-save" class="btn btn-primary" type="button">Save changes</button>
     </div>
-    <h3>Pre-adhan windows (minutes)</h3>
-    <div class="form-grid">
-      <label><span>Default</span><input id="s-countdown-default" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_min }}"></label>
-      <label><span>Fajr</span><input id="s-cd-fajr" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_overrides.get('fajr', '') }}"></label>
-      <label><span>Dhuhr</span><input id="s-cd-dhuhr" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_overrides.get('dhuhr', '') }}"></label>
-      <label><span>Asr</span><input id="s-cd-asr" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_overrides.get('asr', '') }}"></label>
-      <label><span>Maghrib</span><input id="s-cd-maghrib" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_overrides.get('maghrib', '') }}"></label>
-      <label><span>Isha</span><input id="s-cd-isha" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_overrides.get('isha', '') }}"></label>
-      <label><span>Jumuah</span><input id="s-cd-jumuah" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_overrides.get('jumuah', '') }}"></label>
+  </header>
+  <main id="admin-settings">
+    <div class="page-head">
+      <div>
+        <h2>Masjid configuration</h2>
+        <p>Every change applies to the live display after save. Blank pre-adhan overrides fall back to the default window.</p>
+      </div>
     </div>
-    <h3>Iqamah rules</h3>
-    <div id="iqamah-rules" data-rules='{{ rules_json }}'></div>
-  </section>
-  <section id="section-display" class="admin-section">
-    <h2>Display</h2>
-    <h3>Theme knobs</h3>
-    <div class="form-grid">
-      <label><span>Palette</span><select id="s-theme-palette">
-        <option value="classic-green"{% if current.theme.palette == "classic-green" %} selected{% endif %}>Classic green</option>
-        <option value="midnight"{% if current.theme.palette == "midnight" %} selected{% endif %}>Midnight</option>
-        <option value="sand"{% if current.theme.palette == "sand" %} selected{% endif %}>Sand</option>
-      </select></label>
-      <label><span>Font</span><select id="s-theme-font">
-        <option value="outfit"{% if current.theme.font == "outfit" %} selected{% endif %}>Outfit</option>
-        <option value="system"{% if current.theme.font == "system" %} selected{% endif %}>System</option>
-      </select></label>
-      <label><span>Countdown style</span><select id="s-theme-countdown">
-        <option value="boxes"{% if current.theme.countdown_style == "boxes" %} selected{% endif %}>Boxes</option>
-        <option value="inline"{% if current.theme.countdown_style == "inline" %} selected{% endif %}>Inline</option>
-      </select></label>
-      <label><span>Clock format</span><select id="s-theme-clock">
-        <option value="24h-seconds"{% if current.theme.clock_format == "24h-seconds" %} selected{% endif %}>24h with seconds</option>
-        <option value="24h"{% if current.theme.clock_format == "24h" %} selected{% endif %}>24h</option>
-        <option value="12h"{% if current.theme.clock_format == "12h" %} selected{% endif %}>12h</option>
-      </select></label>
-      <label><span>Hijri form</span><select id="s-theme-hijri">
-        <option value="long"{% if current.theme.hijri_form == "long" %} selected{% endif %}>Long</option>
-        <option value="short"{% if current.theme.hijri_form == "short" %} selected{% endif %}>Short</option>
-      </select></label>
-      <label><span>Boundary strip</span><select id="s-theme-boundary">
-        <option value="show"{% if current.theme.boundary_strip == "show" %} selected{% endif %}>Show</option>
-        <option value="hide"{% if current.theme.boundary_strip == "hide" %} selected{% endif %}>Hide</option>
-      </select></label>
-      <label><span>Density</span><select id="s-theme-density">
-        <option value="comfortable"{% if current.theme.density == "comfortable" %} selected{% endif %}>Comfortable</option>
-        <option value="compact"{% if current.theme.density == "compact" %} selected{% endif %}>Compact</option>
-      </select></label>
+
+    <div class="glance-grid" aria-label="Configuration at a glance">
+      <div class="glance-card">
+        <h3>Calculation method</h3>
+        <div class="big">{{ current.method }}</div>
+        <div class="sub muted">{% if current.calc_only %}Offline only{% else %}JAKIM feed + offline fallback{% endif %}</div>
+      </div>
+      <div class="glance-card">
+        <h3>Coordinates</h3>
+        <div class="big" style="font-size:1.05rem;">{{ current.lat if current.lat is not none else '—' }}, {{ current.lon if current.lon is not none else '—' }}</div>
+        <div class="sub muted">Zone {{ current.zone }}</div>
+      </div>
+      <div class="glance-card">
+        <h3>Salah dim</h3>
+        <div class="big">{{ current.dim_minutes_default }} min</div>
+        <div class="sub muted">Jumuah {{ current.dim_minutes_jumuah }} min</div>
+      </div>
+      <div class="glance-card">
+        <h3>Pre-adhan default</h3>
+        <div class="big">{{ current.countdown_before_adhan_min }} min</div>
+        <div class="sub">before each adhan</div>
+      </div>
     </div>
-    <p>Per-display theme choice and dim minutes. A display uses its group dim
-    override when set, otherwise the global dim default.</p>
-    <div id="display-overrides" data-displays='{{ displays_json }}' data-groups='{{ groups_json }}'></div>
-  </section>
-  <section id="section-playlists" class="admin-section">
-    <h2>Playlists</h2>
-    <p><a class="btn" href="/admin/playlists">Open playlist editor</a></p>
-    <div id="playlist-summary"></div>
-  </section>
-  <section id="section-system" class="admin-section">
-    <h2>System</h2>
-    <p>Version {{ version }}</p>
-    <section id="qr-block">
-      <button id="qr-toggle" class="btn" type="button">Show connect QR</button>
-      <div id="qr-body" hidden>
-        <img id="qr-img" src="{{ qr_data_uri }}" alt="Connect QR">
-        <div><a id="qr-fallback" href="{{ fallback_url }}">{{ fallback_url }}</a></div>
+
+    <section id="section-profile" class="admin-section">
+      <div class="card-head">
+        <h2><span class="ico">🕌</span><span>Profile<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Shown on the display header</div></span></h2>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-info"><h4>Masjid name <span class="req">*</span></h4><p>The name printed on the display and exports.</p></div>
+          <div class="setting-control control-mid"><input id="s-name" type="text" value="{{ current.masjid_name }}" maxlength="200" autocomplete="off"></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Zone code <span class="req">*</span></h4><p>JAKIM zone, e.g. <code>SGR01</code>. Drives the fetched timetable.</p></div>
+          <div class="setting-control control-narrow"><input id="s-zone" type="text" value="{{ current.zone }}" maxlength="32" autocomplete="off" style="font-family:var(--mono);"></div>
+        </div>
       </div>
     </section>
-  </section>
-  <div id="s-msg" role="alert"></div>
-  <button id="s-save" class="btn btn-primary" type="button">Save</button>
-</main>
+
+    <section id="section-time" class="admin-section">
+      <div class="card-head">
+        <h2><span class="ico">🌙</span><span>Prayer Time &amp; iqamah<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Method, geography, offsets and jamaat delays</div></span></h2>
+        <span class="pill-note">Offline fallback always on</span>
+      </div>
+      <div class="card-body">
+        <h3 class="group-title">Calculation source</h3>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Method</h4><p>Astronomical convention. MABIMS is the Malaysian standard.</p></div>
+          <div class="setting-control control-narrow"><select id="s-method">
+            <option value="MABIMS"{% if current.method == "MABIMS" %} selected{% endif %}>MABIMS (Malaysia)</option>
+            <option value="MWL"{% if current.method == "MWL" %} selected{% endif %}>Muslim World League</option>
+            <option value="ISNA"{% if current.method == "ISNA" %} selected{% endif %}>ISNA (N. America)</option>
+            <option value="Egyptian"{% if current.method == "Egyptian" %} selected{% endif %}>Egyptian</option>
+          </select></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Coordinates</h4><p>Used only when the offline engine calculates. Leave blank to follow the zone timetable.</p></div>
+          <div class="setting-control">
+            <label class="field"><span class="lbl">Lat (−90…90)</span><input id="s-lat" type="number" step="any" min="-90" max="90" placeholder="3.07" value="{{ current.lat if current.lat is not none else '' }}"></label>
+            <label class="field"><span class="lbl">Lon (−180…180)</span><input id="s-lon" type="number" step="any" min="-180" max="180" placeholder="101.69" value="{{ current.lon if current.lon is not none else '' }}"></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Offline calculation only</h4><p>Ignore the JAKIM feed and always compute locally.</p></div>
+          <div class="setting-control"><label class="switch"><input id="s-calc" type="checkbox"{% if current.calc_only %} checked{% endif %}><span class="slider"></span><span class="sw-label" data-on="On" data-off="Off"></span></label></div>
+        </div>
+
+        <h3 class="group-title">Marker tuning</h3>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Imsak offset</h4><p>Minutes before Fajr. Range 0–10.</p></div>
+          <div class="setting-control control-narrow"><input id="s-imsak" type="number" min="0" max="10" value="{{ current.imsak_offset_min }}"></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Dhuha offset</h4><p>Minutes after Syuruq. Range 15–30.</p></div>
+          <div class="setting-control control-narrow"><input id="s-dhuha" type="number" min="15" max="30" value="{{ current.dhuha_offset_min }}"></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Hijri date offset</h4><p>Shift the displayed Hijri date by −2…+2 days.</p></div>
+          <div class="setting-control control-narrow"><input id="s-hijri" type="number" min="-2" max="2" step="1" value="{{ current.hijri_offset }}"></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Adhan duration</h4><p>Seconds the ADHAN stage stays on screen.</p></div>
+          <div class="setting-control control-narrow"><input id="s-adhan" type="number" min="1" max="900" value="{{ current.adhan_duration_s }}"></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Salah dim</h4><p>Minutes the screen dims after iqamah (5–60).</p></div>
+          <div class="setting-control">
+            <label class="field"><span class="lbl">Daily</span><input id="s-dim" type="number" min="5" max="60" value="{{ current.dim_minutes_default }}"></label>
+            <label class="field"><span class="lbl">Jumuah</span><input id="s-dimj" type="number" min="5" max="60" value="{{ current.dim_minutes_jumuah }}"></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Boundary countdown</h4><p>Show the optional Imsak / Syuruq / Dhuha countdown strip.</p></div>
+          <div class="setting-control"><label class="switch"><input id="s-boundary" type="checkbox"{% if current.boundary_countdown %} checked{% endif %}><span class="slider"></span><span class="sw-label"></span></label></div>
+        </div>
+
+        <h3 class="group-title">Pre-adhan windows (minutes, 0–90 · blank = default)</h3>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Default window</h4><p>Applies to any prayer without its own override.</p></div>
+          <div class="setting-control control-narrow"><input id="s-countdown-default" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_min }}"></div>
+        </div>
+        <div class="setting-row stack">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;">
+            <label class="field"><span class="lbl">Fajr</span><input id="s-cd-fajr" type="number" min="0" max="90" placeholder="Default" value="{{ current.countdown_before_adhan_overrides.get('fajr', '') }}"></label>
+            <label class="field"><span class="lbl">Dhuhr</span><input id="s-cd-dhuhr" type="number" min="0" max="90" placeholder="Default" value="{{ current.countdown_before_adhan_overrides.get('dhuhr', '') }}"></label>
+            <label class="field"><span class="lbl">Asr</span><input id="s-cd-asr" type="number" min="0" max="90" placeholder="Default" value="{{ current.countdown_before_adhan_overrides.get('asr', '') }}"></label>
+            <label class="field"><span class="lbl">Maghrib</span><input id="s-cd-maghrib" type="number" min="0" max="90" placeholder="Default" value="{{ current.countdown_before_adhan_overrides.get('maghrib', '') }}"></label>
+            <label class="field"><span class="lbl">Isha</span><input id="s-cd-isha" type="number" min="0" max="90" placeholder="Default" value="{{ current.countdown_before_adhan_overrides.get('isha', '') }}"></label>
+            <label class="field"><span class="lbl">Jumuah</span><input id="s-cd-jumuah" type="number" min="0" max="90" placeholder="Default" value="{{ current.countdown_before_adhan_overrides.get('jumuah', '') }}"></label>
+          </div>
+        </div>
+
+        <h3 class="group-title">Iqamah rules — delay after adhan, or a fixed clock time</h3>
+        <div id="iqamah-rules" data-rules='{{ rules_json }}'></div>
+      </div>
+    </section>
+
+    <section id="section-display" class="admin-section">
+      <div class="card-head">
+        <h2><span class="ico">🖥</span><span>Display &amp; theme<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Look of the public screen</div></span></h2>
+      </div>
+      <div class="card-body">
+        <div class="setting-row stack">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem;">
+            <label class="field"><span class="lbl">Palette</span><select id="s-theme-palette">
+              <option value="classic-green"{% if current.theme.palette == "classic-green" %} selected{% endif %}>Classic green</option>
+              <option value="midnight"{% if current.theme.palette == "midnight" %} selected{% endif %}>Midnight</option>
+              <option value="sand"{% if current.theme.palette == "sand" %} selected{% endif %}>Sand</option>
+            </select></label>
+            <label class="field"><span class="lbl">Font</span><select id="s-theme-font">
+              <option value="outfit"{% if current.theme.font == "outfit" %} selected{% endif %}>Outfit</option>
+              <option value="system"{% if current.theme.font == "system" %} selected{% endif %}>System</option>
+            </select></label>
+            <label class="field"><span class="lbl">Countdown style</span><select id="s-theme-countdown">
+              <option value="boxes"{% if current.theme.countdown_style == "boxes" %} selected{% endif %}>Boxes</option>
+              <option value="inline"{% if current.theme.countdown_style == "inline" %} selected{% endif %}>Inline</option>
+            </select></label>
+            <label class="field"><span class="lbl">Clock format</span><select id="s-theme-clock">
+              <option value="24h-seconds"{% if current.theme.clock_format == "24h-seconds" %} selected{% endif %}>24h · seconds</option>
+              <option value="24h"{% if current.theme.clock_format == "24h" %} selected{% endif %}>24h</option>
+              <option value="12h"{% if current.theme.clock_format == "12h" %} selected{% endif %}>12h</option>
+            </select></label>
+            <label class="field"><span class="lbl">Hijri form</span><select id="s-theme-hijri">
+              <option value="long"{% if current.theme.hijri_form == "long" %} selected{% endif %}>Long</option>
+              <option value="short"{% if current.theme.hijri_form == "short" %} selected{% endif %}>Short</option>
+            </select></label>
+            <label class="field"><span class="lbl">Boundary strip</span><select id="s-theme-boundary">
+              <option value="show"{% if current.theme.boundary_strip == "show" %} selected{% endif %}>Show</option>
+              <option value="hide"{% if current.theme.boundary_strip == "hide" %} selected{% endif %}>Hide</option>
+            </select></label>
+            <label class="field"><span class="lbl">Density</span><select id="s-theme-density">
+              <option value="comfortable"{% if current.theme.density == "comfortable" %} selected{% endif %}>Comfortable</option>
+              <option value="compact"{% if current.theme.density == "compact" %} selected{% endif %}>Compact</option>
+            </select></label>
+          </div>
+        </div>
+        <div class="setting-row stack">
+          <div class="setting-info"><h4>Screen overrides</h4><p>Each display follows its group dim override when set, otherwise the global salah dim above.</p></div>
+          <div id="display-overrides" data-displays='{{ displays_json }}' data-groups='{{ groups_json }}'></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="section-playlists" class="admin-section">
+      <div class="card-head">
+        <h2><span class="ico">▶</span><span>Slideshows</span></h2>
+        <a class="btn btn-sm" href="/admin/playlists">Open playlist editor</a>
+      </div>
+      <div class="card-body">
+        <div id="playlist-summary"></div>
+      </div>
+    </section>
+
+    <section id="section-system" class="admin-section">
+      <div class="card-head">
+        <h2><span class="ico">⚙</span><span>System</span></h2>
+        <span class="badge">v{{ version }}</span>
+      </div>
+      <div class="card-body">
+        <section id="qr-block">
+          <div class="setting-row">
+            <div class="setting-info"><h4>Connect another device</h4><p>Scan to open this console on a phone or laptop on the same network.</p></div>
+            <div class="setting-control"><button id="qr-toggle" class="btn" type="button" aria-expanded="false">Show connect QR</button></div>
+          </div>
+          <div id="qr-body" hidden>
+            <img id="qr-img" src="{{ qr_data_uri }}" alt="QR code to open the admin console">
+            <div><a id="qr-fallback" href="{{ fallback_url }}">{{ fallback_url }}</a><div class="hint">LAN address — never exposed to the internet.</div></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <div id="s-msg" class="alert" role="alert"></div>
+  </main>
+</div>
+</div>
 <script src="/static/admin.js"></script>
 </body>
 </html>

@@ -56,16 +56,20 @@ def test_admin_js_defaults_cover_settings_dto() -> None:
 def test_admin_css_touch_targets() -> None:
     css = (STATIC / "admin.css").read_text()
     assert "min-height: 48px" in css
-    assert "max-width: 960px" in css
-    assert "max(2.2vh, 16px)" in css
+    assert "max-width: 1120px" in css
+    assert "max(1rem, 16px)" in css
     for token in (
         "admin-nav",
-        "form-grid",
         "admin-section",
         ".btn",
         "playlist-editor",
         "occupancy-preview",
         "badge",
+        "sidebar",
+        "glance-grid",
+        "setting-row",
+        "switch",
+        "matrix-table",
     ):
         assert token in css
 
