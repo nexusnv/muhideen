@@ -55,6 +55,14 @@ class DisplayRepo(Protocol):
         """
         ...
 
+    def is_registered(self, display_id: str) -> bool:
+        """Return True when display_id names a pre-registered display.
+
+        Ghost IDs are pending-approval: their heartbeats buffer normally
+        but match no row at flush and are dropped.
+        """
+        ...
+
     def flush(self) -> int:
         """Write all buffered heartbeats in one short transaction.
 

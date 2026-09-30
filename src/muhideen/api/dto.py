@@ -261,9 +261,14 @@ class HeartbeatRequestDTO(ContractDTO):
 
 
 class HeartbeatResponseDTO(ContractDTO):
-    """POST /api/displays/heartbeat response: acknowledgement."""
+    """POST /api/displays/heartbeat response: acknowledgement + approval.
+
+    `registered` is False for pending-approval ghost IDs: the heartbeat
+    still buffers, then matches no row at flush and is dropped.
+    """
 
     ok: bool
+    registered: bool
 
 
 class VersionDTO(ContractDTO):
@@ -278,7 +283,7 @@ class IqamahRuleDTO(ContractDTO):
 
     prayer: PrayerLiteral
     mode: IqamahModeLiteral
-    delay_minutes: Annotated[int, Field(ge=0)]
+    delay_minutes: Annotated[int, Field(ge=0, le=60)]
     fixed_time: TimeHHMM | None
 
     @classmethod

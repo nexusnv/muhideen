@@ -165,7 +165,49 @@ def test_heartbeat_returns_ok(surface: SimpleNamespace, client: TestClient) -> N
         )
     response = client.post("/api/displays/heartbeat", json={"id": "HALL-01"})
     assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    assert response.json() == {"ok": True, "registered": True}
+
+
+def test_heartbeat_ghost_reports_unregistered(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    response = client.post("/api/displays/heartbeat", json={"id": "GHOST-99"})
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "registered": False}
+
+
+def _seed_early_fixed_iqamah(surface: SimpleNamespace) -> None:
+    from datetime import time
+
+    from muhideen.core.values import DEFAULT_IQAMAH_RULES, IqamahRule, MarkerName
+
+    rules = tuple(
+        IqamahRule(prayer=MarkerName.DHUHR, mode="fixed", fixed_time=time(0, 10))
+        if rule.prayer is MarkerName.DHUHR
+        else rule
+        for rule in DEFAULT_IQAMAH_RULES
+    )
+    _seed_settings(surface, lat=3.07, lon=101.69, iqamah_rules=rules)
+
+
+def test_fixed_iqamah_at_or_before_adhan_is_503_on_next_event(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_early_fixed_iqamah(surface)
+    response = client.get(
+        "/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"}
+    )
+    assert response.status_code == 503
+    assert "at or before adhan" in response.json()["detail"]
+
+
+def test_display_with_early_fixed_iqamah_is_503(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_early_fixed_iqamah(surface)
+    response = client.get("/display", params={"id": "HALL-01"})
+    assert response.status_code == 503
 
 
 def test_prayer_day_carries_hijri_date(

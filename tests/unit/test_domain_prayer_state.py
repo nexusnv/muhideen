@@ -156,6 +156,26 @@ def test_adhan_wins_when_overlay_overlaps_dim_window() -> None:
     assert event.dim_until == datetime(2025, 10, 22, 12, 36, tzinfo=TZ)
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("hour", "minute", "state"),
+    [
+        (12, 10, PrayerState.PRE_ADHAN),  # pre-adhan window opens exactly
+        (12, 15, PrayerState.ADHAN),  # the adhan instant itself
+        (12, 18, PrayerState.IQAMAH_COUNTDOWN),  # adhan overlay ends exactly
+        (12, 25, PrayerState.SALAH_DIM),  # the iqamah instant itself
+        (12, 45, PrayerState.NORMAL),  # dim ends exactly: next prayer waits
+    ],
+)
+def test_state_window_exact_edges(hour: int, minute: int, state: PrayerState) -> None:
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    event = resolve_next_event(
+        _at(hour, minute), _day(), None, _rules(), _settings(), False
+    )
+    assert event.state == state
+
+
 def _friday_day() -> PrayerDay:
     return PrayerDay(
         date=date(2025, 10, 24),

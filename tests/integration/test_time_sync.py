@@ -328,6 +328,30 @@ def test_latch_clears_after_300s_with_synced_probe() -> None:
     assert harness.engine.next_event(harness.clock.now()).time_synced is True
 
 
+@pytest.mark.parametrize(
+    ("step", "synced"),
+    [(4.99, True), (5.0, True), (5.01, False)],
+)
+def test_drift_step_boundary_pins_strict_threshold(step: float, synced: bool) -> None:
+    harness = _harness(StubProbe(True))
+    assert harness.engine.next_event(NOW).time_synced is True  # baseline sample
+    harness.clock.step_wall(step)
+    assert harness.engine.next_event(harness.clock.now()).time_synced is synced
+
+
+@pytest.mark.parametrize(
+    ("held", "synced"),
+    [(299.0, False), (300.0, True), (301.0, True)],
+)
+def test_drift_latch_clears_exactly_at_300s(held: float, synced: bool) -> None:
+    harness = _harness(StubProbe(True))
+    harness.engine.next_event(NOW)
+    harness.clock.step_wall(6.0)
+    assert harness.engine.next_event(harness.clock.now()).time_synced is False
+    harness.clock.advance(held)
+    assert harness.engine.next_event(harness.clock.now()).time_synced is synced
+
+
 def test_time_synced_flip_republishes_state_same_minute() -> None:
     harness = _harness(StubProbe(True))
     first = harness.engine.tick()

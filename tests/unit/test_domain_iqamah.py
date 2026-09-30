@@ -91,3 +91,26 @@ def test_fixed_without_time_raises_config_error() -> None:
     adhan = datetime(2025, 10, 20, 18, 5, tzinfo=TZ)
     with pytest.raises(ConfigError):
         resolve_iqamah(MarkerName.MAGHRIB, adhan, rules)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("fixed", "ok"),
+    [(time(12, 10), False), (time(12, 15), False), (time(12, 16), True)],
+)
+def test_fixed_time_at_or_before_adhan_raises_config_error(
+    fixed: time, ok: bool
+) -> None:
+    from muhideen.domain.iqamah import resolve_iqamah
+
+    rules = _rules()
+    rules[MarkerName.DHUHR] = IqamahRule(
+        prayer=MarkerName.DHUHR, mode="fixed", fixed_time=fixed
+    )
+    if ok:
+        assert resolve_iqamah(MarkerName.DHUHR, _adhan(), rules) == datetime(
+            2025, 10, 20, 12, 16, tzinfo=TZ
+        )
+    else:
+        with pytest.raises(ConfigError, match="at or before adhan"):
+            resolve_iqamah(MarkerName.DHUHR, _adhan(), rules)

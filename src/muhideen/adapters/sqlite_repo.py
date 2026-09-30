@@ -458,6 +458,14 @@ class SqliteDisplayRepo:
             if self._clock.monotonic() - self._last_flush >= self._batch_interval_s:
                 self._flush_locked(conn)
 
+    def is_registered(self, display_id: str) -> bool:
+        """Return True when display_id names a pre-registered display."""
+        with self._db.read() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM displays WHERE id = ?", (display_id,)
+            ).fetchone()
+        return row is not None
+
     def flush(self) -> int:
         """Write every buffered heartbeat; return rows updated."""
         with self._db.write() as conn:

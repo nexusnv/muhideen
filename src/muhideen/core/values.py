@@ -132,9 +132,9 @@ class IqamahRule:
     fixed_time: time | None = None
 
     def __post_init__(self) -> None:
-        """Reject negative delays: iqamah before adhan inverts the state."""
-        if self.delay_minutes < 0:
-            raise ValueError(f"delay_minutes cannot be negative: {self.delay_minutes}")
+        """Reject out-of-range delays: negative inverts the state machine."""
+        if not 0 <= self.delay_minutes <= 60:
+            raise ValueError(f"delay_minutes out of range 0-60: {self.delay_minutes}")
 
 
 DEFAULT_IQAMAH_RULES: tuple[IqamahRule, ...] = (

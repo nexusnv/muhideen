@@ -308,6 +308,28 @@ def test_image_upload_missing_playlist_is_404(authed: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_image_upload_failure_cleans_up_stored_file(
+    authed: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import base64
+
+    assert authed.post("/api/playlists", json=_playlist_body("upf")).status_code == 201
+    uploads = tmp_path / "uploads"
+    before = set(uploads.iterdir()) if uploads.is_dir() else set()
+
+    def _boom(self: SqlitePlaylistRepo, playlist: object) -> None:
+        raise ValueError("boom")
+
+    monkeypatch.setattr(SqlitePlaylistRepo, "save", _boom)
+    response = authed.post(
+        "/api/playlists/upf/items",
+        json={"image_base64": base64.b64encode(_png()).decode(), "duration_s": 5},
+    )
+    assert response.status_code == 422
+    after = set(uploads.iterdir()) if uploads.is_dir() else set()
+    assert after == before
+
+
 def test_image_upload_enforces_item_cap(
     authed: TestClient, surface: SimpleNamespace, tmp_path: Path
 ) -> None:
@@ -629,6 +651,9 @@ class _NoPrayer:
 class _NoDisplay:
     def record_seen(self, display_id, ip):  # type: ignore[no-untyped-def]
         raise NotImplementedError
+
+    def is_registered(self, display_id):  # type: ignore[no-untyped-def]
+        return False
 
     def flush(self) -> int:
         return 0

@@ -121,6 +121,15 @@ def test_unknown_method_raises_value_error() -> None:
         _compute(date(2026, 9, 23), 3.0738, 101.5167, method="nonexistent")
 
 
+@pytest.mark.parametrize("method", ["MWL", "ISNA", "Egyptian"])
+def test_contract_methods_fall_back_to_mabims_parameters(method: str) -> None:
+    day = date(2026, 9, 23)
+    base = _compute(day, 3.0738, 101.5167, "MABIMS")
+    other = _compute(day, 3.0738, 101.5167, method)
+    for marker in MARKERS:
+        assert getattr(other, marker) == getattr(base, marker)
+
+
 def test_compute_day_stamps_provenance() -> None:
     computed = _compute(date(2026, 9, 23), 3.0738, 101.5167)
     assert computed.source is ScheduleSource.CALC

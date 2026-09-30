@@ -61,6 +61,9 @@ class FullDisplayRepo:
     def record_seen(self, display_id: str, ip: str | None) -> None:
         raise NotImplementedError
 
+    def is_registered(self, display_id: str) -> bool:
+        raise NotImplementedError
+
     def flush(self) -> int:
         raise NotImplementedError
 
