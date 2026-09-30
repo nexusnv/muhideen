@@ -387,6 +387,24 @@ class SqliteDisplaySettingsRepo:
             if row["key"] in DISPLAY_SETTINGS_ALLOWLIST
         }
 
+    def group_dim_override(self, display_id: str) -> str | None:
+        """Group dim pin for one display id, else ``None``.
+
+        Raw stored string (unparsed — the domain Dim module owns parsing
+        and the range rule, so a corrupt group row slates exactly like a
+        corrupt display row). Unknown ids read back as ``None``.
+        """
+        with self._db.read() as conn:
+            row = conn.execute(
+                "SELECT g.dim_minutes_override AS dim FROM displays d"
+                " LEFT JOIN display_groups g ON g.name = d.group_name"
+                " WHERE d.id = ?",
+                (display_id,),
+            ).fetchone()
+        if row is None or row["dim"] is None:
+            return None
+        return str(row["dim"])
+
     def set_override(self, display_id: str, key: str, value: str) -> None:
         """Store one override after allowlist + value validation."""
         if key not in DISPLAY_SETTINGS_ALLOWLIST:

@@ -454,3 +454,47 @@ def test_friday_missing_jumuah_rule_raises_config_error() -> None:
         resolve_next_event(
             _friday_at(12, 20), _friday_day(), None, rules, _settings(), False
         )
+
+
+@pytest.mark.unit
+def test_pre_adhan_follows_per_prayer_countdown_override() -> None:
+    from dataclasses import replace
+
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    widened = replace(_settings(), countdown_before_adhan_overrides={"dhuhr": 10})
+    event = resolve_next_event(_at(12, 6), _day(), None, _rules(), widened, False)
+    assert event.state == PrayerState.PRE_ADHAN
+    assert event.next_prayer == MarkerName.DHUHR
+    # Default window (5m) still reports NORMAL at the same instant.
+    event = resolve_next_event(_at(12, 6), _day(), None, _rules(), _settings(), False)
+    assert event.state == PrayerState.NORMAL
+
+
+@pytest.mark.unit
+def test_pre_adhan_follows_global_countdown_default() -> None:
+    from dataclasses import replace
+
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    narrowed = replace(_settings(), countdown_before_adhan_min=2)
+    event = resolve_next_event(_at(12, 12), _day(), None, _rules(), narrowed, False)
+    assert event.state == PrayerState.NORMAL
+    event = resolve_next_event(_at(12, 14), _day(), None, _rules(), narrowed, False)
+    assert event.state == PrayerState.PRE_ADHAN
+
+
+@pytest.mark.unit
+def test_pre_adhan_window_agrees_with_main_stage_takeover() -> None:
+    from dataclasses import replace
+
+    from muhideen.domain.prayer_state import resolve_next_event
+    from muhideen.domain.stage import CountdownOccupant, resolve_stage
+
+    widened = replace(_settings(), countdown_before_adhan_overrides={"dhuhr": 10})
+    now = _at(12, 6)
+    event = resolve_next_event(now, _day(), None, _rules(), widened, False)
+    assert event.state == PrayerState.PRE_ADHAN
+    assert resolve_stage(now, _day(), widened, event, ()) == CountdownOccupant(
+        kind="adhan", prayer=MarkerName.DHUHR
+    )

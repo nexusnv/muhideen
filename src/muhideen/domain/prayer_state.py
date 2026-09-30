@@ -18,9 +18,8 @@ from muhideen.core.values import (
     PrayerState,
     Settings,
 )
+from muhideen.domain.countdown import countdown_window
 from muhideen.domain.iqamah import resolve_iqamah
-
-PRE_ADHAN_WINDOW = timedelta(minutes=5)
 
 
 def _adhan_dt(day_date: date, slot: time, tz: tzinfo | None) -> datetime:
@@ -165,7 +164,8 @@ def resolve_next_event(
             return _event(
                 PrayerState.IQAMAH_COUNTDOWN, prayer, adhan_at, iqamah_at, dim_until
             )
-        if adhan_at - PRE_ADHAN_WINDOW <= now < adhan_at:
+        pre_window = timedelta(minutes=countdown_window(settings, prayer))
+        if adhan_at - pre_window <= now < adhan_at:
             return _event(PrayerState.PRE_ADHAN, prayer, adhan_at, iqamah_at, dim_until)
     for prayer, adhan_at, dim_minutes in slots:
         if adhan_at > now:
