@@ -610,8 +610,9 @@ def create_app(deps: AppDeps) -> FastAPI:
     ) -> HeartbeatResponseDTO:
         """Buffer one display heartbeat with its source IP."""
         ip = request.client.host if request.client else None
+        registered = deps.display_repo.is_registered(payload.id)
         deps.display_repo.record_seen(payload.id, ip)
-        return HeartbeatResponseDTO(ok=True)
+        return HeartbeatResponseDTO(ok=True, registered=registered)
 
     @app.get("/api/version", response_model=VersionDTO)
     def version() -> VersionDTO:

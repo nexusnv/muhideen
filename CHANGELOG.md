@@ -130,6 +130,12 @@ versioning follows [Semantic Versioning](https://semver.org/).
 - `GET /api/next-event` and SSE `state` payloads gain a required
   `time_synced` boolean (FR-1.6 NTP health; additive — api stays `v1`,
   existing clients ignore the extra key).
+- `POST /api/displays/heartbeat` response gains `registered` (additive, api
+  stays `v1`): `false` for pending-approval IDs, which are still accepted
+  then dropped at flush; fixture + contract updated.
+- `delay_minutes` capped at 0–60 (DTO + domain guard, admin input `max=60`);
+  existing values ≤60 unaffected; larger stored values now fail loud
+  (`ConfigError`/422) instead of stretching countdowns silently.
 
 ### Fixed
 
@@ -140,3 +146,9 @@ versioning follows [Semantic Versioning](https://semver.org/).
   omit a prayer's rule, or declare a `fixed` rule without `fixed_time`;
   previously these saved (or 500'd on duplicates) and later 503'd
   `/api/next-event` and `/api/events`.
+- Non-MABIMS calc methods (`MWL`, `ISNA`, `Egyptian`) fall back to MABIMS
+  parameters instead of 404-ing on cache miss (the adapter comment already
+  promised the fallback).
+- A `fixed` iqamah time at or before its adhan now raises `ConfigError`
+  (503 on schedule reads until corrected) instead of silently inverting
+  the ADHAN/SALAH_DIM windows.

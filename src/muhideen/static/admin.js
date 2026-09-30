@@ -221,7 +221,7 @@
           delay.setAttribute("data-iqamah-delay", String(idx));
           delay.type = "number";
           delay.min = "0";
-          delay.max = "120";
+          delay.max = "60";
           delay.value = String(r.delay_minutes);
           delay.disabled = isFixed;
           delayCell.appendChild(delay);

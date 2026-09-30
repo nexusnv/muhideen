@@ -81,6 +81,9 @@ class _FakeDisplayRepo:
     def record_seen(self, display_id: str, ip: str | None) -> None:
         raise NotImplementedError
 
+    def is_registered(self, display_id: str) -> bool:
+        return True
+
     def flush(self) -> int:
         return 0
 

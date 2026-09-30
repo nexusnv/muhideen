@@ -32,4 +32,9 @@ def resolve_iqamah(
         return adhan_at + timedelta(minutes=rule.delay_minutes)
     if rule.fixed_time is None:
         raise ConfigError(f"fixed iqamah rule without time for prayer: {prayer.value}")
-    return datetime.combine(adhan_at.date(), rule.fixed_time, tzinfo=adhan_at.tzinfo)
+    resolved = datetime.combine(
+        adhan_at.date(), rule.fixed_time, tzinfo=adhan_at.tzinfo
+    )
+    if resolved <= adhan_at:
+        raise ConfigError(f"fixed iqamah at or before adhan for prayer: {prayer.value}")
+    return resolved

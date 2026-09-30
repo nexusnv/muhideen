@@ -131,6 +131,11 @@ class IqamahRule:
     delay_minutes: int = 10
     fixed_time: time | None = None
 
+    def __post_init__(self) -> None:
+        """Reject out-of-range delays: negative inverts the state machine."""
+        if not 0 <= self.delay_minutes <= 60:
+            raise ValueError(f"delay_minutes out of range 0-60: {self.delay_minutes}")
+
 
 DEFAULT_IQAMAH_RULES: tuple[IqamahRule, ...] = (
     IqamahRule(prayer=MarkerName.FAJR, mode="delay", delay_minutes=15),

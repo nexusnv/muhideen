@@ -136,6 +136,15 @@ def test_flush_updates_ip_and_last_seen_for_known_row(tmp_path: Path) -> None:
     assert row[1] == clock.now().isoformat()  # stamped by the injected Clock
 
 
+def test_is_registered_distinguishes_known_and_ghost_ids(
+    tmp_path: Path,
+) -> None:
+    db = _db(tmp_path)
+    repo = SqliteDisplayRepo(db, FakeClock())
+    assert repo.is_registered("HALL-01") is True
+    assert repo.is_registered("GHOST-99") is False
+
+
 def test_sqlite_display_repo_satisfies_port(tmp_path: Path) -> None:
     db = _db(tmp_path)
     clock = FakeClock()

@@ -60,7 +60,9 @@ def test_events_stream_blocks_well_formed() -> None:
 
 
 def test_events_stream_payloads_validate() -> None:
-    for lines in _blocks():
+    blocks = _blocks()
+    assert blocks, "events-stream.txt must contain at least one SSE block"
+    for lines in blocks:
         model = SSE_PAYLOAD_MODELS[_event_name(lines)]
         model.model_validate(_payload(lines))
 

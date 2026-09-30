@@ -56,10 +56,10 @@ Request body:
 Response body (`200 OK`):
 
 ```json
-{"ok": true}
+{"ok": true, "registered": true}
 ```
 
-Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-only; IDs pre-registered or pending-approval.
+Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-only; IDs pre-registered or pending-approval. `registered` is `false` for pending-approval IDs — the heartbeat is still accepted, then matches no row at flush and is dropped.
 
 ## `GET /api/version`
 
@@ -377,7 +377,7 @@ Admin session required. Sets group overrides (theme default, dim minutes 5–60,
 
 ## Errors
 
-Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, set a `fixed` rule without `fixed_time`, or set a theme knob outside its closed enum, leaving the stored settings unchanged. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
+Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, set a `fixed` rule without `fixed_time`, set `delay_minutes` outside 0–60, or set a theme knob outside its closed enum, leaving the stored settings unchanged. A `fixed` iqamah time at or before its adhan is stored but resolves to 503 (`ConfigError`) on schedule reads until corrected. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
 
 ## Versioning
 Additive fields allowed without bump — e.g. `time_synced` on `next-event` and SSE `state` payloads (slice 1A-8), and `stage` on SSE `tick` payloads. Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.
