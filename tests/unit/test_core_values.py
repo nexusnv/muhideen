@@ -141,6 +141,17 @@ def test_settings_hijri_offset_range(offset: int) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("delay", [-1, 0, 1, 60, 61])
+def test_iqamah_rule_delay_minutes_rejects_negative(delay: int) -> None:
+    if delay < 0:
+        with pytest.raises(ValueError, match="delay_minutes cannot be negative"):
+            IqamahRule(prayer=MarkerName.DHUHR, mode="delay", delay_minutes=delay)
+    else:
+        rule = IqamahRule(prayer=MarkerName.DHUHR, mode="delay", delay_minutes=delay)
+        assert rule.delay_minutes == delay
+
+
+@pytest.mark.unit
 def test_settings_default_iqamah_rules_match_prd_fr_1_4() -> None:
     from muhideen.core import DEFAULT_IQAMAH_RULES
 

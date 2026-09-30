@@ -155,6 +155,17 @@ def test_boundary_iqamah_rule_row_raises_config_error(tmp_path: Path) -> None:
         SqliteSettingsRepo(db).load()
 
 
+def test_negative_delay_rule_row_raises_config_error(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    _seed_identity(db)
+    with db.write() as conn:
+        conn.execute(
+            "UPDATE iqamah_rules SET delay_minutes = -5 WHERE prayer = 'dhuhr'"
+        )
+    with pytest.raises(ConfigError, match="delay_minutes"):
+        SqliteSettingsRepo(db).load()
+
+
 def test_emptied_rules_table_falls_back_to_defaults(tmp_path: Path) -> None:
     db = _db(tmp_path)
     _seed_identity(db)
