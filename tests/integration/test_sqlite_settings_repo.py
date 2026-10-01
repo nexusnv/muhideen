@@ -433,6 +433,25 @@ def test_display_settings_table_exists_after_migrate(tmp_path: Path) -> None:
     )
 
 
+def test_theme_mappers_share_seam_tables(tmp_path: Path) -> None:
+    from muhideen.adapters.sqlite_repo import (
+        _theme_from_kv,
+        _theme_pairs,
+    )
+    from muhideen.core.values import (
+        THEME_KV_KEYS,
+        ThemeSettings,
+        theme_from_kv,
+        theme_pairs,
+    )
+
+    assert _theme_pairs(ThemeSettings()) == theme_pairs(ThemeSettings())
+    assert _theme_from_kv({}) == theme_from_kv({})
+    assert frozenset([*THEME_KV_KEYS, "dim_minutes_override"]) == (
+        DISPLAY_SETTINGS_ALLOWLIST
+    )
+
+
 def test_display_settings_overrides_round_trip(tmp_path: Path) -> None:
     db = _db(tmp_path)
     with db.write() as conn:

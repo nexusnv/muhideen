@@ -15,7 +15,6 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import cast
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerificationError
@@ -24,19 +23,16 @@ from muhideen.core.errors import ConfigError, SettingsNotInitializedError
 from muhideen.core.ports import Clock
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
+    THEME_KV_KEYS,
     IqamahRule,
     MarkerName,
     PrayerDay,
     ScheduleSource,
     Settings,
-    ThemeBoundaryStrip,
-    ThemeClockFormat,
-    ThemeCountdownStyle,
-    ThemeDensity,
-    ThemeFont,
-    ThemeHijriForm,
-    ThemePalette,
     ThemeSettings,
+    theme_choices,
+    theme_from_kv,
+    theme_pairs,
 )
 
 
@@ -175,16 +171,7 @@ def _parse_optional_float(raw: str | None) -> float | None:
 
 
 DISPLAY_SETTINGS_ALLOWLIST: frozenset[str] = frozenset(
-    {
-        "theme.palette",
-        "theme.font",
-        "theme.countdown_style",
-        "theme.clock_format",
-        "theme.hijri_form",
-        "theme.boundary_strip",
-        "theme.density",
-        "dim_minutes_override",
-    }
+    (*THEME_KV_KEYS, "dim_minutes_override")
 )
 """Per-display override keys: the seven theme knobs plus the dim pin.
 
@@ -199,32 +186,12 @@ def _theme_from_kv(kv: dict[str, str]) -> ThemeSettings:
     Unknown stored values raise ``ValueError`` (mapped to ``ConfigError``
     by the caller), matching the countdown-key corruption handling.
     """
-    return ThemeSettings(
-        palette=cast(ThemePalette, kv.get("theme.palette", "classic-green")),
-        font=cast(ThemeFont, kv.get("theme.font", "outfit")),
-        countdown_style=cast(
-            ThemeCountdownStyle, kv.get("theme.countdown_style", "boxes")
-        ),
-        clock_format=cast(
-            ThemeClockFormat, kv.get("theme.clock_format", "24h-seconds")
-        ),
-        hijri_form=cast(ThemeHijriForm, kv.get("theme.hijri_form", "long")),
-        boundary_strip=cast(ThemeBoundaryStrip, kv.get("theme.boundary_strip", "show")),
-        density=cast(ThemeDensity, kv.get("theme.density", "comfortable")),
-    )
+    return theme_from_kv(kv)
 
 
 def _theme_pairs(theme: ThemeSettings) -> list[tuple[str, str]]:
     """Render one ThemeSettings as its seven ``theme.*`` settings rows."""
-    return [
-        ("theme.palette", theme.palette),
-        ("theme.font", theme.font),
-        ("theme.countdown_style", theme.countdown_style),
-        ("theme.clock_format", theme.clock_format),
-        ("theme.hijri_form", theme.hijri_form),
-        ("theme.boundary_strip", theme.boundary_strip),
-        ("theme.density", theme.density),
-    ]
+    return theme_pairs(theme)
 
 
 def _rules_from_rows(rows: list[sqlite3.Row]) -> tuple[IqamahRule, ...]:
@@ -425,6 +392,12 @@ class SqliteDisplaySettingsRepo:
     def _check_theme_value(key: str, value: str) -> None:
         """Validate one theme knob value through the closed-enum guards."""
         suffix = key.removeprefix("theme.")
+        try:
+            choices = theme_choices(suffix)
+        except KeyError as exc:
+            raise ValueError(f"invalid display theme override {key}={value!r}") from exc
+        if value not in choices:
+            raise ValueError(f"invalid display theme override {key}={value!r}")
         try:
             ThemeSettings(**{suffix: value})  # type: ignore[arg-type]
         except (ValueError, TypeError) as exc:

@@ -28,6 +28,7 @@ from pydantic import (
 )
 
 from muhideen.core.values import (
+    THEME_DEFAULTS,
     IqamahRule,
     MarkerName,
     NextEvent,
@@ -317,13 +318,19 @@ class IqamahRuleDTO(ContractDTO):
 class ThemeDTO(ContractDTO):
     """Closed-enum display knobs: every value outside the enum is 422."""
 
-    palette: ThemePalette = "classic-green"
-    font: ThemeFont = "outfit"
-    countdown_style: ThemeCountdownStyle = "boxes"
-    clock_format: ThemeClockFormat = "24h-seconds"
-    hijri_form: ThemeHijriForm = "long"
-    boundary_strip: ThemeBoundaryStrip = "show"
-    density: ThemeDensity = "comfortable"
+    palette: ThemePalette = cast(ThemePalette, THEME_DEFAULTS["palette"])
+    font: ThemeFont = cast(ThemeFont, THEME_DEFAULTS["font"])
+    countdown_style: ThemeCountdownStyle = cast(
+        ThemeCountdownStyle, THEME_DEFAULTS["countdown_style"]
+    )
+    clock_format: ThemeClockFormat = cast(
+        ThemeClockFormat, THEME_DEFAULTS["clock_format"]
+    )
+    hijri_form: ThemeHijriForm = cast(ThemeHijriForm, THEME_DEFAULTS["hijri_form"])
+    boundary_strip: ThemeBoundaryStrip = cast(
+        ThemeBoundaryStrip, THEME_DEFAULTS["boundary_strip"]
+    )
+    density: ThemeDensity = cast(ThemeDensity, THEME_DEFAULTS["density"])
 
     @classmethod
     def from_domain(cls, theme: ThemeSettings) -> ThemeDTO:

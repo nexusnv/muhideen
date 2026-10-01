@@ -53,6 +53,24 @@ def test_admin_js_defaults_cover_settings_dto() -> None:
     assert set(SettingsDTO.model_fields) <= keys
 
 
+def test_admin_js_defaults_match_theme_seam() -> None:
+    import re
+
+    from muhideen.core.values import THEME_DEFAULTS
+
+    js = (STATIC / "admin.js").read_text()
+    theme_block = js.split('"theme": {', 1)[1].split("}", 1)[0]
+    pairs = dict(re.findall(r'"([a-z_]+)":\s*"([^"]+)"', theme_block))
+    assert pairs == THEME_DEFAULTS
+
+
+def test_admin_js_bodies_share_defaults() -> None:
+    js = (STATIC / "admin.js").read_text()
+    assert "function settingsBodyFromDefaults(overrides)" in js
+    assert js.count("settingsBodyFromDefaults(") >= 2
+    assert js.count("JSON.parse(JSON.stringify(DEFAULTS))") == 1
+
+
 def test_admin_css_touch_targets() -> None:
     css = (STATIC / "admin.css").read_text()
     assert "min-height: 48px" in css

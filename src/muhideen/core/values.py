@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, cast
 
 
 class MarkerName(StrEnum):
@@ -171,6 +171,40 @@ ThemeDensity = Literal["comfortable", "compact"]
 """Closed density enum: default spacing or a compact variant."""
 
 
+THEME_DEFAULTS: dict[str, str] = {
+    "palette": "classic-green",
+    "font": "outfit",
+    "countdown_style": "boxes",
+    "clock_format": "24h-seconds",
+    "hijri_form": "long",
+    "boundary_strip": "show",
+    "density": "comfortable",
+}
+"""Single owner of theme-knob defaults; wire/rows/script read from here."""
+
+THEME_CHOICES: dict[str, tuple[str, ...]] = {
+    "palette": ("classic-green", "midnight", "sand"),
+    "font": ("outfit", "system"),
+    "countdown_style": ("boxes", "inline"),
+    "clock_format": ("24h", "24h-seconds", "12h"),
+    "hijri_form": ("long", "short"),
+    "boundary_strip": ("show", "hide"),
+    "density": ("comfortable", "compact"),
+}
+"""Single owner of closed-enum rules; guards read from here."""
+
+THEME_KV_KEYS: tuple[str, ...] = (
+    "theme.palette",
+    "theme.font",
+    "theme.countdown_style",
+    "theme.clock_format",
+    "theme.hijri_form",
+    "theme.boundary_strip",
+    "theme.density",
+)
+"""Stored-row keys for the seven theme knobs."""
+
+
 @dataclass(frozen=True, slots=True)
 class ThemeSettings:
     """Closed-enum display knobs: palette, font, and layout variants.
@@ -180,31 +214,72 @@ class ThemeSettings:
     instead of rendering an undefined variant.
     """
 
-    palette: ThemePalette = "classic-green"
-    font: ThemeFont = "outfit"
-    countdown_style: ThemeCountdownStyle = "boxes"
-    clock_format: ThemeClockFormat = "24h-seconds"
-    hijri_form: ThemeHijriForm = "long"
-    boundary_strip: ThemeBoundaryStrip = "show"
-    density: ThemeDensity = "comfortable"
+    palette: ThemePalette = cast(ThemePalette, THEME_DEFAULTS["palette"])
+    font: ThemeFont = cast(ThemeFont, THEME_DEFAULTS["font"])
+    countdown_style: ThemeCountdownStyle = cast(
+        ThemeCountdownStyle, THEME_DEFAULTS["countdown_style"]
+    )
+    clock_format: ThemeClockFormat = cast(
+        ThemeClockFormat, THEME_DEFAULTS["clock_format"]
+    )
+    hijri_form: ThemeHijriForm = cast(ThemeHijriForm, THEME_DEFAULTS["hijri_form"])
+    boundary_strip: ThemeBoundaryStrip = cast(
+        ThemeBoundaryStrip, THEME_DEFAULTS["boundary_strip"]
+    )
+    density: ThemeDensity = cast(ThemeDensity, THEME_DEFAULTS["density"])
 
     def __post_init__(self) -> None:
         """Reject any knob value outside its closed enum."""
-        allowed: dict[str, tuple[str, ...]] = {
-            "palette": ("classic-green", "midnight", "sand"),
-            "font": ("outfit", "system"),
-            "countdown_style": ("boxes", "inline"),
-            "clock_format": ("24h", "24h-seconds", "12h"),
-            "hijri_form": ("long", "short"),
-            "boundary_strip": ("show", "hide"),
-            "density": ("comfortable", "compact"),
-        }
-        for knob, choices in allowed.items():
+        for knob, choices in THEME_CHOICES.items():
             value = getattr(self, knob)
             if value not in choices:
                 raise ValueError(
                     f"{knob} must be one of {', '.join(choices)}: {value!r}"
                 )
+
+
+def theme_default(knob: str) -> str:
+    """Default value for one theme knob from the single owner table."""
+    return THEME_DEFAULTS[knob]
+
+
+def theme_choices(knob: str) -> tuple[str, ...]:
+    """Closed choices for one theme knob from the single owner table."""
+    return THEME_CHOICES[knob]
+
+
+def theme_pairs(theme: ThemeSettings) -> list[tuple[str, str]]:
+    """Render one ThemeSettings as its seven ``theme.*`` settings rows."""
+    return [(f"theme.{knob}", str(getattr(theme, knob))) for knob in THEME_DEFAULTS]
+
+
+def theme_from_kv(kv: dict[str, str]) -> ThemeSettings:
+    """Build ThemeSettings from settings rows; missing keys take defaults."""
+    return ThemeSettings(
+        palette=cast(ThemePalette, kv.get("theme.palette", THEME_DEFAULTS["palette"])),
+        font=cast(ThemeFont, kv.get("theme.font", THEME_DEFAULTS["font"])),
+        countdown_style=cast(
+            ThemeCountdownStyle,
+            kv.get("theme.countdown_style", THEME_DEFAULTS["countdown_style"]),
+        ),
+        clock_format=cast(
+            ThemeClockFormat,
+            kv.get("theme.clock_format", THEME_DEFAULTS["clock_format"]),
+        ),
+        hijri_form=cast(
+            ThemeHijriForm, kv.get("theme.hijri_form", THEME_DEFAULTS["hijri_form"])
+        ),
+        boundary_strip=cast(
+            ThemeBoundaryStrip,
+            kv.get("theme.boundary_strip", THEME_DEFAULTS["boundary_strip"]),
+        ),
+        density=cast(ThemeDensity, kv.get("theme.density", THEME_DEFAULTS["density"])),
+    )
+
+
+def theme_css_class(theme: ThemeSettings) -> str:
+    """Presentation class for one theme: palette, font, and density."""
+    return f"palette-{theme.palette} font-{theme.font} density-{theme.density}"
 
 
 @dataclass(frozen=True, slots=True)
