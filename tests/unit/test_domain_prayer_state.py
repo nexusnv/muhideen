@@ -498,3 +498,20 @@ def test_pre_adhan_window_agrees_with_main_stage_takeover() -> None:
     assert resolve_stage(now, _day(), widened, event, ()) == CountdownOccupant(
         kind="adhan", prayer=MarkerName.DHUHR
     )
+
+
+@pytest.mark.unit
+def test_late_night_carry_agrees_with_main_stage() -> None:
+    from dataclasses import replace
+
+    from muhideen.domain.prayer_state import resolve_next_event
+    from muhideen.domain.stage import ClockOccupant, resolve_stage
+
+    widest = replace(_settings(), countdown_before_adhan_overrides={"fajr": 90})
+    now = _at(23, 30)
+    event = resolve_next_event(now, _day(), None, _rules(), widest, False)
+    assert event.state == PrayerState.NORMAL
+    assert event.next_prayer == MarkerName.FAJR
+    # Widest legal window (90m) opens at 04:15, well after midnight, so the
+    # tomorrow-Fajr carry and the Stage takeover cannot disagree overnight.
+    assert resolve_stage(now, _day(), widest, event, ()) == ClockOccupant()

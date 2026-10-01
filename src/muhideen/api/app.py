@@ -720,19 +720,27 @@ def create_app(deps: AppDeps) -> FastAPI:
             result.stale,
             hijri_date=resolve_hijri(result.day.date, settings.hijri_offset),
         )
-        labels = card_iqamah_labels(
-            day_dto.date,
-            {
-                "fajr": day_dto.prayers.fajr,
-                "dhuhr": day_dto.prayers.dhuhr,
-                "asr": day_dto.prayers.asr,
-                "maghrib": day_dto.prayers.maghrib,
-                "isha": day_dto.prayers.isha,
-            },
-            event_dto.now.tzinfo,
-            {rule.prayer: rule for rule in settings.iqamah_rules},
-            event_dto.next_prayer,
-        )
+        try:
+            labels = card_iqamah_labels(
+                day_dto.date,
+                {
+                    "fajr": day_dto.prayers.fajr,
+                    "dhuhr": day_dto.prayers.dhuhr,
+                    "asr": day_dto.prayers.asr,
+                    "maghrib": day_dto.prayers.maghrib,
+                    "isha": day_dto.prayers.isha,
+                },
+                event_dto.now.tzinfo,
+                {rule.prayer: rule for rule in settings.iqamah_rules},
+                event_dto.next_prayer,
+            )
+        except ConfigError:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "error.html",
+                {"code": 503, "message": "Setup required"},
+                status_code=503,
+            )
         ctx = build_display_context(
             day=day_dto,
             event=event_dto,

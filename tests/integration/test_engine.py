@@ -447,7 +447,7 @@ def test_state_transition_publishes_state_before_tick() -> None:
     harness = _tick_harness(now)
     harness.engine.tick()
     harness.bus.events.clear()
-    # PRE_ADHAN starts exactly at adhan_at - PRE_ADHAN_WINDOW (12:15 - 5m).
+    # PRE_ADHAN starts exactly at adhan_at - countdown window (12:15 - 5m).
     harness.clock.current = datetime(2025, 10, 20, 12, 10, tzinfo=TZ)
     event = harness.engine.tick()
     assert event.state is PrayerState.PRE_ADHAN
