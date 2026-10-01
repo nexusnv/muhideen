@@ -19,6 +19,7 @@ from muhideen.core.ports import (
 )
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
+    AsrJuristic,
     IqamahRule,
     MarkerKind,
     MarkerName,
@@ -32,6 +33,7 @@ from muhideen.core.values import (
 
 __all__ = [
     "DEFAULT_IQAMAH_RULES",
+    "AsrJuristic",
     "CalcEngine",
     "Clock",
     "ConfigError",

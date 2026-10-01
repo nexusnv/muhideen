@@ -29,6 +29,7 @@ from pydantic import (
 
 from muhideen.core.values import (
     THEME_DEFAULTS,
+    AsrJuristic,
     IqamahRule,
     MarkerName,
     NextEvent,
@@ -376,6 +377,7 @@ class SettingsDTO(ContractDTO):
     lat: Annotated[float | None, Field(ge=-90, le=90)]
     lon: Annotated[float | None, Field(ge=-180, le=180)]
     method: MethodLiteral
+    asr_juristic: AsrJuristic = "shafi"
     boundary_countdown: bool
     calc_only: bool
     imsak_offset_min: Annotated[int, Field(ge=0, le=10)]
@@ -402,6 +404,7 @@ class SettingsDTO(ContractDTO):
             lat=settings.lat,
             lon=settings.lon,
             method=cast(MethodLiteral, settings.method),
+            asr_juristic=settings.asr_juristic,
             boundary_countdown=settings.boundary_countdown,
             calc_only=settings.calc_only,
             imsak_offset_min=settings.imsak_offset_min,
@@ -426,6 +429,7 @@ class SettingsDTO(ContractDTO):
             lat=self.lat,
             lon=self.lon,
             method=self.method,
+            asr_juristic=self.asr_juristic,
             boundary_countdown=self.boundary_countdown,
             calc_only=self.calc_only,
             imsak_offset_min=self.imsak_offset_min,

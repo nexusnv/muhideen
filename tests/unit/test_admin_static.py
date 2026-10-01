@@ -71,6 +71,12 @@ def test_admin_js_bodies_share_defaults() -> None:
     assert js.count("JSON.parse(JSON.stringify(DEFAULTS))") == 1
 
 
+def test_admin_js_wizard_and_save_carry_method_and_asr() -> None:
+    js = (STATIC / "admin.js").read_text()
+    assert 'getElementById("w-method").value' in js
+    assert 'getElementById("s-asr").value' in js
+
+
 def test_admin_css_touch_targets() -> None:
     css = (STATIC / "admin.css").read_text()
     assert "min-height: 48px" in css

@@ -28,7 +28,7 @@ Chromium kiosk ──pull──▶       └────────────
 
 Backend and frontend are separated by exactly one seam: the versioned JSON contract (`docs/api-contract.md`, executable as Pydantic DTOs, exemplified by `api/fixtures/`). The backend resolves *what* the state is (state, countdown targets, freshness); the frontend renders *how* it looks. The display never computes prayer times, never picks the next prayer, never guesses dim windows. Themes receive read-only data through a narrow seam and can never reach admin functions.
 
-Planned-but-not-yet-built pieces all sit above or beside that seam without moving it: the display and admin pages, the carousel manager, the theme pipeline, backup/restore UI, audio upload, display groups, CEC power control, and extra calculation methods (MWL/ISNA/Egyptian are named in the contract today; only MABIMS computes). None of them require contract breakage — the contract grows by additive fields.
+Planned-but-not-yet-built pieces all sit above or beside that seam without moving it: the display and admin pages, the carousel manager, the theme pipeline, backup/restore UI, audio upload, display groups, CEC power control, and extra calculation methods beyond the four pinned ones (MABIMS fitted custom angles; MWL/ISNA/Egyptian reference parameters with ISNA mapped to North America). None of them require contract breakage — the contract grows by additive fields.
 
 ## Why This Architecture
 

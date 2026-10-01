@@ -66,10 +66,22 @@ def _wizard_body(**overrides: Any) -> dict[str, Any]:
         "lat": 3.07,
         "lon": 101.69,
         "method": "MABIMS",
+        "asr_juristic": "shafi",
         "boundary_countdown": False,
         "calc_only": True,
         "imsak_offset_min": 10,
         "dhuha_offset_min": 28,
+        "countdown_before_adhan_min": 5,
+        "countdown_before_adhan_overrides": {},
+        "theme": {
+            "palette": "classic-green",
+            "font": "outfit",
+            "countdown_style": "boxes",
+            "clock_format": "24h-seconds",
+            "hijri_form": "long",
+            "boundary_strip": "show",
+            "density": "comfortable",
+        },
     }
     body.update(overrides)
     return body
@@ -133,6 +145,22 @@ def test_wizard_equivalent_body_accepted(
     client.post("/api/auth/setup", json={"password": "password123"})
     assert client.put("/api/settings", json=_wizard_body()).status_code == 200
     assert client.get("/api/settings").json()["masjid_name"] == "Masjid Baru"
+
+
+def test_wizard_body_carries_method(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    client.post("/api/auth/setup", json={"password": "password123"})
+    assert (
+        client.put("/api/settings", json=_wizard_body(method="MWL")).status_code == 200
+    )
+    assert client.get("/api/settings").json()["method"] == "MWL"
+
+
+def test_setup_page_has_method_select(client: TestClient) -> None:
+    html = client.get("/admin/setup").text
+    assert 'id="w-method"' in html
+    assert 'value="MWL"' in html
 
 
 def test_js_defaults_mirror_settings_dto(

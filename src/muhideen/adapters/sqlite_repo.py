@@ -15,6 +15,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import date, datetime, time
 from pathlib import Path
+from typing import cast
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerificationError
@@ -24,6 +25,7 @@ from muhideen.core.ports import Clock
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
     THEME_KV_KEYS,
+    AsrJuristic,
     IqamahRule,
     MarkerName,
     PrayerDay,
@@ -250,6 +252,7 @@ class SqliteSettingsRepo:
                 dim_minutes_default=int(kv.get("dim_minutes_default", "20")),
                 dim_minutes_jumuah=int(kv.get("dim_minutes_jumuah", "45")),
                 method=kv.get("method", "MABIMS"),
+                asr_juristic=cast(AsrJuristic, kv.get("asr_juristic", "shafi")),
                 boundary_countdown=_parse_bool(kv.get("boundary_countdown", "0")),
                 calc_only=_parse_bool(kv.get("calc_only", "0")),
                 imsak_offset_min=int(kv.get("imsak_offset_min", "10")),
@@ -279,6 +282,7 @@ class SqliteSettingsRepo:
             ("dim_minutes_default", str(settings.dim_minutes_default)),
             ("dim_minutes_jumuah", str(settings.dim_minutes_jumuah)),
             ("method", settings.method),
+            ("asr_juristic", settings.asr_juristic),
             ("imsak_offset_min", str(settings.imsak_offset_min)),
             ("dhuha_offset_min", str(settings.dhuha_offset_min)),
             (

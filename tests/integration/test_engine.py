@@ -78,7 +78,7 @@ class FakeCalc:
 
     def __init__(self, returned_zone: str = ZONE) -> None:
         self.returned_zone = returned_zone
-        self.calls: list[tuple[date, float, float, str, int, int]] = []
+        self.calls: list[tuple[date, float, float, str, int, int, str]] = []
         self.error: Exception | None = None
 
     def compute_day(
@@ -90,8 +90,11 @@ class FakeCalc:
         *,
         imsak_offset_min: int = 10,
         dhuha_offset_min: int = 28,
+        asr_juristic: str = "shafi",
     ) -> PrayerDay:
-        self.calls.append((day, lat, lon, method, imsak_offset_min, dhuha_offset_min))
+        self.calls.append(
+            (day, lat, lon, method, imsak_offset_min, dhuha_offset_min, asr_juristic)
+        )
         if self.error is not None:
             raise self.error
         return PrayerDay(
@@ -210,7 +213,7 @@ def test_cache_miss_uses_calc_and_normalises_zone(returned_zone: str) -> None:
     assert result.day.zone == ZONE
     assert result.day.source is ScheduleSource.CALC
     assert result.stale is True
-    assert calc.calls == [(DAY, 3.1, 101.6, "MABIMS", 10, 28)]
+    assert calc.calls == [(DAY, 3.1, 101.6, "MABIMS", 10, 28, "shafi")]
     assert harness.repo.last_known_calls == []
 
 
@@ -373,7 +376,7 @@ def test_midnight_tomorrow_from_calc() -> None:
     assert event.adhan_at == datetime.combine(
         date(2025, 10, 21), time(5, 50), tzinfo=TZ
     )
-    assert calc.calls == [(date(2025, 10, 21), 3.1, 101.6, "MABIMS", 10, 28)]
+    assert calc.calls == [(date(2025, 10, 21), 3.1, 101.6, "MABIMS", 10, 28, "shafi")]
 
 
 def test_midnight_without_tomorrow_uses_today_fajr() -> None:
@@ -502,4 +505,14 @@ def test_calc_receives_settings_offsets() -> None:
         calc=calc,
     )
     harness.engine.resolve_day(date(2026, 9, 23), ZONE, harness.clock.now())
-    assert calc.calls[0][4:] == (5, 20)
+    assert calc.calls[0][4:] == (5, 20, "shafi")
+
+
+def test_calc_receives_settings_asr_juristic() -> None:
+    calc = FakeCalc()
+    harness = _harness(
+        settings=_settings(lat=3.1, lon=101.6, asr_juristic="hanafi"),
+        calc=calc,
+    )
+    harness.engine.resolve_day(date(2026, 9, 23), ZONE, harness.clock.now())
+    assert calc.calls[0][6] == "hanafi"

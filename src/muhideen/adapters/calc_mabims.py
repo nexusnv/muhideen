@@ -1,6 +1,6 @@
 """On-device MABIMS prayer-time calculation (PRD FR-1.2's calc fallback).
 
-adhanpy's ``PrayerTimes`` surfaces 6 markers only (fajr, sunrise, dhuhr,
+al-falak's ``PrayerTimes`` surfaces 6 markers only (fajr, sunrise, dhuhr,
 asr, maghrib, isha); ``imsak`` and ``dhuha`` are derived offsets, not
 library outputs. ``sunrise`` maps to backend ``syuruq``.
 
@@ -9,9 +9,12 @@ isha 18.25°, Asr shadow factor 1 (Standard/MABIMS), dhuhr tune +2 min,
 imsak = fajr − ``imsak_offset_min`` (default 10, 0 disables/hides),
 dhuha = syuruq + ``dhuha_offset_min`` (default 28); fitted to JAKIM's
 published tables with pooled max|e| = 5 minutes (`GOLDEN_TOLERANCE_MIN`,
-asserted by the golden test). Computation library: adhanpy 1.0.5 (MIT,
+asserted by the golden test). Computation library: al-falak 1.0.0 (MIT,
 zero runtime deps) behind the `CalcEngine` port — swapping it is bounded
-rework pinned by those golden tests.
+rework pinned by those golden tests. al-falak is the maintained fork of
+the same batoulapps/adhan port lineage as adhanpy; library errors
+(``AlFalakError`` subclasses) are translated to ``ValueError`` at this
+boundary so the engine's cache-miss path is unchanged.
 
 `zone` is left empty on purpose: the engine stamps it (`engine.py`
 `replace(computed, zone=zone)`) because calc is zone-agnostic.
@@ -22,13 +25,17 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from adhanpy.calculation.CalculationParameters import CalculationParameters
-from adhanpy.calculation.Madhab import Madhab
-from adhanpy.calculation.PrayerAdjustments import PrayerAdjustments
-from adhanpy.PrayerTimes import PrayerTimes
+from alfalak import (
+    AlFalakError,
+    CalculationMethod,
+    CalculationParameters,
+    Madhab,
+    PrayerAdjustments,
+    PrayerTimes,
+)
 
 from muhideen.core.ports import Clock
-from muhideen.core.values import PrayerDay, ScheduleSource
+from muhideen.core.values import AsrJuristic, PrayerDay, ScheduleSource
 from muhideen.domain import ensure_ordered
 
 FAJR_ANGLE_DEG = 17.75
@@ -37,19 +44,44 @@ DHUHR_TUNE_MIN = 2
 DEFAULT_IMSAK_OFFSET_MIN = 10
 DEFAULT_DHUHA_OFFSET_MIN = 28
 
-# Only MABIMS parameters are pinned; other FR-1.3 contract methods (MWL,
-# ISNA, Egyptian) are future work and fall back to MABIMS parameters today.
-_SUPPORTED_METHODS = frozenset({"MABIMS", "MWL", "ISNA", "Egyptian"})
+# Only MABIMS parameters are fitted to JAKIM tables; the other FR-1.3
+# contract methods use al-falak's built-in reference parameters.
+# ISNA has no dedicated member: it is the North America method (15/15).
+_METHODS: dict[str, CalculationMethod | None] = {
+    "MABIMS": None,
+    "MWL": CalculationMethod.MUSLIM_WORLD_LEAGUE,
+    "ISNA": CalculationMethod.NORTH_AMERICA,
+    "Egyptian": CalculationMethod.EGYPTIAN,
+}
+
+_SUPPORTED_METHODS = frozenset(_METHODS)
 
 
-def _params() -> CalculationParameters:
-    """Assemble the pinned MABIMS parameter set (angles, asr factor, tunes)."""
-    params = CalculationParameters(
-        fajr_angle=FAJR_ANGLE_DEG,
-        isha_angle=ISHA_ANGLE_DEG,
-        adjustments=PrayerAdjustments(dhuhr=DHUHR_TUNE_MIN),
-    )
-    params.madhab = Madhab.SHAFI  # Asr shadow factor 1 (Standard / MABIMS)
+def _params(
+    method: str = "MABIMS", madhab: Madhab = Madhab.SHAFI
+) -> CalculationParameters:
+    """Assemble the parameter set for one contract method.
+
+    MABIMS keeps the fitted custom angles plus the dhuhr +2 tune (via
+    ``adjustments``); built-in methods use their own reference angles and
+    their own ``method_adjustments`` with no extra tune (both adjustment
+    kinds are summed by the library, so adding ours would double-count).
+
+    Raises ``ValueError`` for unknown method strings.
+    """
+    try:
+        builtin = _METHODS[method]
+    except KeyError:
+        raise ValueError(f"unsupported calculation method: {method}") from None
+    if builtin is None:
+        params = CalculationParameters(
+            fajr_angle=FAJR_ANGLE_DEG,
+            isha_angle=ISHA_ANGLE_DEG,
+            adjustments=PrayerAdjustments(dhuhr=DHUHR_TUNE_MIN),
+        )
+    else:
+        params = CalculationParameters(method=builtin)
+    params.madhab = madhab
     return params
 
 
@@ -75,14 +107,16 @@ class MabimsCalcEngine:
         *,
         imsak_offset_min: int = DEFAULT_IMSAK_OFFSET_MIN,
         dhuha_offset_min: int = DEFAULT_DHUHA_OFFSET_MIN,
+        asr_juristic: AsrJuristic = "shafi",
     ) -> PrayerDay:
-        """Compute one day's eight markers via adhanpy; `ValueError` if unknown.
+        """Compute one day's eight markers via al-falak; `ValueError` if unknown.
 
-        Contract methods beyond MABIMS (MWL, ISNA, Egyptian — FR-1.3 future
-        work) fall back to MABIMS parameters today; only truly unknown
+        Each contract method uses its own parameters: MABIMS keeps the
+        fitted custom angles, MWL/ISNA/Egyptian use al-falak's built-in
+        reference parameters (ISNA maps to North America). Truly unknown
         method strings are a cache miss (`ValueError`).
 
-        adhanpy supplies 6 markers (fajr, sunrise→syuruq, dhuhr, asr,
+        al-falak supplies 6 markers (fajr, sunrise→syuruq, dhuhr, asr,
         maghrib, isha); imsak/dhuha are derived offsets
         (``imsak = fajr − imsak_offset_min`` with 0 meaning disabled/hidden,
         ``dhuha = syuruq + dhuha_offset_min``). Out-of-range offsets are a
@@ -98,12 +132,23 @@ class MabimsCalcEngine:
             raise ValueError(f"imsak_offset_min out of range: {imsak_offset_min}")
         if not 15 <= dhuha_offset_min <= 30:
             raise ValueError(f"dhuha_offset_min out of range: {dhuha_offset_min}")
-        times = PrayerTimes(
-            (lat, lon),
-            datetime(day.year, day.month, day.day),
-            calculation_parameters=_params(),
-            time_zone=self._tz,
-        )
+        try:
+            madhab = {"shafi": Madhab.SHAFI, "hanafi": Madhab.HANAFI}[asr_juristic]
+        except KeyError:
+            raise ValueError(
+                f"unknown asr juristic setting: {asr_juristic!r}"
+            ) from None
+        try:
+            times = PrayerTimes(
+                (lat, lon),
+                datetime(day.year, day.month, day.day),
+                calculation_parameters=_params(method, madhab),
+                time_zone=self._tz,
+            )
+        except AlFalakError as exc:
+            # The engine treats ValueError as a cache miss: a broken
+            # calculator degrades the chain instead of 500-ing.
+            raise ValueError(str(exc)) from None
         fajr: time = times.fajr.time()
         syuruq: time = times.sunrise.time()
         imsak = (

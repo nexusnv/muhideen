@@ -197,6 +197,7 @@ class Engine:
                 settings.method,
                 imsak_offset_min=settings.imsak_offset_min,
                 dhuha_offset_min=settings.dhuha_offset_min,
+                asr_juristic=settings.asr_juristic,
             )
         except (MuhideenError, ValueError):
             return None  # a broken calculator is a cache miss, not a 500

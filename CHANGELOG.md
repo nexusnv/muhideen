@@ -8,6 +8,8 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Calc backend swap (issues #35/#36): `al-falak==1.0.0` replaces `adhanpy==1.0.5` (same adhan port lineage, maintained, typed); per-method reference parameters (`MABIMS` fitted custom angles, `MWL`/`ISNA`/`Egyptian` built-ins with `ISNA` mapped to North America); `asr_juristic` setting (`shafi`/`hanafi`, default `shafi`) end-to-end with wizard method parity.
+
 - Executable contract (slice 1A-3): Pydantic DTOs for `GET /api/prayer-day`,
   `GET /api/next-event`, SSE events, `POST /api/displays/heartbeat`, and
   `GET /api/version`, plus `create_app()` with the five contract routes

@@ -17,7 +17,7 @@ from muhideen.core.ports import (
     TimeSyncProbe,
     UserRepo,
 )
-from muhideen.core.values import PrayerDay, Settings
+from muhideen.core.values import AsrJuristic, PrayerDay, Settings
 
 
 class FullPrayerRepo:
@@ -93,6 +93,7 @@ class FullCalcEngine:
         *,
         imsak_offset_min: int = 10,
         dhuha_offset_min: int = 28,
+        asr_juristic: AsrJuristic = "shafi",
     ) -> PrayerDay:
         raise NotImplementedError
 
@@ -230,3 +231,4 @@ def test_calc_engine_port_accepts_offsets() -> None:
 
     params = inspect.signature(MabimsCalcEngine.compute_day).parameters
     assert "imsak_offset_min" in params and "dhuha_offset_min" in params
+    assert "asr_juristic" in params
