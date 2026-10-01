@@ -93,6 +93,8 @@ from muhideen.core.values import (
     PlaylistItem,
     marker_kind,
 )
+from muhideen.domain.dim import effective_dim
+from muhideen.domain.iqamah import card_iqamah_labels
 from muhideen.domain.stage import (
     PlaylistOccupant,
     resolve_stage,
@@ -651,10 +653,11 @@ def create_app(deps: AppDeps) -> FastAPI:
                 status_code=503,
             )
         effective_theme = settings.theme
-        dim_override: int | None = None
+        dim_minutes = settings.dim_minutes_default
         dim_source = "settings"
         if deps.database is not None:
-            overrides = SqliteDisplaySettingsRepo(deps.database).overrides_for(id)
+            display_store = SqliteDisplaySettingsRepo(deps.database)
+            overrides = display_store.overrides_for(id)
             theme_rows = {
                 key.removeprefix("theme."): value
                 for key, value in overrides.items()
@@ -665,27 +668,18 @@ def create_app(deps: AppDeps) -> FastAPI:
                     effective_theme = _replace(settings.theme, **theme_rows)
                 except (ValueError, TypeError):
                     return _invalid_display()
-            raw_dim = overrides.get("dim_minutes_override")
-            if raw_dim is None:
-                with deps.database.read() as conn:
-                    group_row = conn.execute(
-                        "SELECT g.dim_minutes_override AS dim FROM displays d"
-                        " LEFT JOIN display_groups g ON g.name = d.group_name"
-                        " WHERE d.id = ?",
-                        (id,),
-                    ).fetchone()
-                if group_row is not None and group_row["dim"] is not None:
-                    raw_dim = str(group_row["dim"])
-                    dim_source = "group"
-            if raw_dim is not None:
-                try:
-                    dim_override = int(raw_dim)
-                except ValueError:
-                    return _invalid_display()
-                if not 5 <= dim_override <= 60:
-                    return _invalid_display()
-                if dim_source == "settings":
-                    dim_source = "display"
+            display_raw = overrides.get("dim_minutes_override")
+            group_raw = (
+                display_store.group_dim_override(id) if display_raw is None else None
+            )
+            try:
+                dim_minutes, dim_source = effective_dim(
+                    display_raw=display_raw,
+                    group_raw=group_raw,
+                    default=settings.dim_minutes_default,
+                )
+            except ConfigError:
+                return _invalid_display()
         now = deps.clock.now()
         try:
             result = engine.resolve_day(now.date(), settings.zone, now)
@@ -705,7 +699,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                 status_code=503,
             )
         if (
-            dim_override is not None
+            dim_source != "settings"
             and event.iqamah_at is not None
             and event.dim_until is not None
         ):
@@ -713,7 +707,7 @@ def create_app(deps: AppDeps) -> FastAPI:
             # global state and other displays keep the configured dim.
             event = _replace(
                 event,
-                dim_until=event.iqamah_at + timedelta(minutes=dim_override),
+                dim_until=event.iqamah_at + timedelta(minutes=dim_minutes),
             )
         effective_settings = (
             settings
@@ -726,15 +720,33 @@ def create_app(deps: AppDeps) -> FastAPI:
             result.stale,
             hijri_date=resolve_hijri(result.day.date, settings.hijri_offset),
         )
+        try:
+            labels = card_iqamah_labels(
+                day_dto.date,
+                {
+                    "fajr": day_dto.prayers.fajr,
+                    "dhuhr": day_dto.prayers.dhuhr,
+                    "asr": day_dto.prayers.asr,
+                    "maghrib": day_dto.prayers.maghrib,
+                    "isha": day_dto.prayers.isha,
+                },
+                event_dto.now.tzinfo,
+                {rule.prayer: rule for rule in settings.iqamah_rules},
+                event_dto.next_prayer,
+            )
+        except ConfigError:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "error.html",
+                {"code": 503, "message": "Setup required"},
+                status_code=503,
+            )
         ctx = build_display_context(
             day=day_dto,
             event=event_dto,
             settings=effective_settings,
-            dim_minutes=(
-                dim_override
-                if dim_override is not None
-                else settings.dim_minutes_default
-            ),
+            iqamah=labels,
+            dim_minutes=dim_minutes,
             dim_source=dim_source,
         )
         return _TEMPLATES.TemplateResponse(request, "display.html", ctx)

@@ -5,12 +5,12 @@ Imports ``api.dto`` + ``core`` only — never ``domain``/``engine``/adapters.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, tzinfo
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from muhideen.api.dto import NextEventDTO, PrayerDayDTO
 from muhideen.core.errors import ConfigError
-from muhideen.core.values import IqamahRule, ScheduleSource, Settings
+from muhideen.core.values import ScheduleSource, Settings
 
 PRAYER_ORDER = ("fajr", "dhuhr", "asr", "maghrib", "isha")
 
@@ -63,27 +63,6 @@ def _hijri_long(hijri_date: str | None) -> str:
         return hijri_date
 
 
-def _iqamah_hhmm(
-    *, day_date: date, hhmm: str, tz: tzinfo | None, rule: IqamahRule
-) -> str:
-    """Per-card iqamah ``HH:MM`` from core rule data (mirrors domain delays).
-
-    Kept in ``views`` (``api.dto`` + ``core`` only) because the forbidden
-    contract bars ``domain`` imports here; semantics match
-    ``resolve_iqamah``: delay adds minutes, fixed pins a clock time.
-    """
-    adhan_at = datetime.combine(day_date, time.fromisoformat(hhmm), tzinfo=tz)
-    if rule.mode == "delay":
-        return (adhan_at + timedelta(minutes=rule.delay_minutes)).strftime("%H:%M")
-    if rule.fixed_time is None:
-        raise ConfigError(
-            f"fixed iqamah rule without time for prayer: {rule.prayer.value}"
-        )
-    return datetime.combine(adhan_at.date(), rule.fixed_time, tzinfo=tz).strftime(
-        "%H:%M"
-    )
-
-
 def _clock_str(now: datetime, clock_format: str) -> str:
     """Live-clock label for one theme clock format (presentation-only).
 
@@ -104,14 +83,18 @@ def build_display_context(
     day: PrayerDayDTO,
     event: NextEventDTO,
     settings: Settings,
+    iqamah: dict[str, str],
     dim_minutes: int | None = None,
     dim_source: str = "settings",
 ) -> dict[str, object]:
     """Map resolved DTOs to the display template context (no time reads).
 
-    ``dim_minutes``/``dim_source`` carry the display's effective dim
-    (per-display pin, else group pin, else the global default); the
-    caller resolves the precedence, the builder only renders it.
+    ``iqamah`` carries the per-card iqamah ``HH:MM`` labels computed
+    upstream through the domain Iqamah module; the builder renders them
+    and computes nothing. ``dim_minutes``/``dim_source`` carry the
+    display's effective dim (per-display pin, else group pin, else the
+    global default); the caller resolves the precedence, the builder
+    only renders it.
     """
     times = {
         "fajr": day.prayers.fajr,
@@ -125,14 +108,12 @@ def build_display_context(
     labels = (
         PRAYER_LABELS["jumuah"] if next_key == "jumuah" else PRAYER_LABELS[next_key]
     )
-    rules = {rule.prayer.value: rule for rule in settings.iqamah_rules}
     cards: list[dict[str, object]] = []
     for key in PRAYER_ORDER:
         is_jumuah_card = key == "dhuhr" and next_key == "jumuah"
-        rule_key = "jumuah" if is_jumuah_card else key
-        rule = rules.get(rule_key)
-        if rule is None:
-            raise ConfigError(f"missing iqamah rule for prayer: {rule_key}")
+        label = iqamah.get(key)
+        if label is None:
+            raise ConfigError(f"missing iqamah label for prayer: {key}")
         en, ar = PRAYER_LABELS["jumuah"] if is_jumuah_card else PRAYER_LABELS[key]
         cards.append(
             {
@@ -141,9 +122,7 @@ def build_display_context(
                 "ar": ar,
                 "time": times[key],
                 "is_next": key == next_key or is_jumuah_card,
-                "iqamah": _iqamah_hhmm(
-                    day_date=day.date, hhmm=times[key], tz=tzinfo, rule=rule
-                ),
+                "iqamah": label,
             }
         )
     bounds: list[dict[str, object]] = []
