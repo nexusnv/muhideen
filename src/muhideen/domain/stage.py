@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 from muhideen.core.errors import ConfigError
@@ -27,6 +27,13 @@ from muhideen.core.values import (
     Settings,
 )
 from muhideen.domain.countdown import countdown_window
+from muhideen.domain.playlist_window import (
+    is_in_window as _shared_in_window,
+)
+from muhideen.domain.playlist_window import (
+    parse_window,
+    window_datetimes,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,62 +72,20 @@ def stage_id(occupant: StageOccupant) -> str:
     raise AssertionError(f"unknown stage occupant: {occupant!r}")
 
 
-def _marker_dt(day: PrayerDay, marker: MarkerName, now: datetime) -> datetime:
-    """One marker's instant, anchored on ``now``'s date like the state machine."""
-    slot = day.dhuhr if marker is MarkerName.JUMUAH else getattr(day, marker.value)
-    return datetime.combine(now.date(), slot, tzinfo=now.tzinfo)
-
-
-def _parse_bound(raw: str, day: PrayerDay, now: datetime, offset_min: int) -> datetime:
-    """One window bound: an ``HH:MM`` clock time or a marker name with its
-    offset in minutes applied."""
-    candidate = raw.strip().lower()
-    try:
-        marker = MarkerName(candidate)
-    except ValueError:
-        marker = None
-    if marker is not None:
-        return _marker_dt(day, marker, now) + timedelta(minutes=offset_min)
-    try:
-        hour_raw, minute_raw = candidate.split(":")
-        slot = time(int(hour_raw), int(minute_raw))
-    except ValueError:
-        raise ConfigError(
-            f"playlist window bound is not HH:MM or marker: {raw!r}"
-        ) from None
-    return datetime.combine(now.date(), slot, tzinfo=now.tzinfo)
-
-
 def _playlist_window(
     playlist: Playlist, day: PrayerDay, now: datetime
 ) -> tuple[datetime | None, datetime | None]:
     """Active window for one playlist; ``None`` bounds stay open."""
-    if playlist.anchor_marker is not None:
-        base = _marker_dt(day, playlist.anchor_marker, now)
-        return (
-            base + timedelta(minutes=playlist.anchor_start_offset_min),
-            base + timedelta(minutes=playlist.anchor_stop_offset_min),
-        )
-    start = (
-        _parse_bound(playlist.window_start, day, now, playlist.anchor_start_offset_min)
-        if playlist.window_start is not None
-        else None
-    )
-    stop = (
-        _parse_bound(playlist.window_end, day, now, playlist.anchor_stop_offset_min)
-        if playlist.window_end is not None
-        else None
-    )
-    return start, stop
+    try:
+        typed = parse_window(playlist)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
+    return window_datetimes(typed, day, now)
 
 
 def _in_window(start: datetime | None, stop: datetime | None, now: datetime) -> bool:
     """Half-open ``[start, stop)`` membership; inverted bounds span midnight."""
-    if start is not None and stop is not None and stop <= start:
-        return now >= start or now < stop
-    if start is not None and now < start:
-        return False
-    return stop is None or now < stop
+    return _shared_in_window(start, stop, now)
 
 
 def resolve_stage(

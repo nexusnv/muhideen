@@ -14,6 +14,7 @@ import sqlite3
 from muhideen.adapters.sqlite_repo import Database
 from muhideen.core.errors import ConfigError
 from muhideen.core.values import MarkerName, Playlist, PlaylistItem
+from muhideen.domain.playlist_window import parse_window
 
 MAX_PLAYLIST_ITEMS = 50
 """Per-playlist item cap: larger saves are rejected before touching the DB."""
@@ -44,7 +45,7 @@ def _item_from_row(row: sqlite3.Row) -> PlaylistItem:
 def _playlist_from_rows(meta: sqlite3.Row, item_rows: list[sqlite3.Row]) -> Playlist:
     """Map one playlists row plus its ordered items to the value object."""
     try:
-        return Playlist(
+        playlist = Playlist(
             id=meta["id"],
             title=meta["title"],
             active=bool(meta["active"]),
@@ -57,6 +58,8 @@ def _playlist_from_rows(meta: sqlite3.Row, item_rows: list[sqlite3.Row]) -> Play
             max_cycles=meta["max_cycles"],
             items=tuple(_item_from_row(row) for row in item_rows),
         )
+        parse_window(playlist)
+        return playlist
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc
 

@@ -260,3 +260,17 @@ def test_corrupt_item_row_raises_config_error(tmp_path: Path) -> None:
         )
     with pytest.raises(ConfigError):
         repo.get("p1")
+
+
+def test_corrupt_window_bound_raises_config_error(tmp_path: Path) -> None:
+    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
+
+    db = _db(tmp_path)
+    repo = SqlitePlaylistRepo(db)
+    repo.save(_playlist("p1"))
+    with db.write() as conn:
+        conn.execute(
+            "UPDATE playlists SET window_start = 'bogus' WHERE id = 'p1'",
+        )
+    with pytest.raises(ConfigError, match="bogus"):
+        repo.get("p1")

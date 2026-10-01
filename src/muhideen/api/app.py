@@ -8,7 +8,6 @@ import binascii
 import json
 import logging
 import queue
-import re
 import sqlite3
 import threading
 import uuid
@@ -86,17 +85,19 @@ from muhideen.core.ports import (
     UserRepo,
 )
 from muhideen.core.values import (
-    MarkerKind,
     MarkerName,
     NextEvent,
     Playlist,
     PlaylistItem,
-    marker_kind,
+    PrayerDay,
+    Settings,
 )
 from muhideen.domain.dim import effective_dim
 from muhideen.domain.iqamah import card_iqamah_labels
+from muhideen.domain.playlist_window import parse_window
 from muhideen.domain.stage import (
     PlaylistOccupant,
+    StageOccupant,
     resolve_stage,
     stage_id,
 )
@@ -147,23 +148,6 @@ class PlaylistItemDTO(ContractDTO):
         )
 
 
-_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-"""Clock-window bound shape; anything else must name a time marker."""
-
-
-def _check_window_bound(raw: str | None, field: str) -> None:
-    """Reject window bounds that are neither HH:MM nor a marker name."""
-    if raw is None:
-        return
-    candidate = raw.strip()
-    if _HHMM_RE.match(candidate):
-        return
-    try:
-        MarkerName(candidate.lower())
-    except ValueError:
-        raise ValueError(f"{field} is not HH:MM or a marker name: {raw!r}") from None
-
-
 class PlaylistDTO(ContractDTO):
     """Full playlist body: schedule, cycling policy, and ordered items."""
 
@@ -207,8 +191,6 @@ class PlaylistDTO(ContractDTO):
         malformed window bounds (mapped to 422 by the routes).
         """
         pid = playlist_id if playlist_id is not None else self.id
-        _check_window_bound(self.window_start, "window_start")
-        _check_window_bound(self.window_end, "window_end")
         anchor: MarkerName | None = None
         if self.anchor_marker is not None:
             try:
@@ -217,11 +199,7 @@ class PlaylistDTO(ContractDTO):
                 raise ValueError(
                     f"unknown playlist anchor marker: {self.anchor_marker!r}"
                 ) from None
-            if marker_kind(anchor) is MarkerKind.BOUNDARY:
-                raise ValueError(
-                    f"boundary marker cannot anchor a playlist: {self.anchor_marker!r}"
-                )
-        return Playlist(
+        playlist = Playlist(
             id=pid,
             title=self.title,
             active=self.active,
@@ -234,6 +212,11 @@ class PlaylistDTO(ContractDTO):
             max_cycles=self.max_cycles,
             items=tuple(item.to_domain() for item in self.items),
         )
+        try:
+            parse_window(playlist)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from None
+        return playlist
 
 
 class PlaylistCreateDTO(PlaylistDTO):
@@ -323,6 +306,24 @@ def _frame(event: str, payload_json: str) -> str:
     return f"event: {event}\ndata: {payload_json}\n\n"
 
 
+def _preview_moment(
+    engine: Engine,
+    settings: Settings,
+    playlists: list[Playlist],
+    moment: datetime,
+    days: dict[date, PrayerDay] | None = None,
+) -> StageOccupant:
+    """Resolve one moment's Stage occupant through the shared tick seam."""
+    if days is not None and moment.date() in days:
+        day = days[moment.date()]
+    else:
+        day = engine.resolve_day(moment.date(), settings.zone, moment).day
+        if days is not None:
+            days[moment.date()] = day
+    event = engine.next_event(moment)
+    return resolve_stage(moment, day, settings, event, playlists)
+
+
 def _tick_stage(
     engine: Engine,
     settings_repo: SettingsRepo,
@@ -331,9 +332,8 @@ def _tick_stage(
 ) -> str:
     """Stage id for one tick, resolved at the event's own pinned now."""
     settings = settings_repo.load()
-    day = engine.resolve_day(event.now.date(), settings.zone, event.now).day
     playlists = playlist_repo.list() if playlist_repo is not None else []
-    return stage_id(resolve_stage(event.now, day, settings, event, playlists))
+    return stage_id(_preview_moment(engine, settings, playlists, event.now))
 
 
 @dataclass
@@ -997,20 +997,12 @@ def create_app(deps: AppDeps) -> FastAPI:
         settings = deps.settings_repo.load()
         now = deps.clock.now()
         playlists = store.list()
-        result = engine.resolve_day(now.date(), settings.zone, now)
-        event = engine.next_event(now)
-        current = resolve_stage(now, result.day, settings, event, playlists)
+        days: dict[date, PrayerDay] = {}
+        current = _preview_moment(engine, settings, playlists, now, days)
         wins: dict[str, str] = {}
-        days = {now.date(): result.day}
         for step in range(1, 289):
             moment = now + timedelta(minutes=5 * step)
-            day = days.get(moment.date())
-            if day is None:
-                day = engine.resolve_day(moment.date(), settings.zone, moment).day
-                days[moment.date()] = day
-            occupant = resolve_stage(
-                moment, day, settings, engine.next_event(moment), playlists
-            )
+            occupant = _preview_moment(engine, settings, playlists, moment, days)
             if (
                 isinstance(occupant, PlaylistOccupant)
                 and occupant.playlist_id not in wins

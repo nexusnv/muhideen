@@ -430,6 +430,15 @@ def test_invalid_window_bound_raises() -> None:
 
 
 @pytest.mark.unit
+def test_stage_shares_parser_with_write_seam() -> None:
+    import muhideen.domain.stage as stage
+
+    assert not hasattr(stage, "_parse_bound")
+    assert hasattr(stage, "_playlist_window")
+    assert hasattr(stage, "_in_window")
+
+
+@pytest.mark.unit
 def test_stage_id_strings() -> None:
     from muhideen.domain.stage import (
         ClockOccupant,
