@@ -15,18 +15,18 @@ from muhideen.core.values import ScheduleSource, Settings, theme_css_class
 PRAYER_ORDER = ("fajr", "dhuhr", "asr", "maghrib", "isha")
 
 PRAYER_LABELS = {
-    "fajr": ("Fajr", "الفجر"),
-    "dhuhr": ("Dhuhr", "الظهر"),
-    "asr": ("Asr", "العصر"),
-    "maghrib": ("Maghrib", "المغرب"),
-    "isha": ("Isha", "العشاء"),
-    "jumuah": ("Jumuah", "الجمعة"),
+    "fajr": ("Fajr", "الفجر", "Subuh"),
+    "dhuhr": ("Dhuhr", "الظهر", "Zohor"),
+    "asr": ("Asr", "العصر", "Asar"),
+    "maghrib": ("Maghrib", "المغرب", "Maghrib"),
+    "isha": ("Isha", "العشاء", "Isyak"),
+    "jumuah": ("Jumuah", "الجمعة", "Jumaat"),
 }
 
 BOUNDARY_LABELS = {
-    "imsak": ("Imsak", "الإمساك"),
-    "syuruq": ("Syuruq", "الشروق"),
-    "dhuha": ("Dhuha", "الضحى"),
+    "imsak": ("Imsak", "الإمساك", "Imsak"),
+    "syuruq": ("Syuruq", "الشروق", "Syuruk"),
+    "dhuha": ("Dhuha", "الضحى", "Dhuha"),
 }
 
 HIJRI_MONTHS = (
@@ -114,12 +114,13 @@ def build_display_context(
         label = iqamah.get(key)
         if label is None:
             raise ConfigError(f"missing iqamah label for prayer: {key}")
-        en, ar = PRAYER_LABELS["jumuah"] if is_jumuah_card else PRAYER_LABELS[key]
+        en, ar, bm = PRAYER_LABELS["jumuah"] if is_jumuah_card else PRAYER_LABELS[key]
         cards.append(
             {
                 "key": key,
                 "en": en,
                 "ar": ar,
+                "bm": bm,
                 "time": times[key],
                 "is_next": key == next_key or is_jumuah_card,
                 "iqamah": label,
@@ -136,7 +137,10 @@ def build_display_context(
     )
     for bound in bounds:
         key = str(bound["key"])
-        bound["en"] = BOUNDARY_LABELS[key][0]
+        en, ar, bm = BOUNDARY_LABELS[key]
+        bound["en"] = en
+        bound["ar"] = ar
+        bound["bm"] = bm
         bound["is_next"] = (
             event.next_boundary is not None and event.next_boundary == key
         )
@@ -172,6 +176,7 @@ def build_display_context(
         "dim_source": dim_source,
         "next_name_en": labels[0],
         "next_name_ar": labels[1],
+        "next_name_bm": labels[2],
         "next_time": event.adhan_at.strftime("%H:%M") if event.adhan_at else "",
         "next_tomorrow": adhan_date is not None and adhan_date > day.date,
         "cards": cards,

@@ -11,13 +11,13 @@
 <main id="overlay-adhan" class="hero-gradient glow-emerald">
   <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
   <div id="hero-eyebrow">THE CALL TO PRAYER</div>
-  <h1>{{ next_name_en }} · {{ next_name_ar }}</h1>
+  <h1>{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</h1>
   <div id="adhan-bar"><div id="adhan-fill" data-bar-start="{{ adhan_iso }}" data-bar-end="{{ adhan_end_iso }}"></div></div>
 </main>
 {% elif state == "SALAH_DIM" %}
 <main id="dim" data-dim-until="{{ dim_until_iso }}">
   <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
-  <h1>{{ next_name_en }} · {{ next_name_ar }}</h1>
+  <h1>{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</h1>
   <div id="dim-clock" class="js-clock">{{ clock }}</div>
   <div id="dim-bar"><div id="dim-fill" data-bar-start="{{ iqamah_iso }}" data-bar-end="{{ dim_until_iso }}"></div></div>
   <div id="dim-skip-hint">Hold 3s to restore (admin)</div>
@@ -34,7 +34,7 @@
   <div class="brand-corner">masjid <b>box</b></div>
   {% if state == "IQAMAH_COUNTDOWN" %}
   <div id="hero-next">
-    <div id="hero-eyebrow">IQAMAH FOR <span id="next-name">{{ next_name_en }} · {{ next_name_ar }}</span> IN</div>
+    <div id="hero-eyebrow">IQAMAH FOR <span id="next-name">{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</span> IN</div>
     <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
   </div>
   <div class="countdown-wrap giant{% if countdown_inline %} countdown-inline{% endif %}" data-cd-target="{{ iqamah_iso }}">
@@ -47,7 +47,7 @@
   <div id="iqamah-hero" data-countdown="{{ iqamah_iso }}" hidden></div>
   {% else %}
   <div id="hero-next">
-    <div id="hero-eyebrow">THE CALL TO PRAYER OF <span id="next-name">{{ next_name_en }} · {{ next_name_ar }}</span> IS IN</div>
+    <div id="hero-eyebrow">THE CALL TO PRAYER OF <span id="next-name">{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</span> IS IN</div>
     <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
   </div>
   <div class="countdown-wrap{% if countdown_inline %} countdown-inline{% endif %}" data-cd-target="{{ adhan_iso }}">
@@ -68,7 +68,7 @@
   <section id="cards">
     {% for c in cards %}
     <div class="card{% if c.is_next %} next{% endif %}" id="card-{{ c.key }}">
-      <div class="n">{{ c.en }} · {{ c.ar }}</div>
+      <div class="n">{{ c.en }} · {{ c.ar }} · {{ c.bm }}</div>
       <div class="t">{{ c.time }}</div>
       <div class="iqamah-row"><span class="iqamah-lab">IQAMAH</span><span id="iqamah-{{ c.key }}">{{ c.iqamah }}</span></div>
     </div>
@@ -78,7 +78,7 @@
 {% if show_boundaries %}
 <section id="bounds">
   {% for b in bounds %}
-  <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} {{ b.time }}</span>
+  <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} · {{ b.ar }} · {{ b.bm }} {{ b.time }}</span>
   {% endfor %}
   {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
 </section>
