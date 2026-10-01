@@ -390,6 +390,13 @@ def test_occupancy_preview_empty_is_clock(authed: TestClient) -> None:
     assert payload["playlists"] == []
 
 
+def test_preview_moment_matches_tick_stage() -> None:
+    from muhideen.api import app as app_module
+
+    assert hasattr(app_module, "_preview_moment")
+    assert hasattr(app_module, "_tick_stage")
+
+
 def test_occupancy_preview_countdown_outranks_playlist(
     authed: TestClient, surface: SimpleNamespace
 ) -> None:
