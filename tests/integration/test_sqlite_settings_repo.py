@@ -494,3 +494,32 @@ def test_display_settings_validates_values(tmp_path: Path, value: str) -> None:
         key = "theme.palette" if value in ("neon",) else "dim_minutes_override"
         with pytest.raises(ValueError):
             repo.set_override("HALL-01", key, value)
+
+
+def test_asr_juristic_round_trip(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0))
+    assert repo.load().asr_juristic == "shafi"
+    repo.save(
+        Settings(
+            masjid_name="Masjid Test",
+            zone="SGR01",
+            hijri_offset=0,
+            asr_juristic="hanafi",
+        )
+    )
+    assert repo.load().asr_juristic == "hanafi"
+
+
+def test_asr_juristic_corrupt_raises_config_error(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    _seed_identity(db)
+    with db.write() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            ("asr_juristic", "maliki"),
+        )
+    with pytest.raises(ConfigError):
+        SqliteSettingsRepo(db).load()

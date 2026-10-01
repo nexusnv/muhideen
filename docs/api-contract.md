@@ -69,7 +69,7 @@ Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-onl
 
 ## `GET /api/settings`
 
-Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the `boundary_countdown` opt-in and `calc_only` offline mode, the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default), and the `theme` knobs (closed enums: `palette` ∈ `classic-green|midnight|sand`, `font` ∈ `outfit|system`, `countdown_style` ∈ `boxes|inline`, `clock_format` ∈ `24h|24h-seconds|12h`, `hijri_form` ∈ `long|short`, `boundary_strip` ∈ `show|hide`, `density` ∈ `comfortable|compact`; anything else is 422). Per-display `display_settings` rows (`theme.*` plus `dim_minutes_override` 5–60) override the knobs and dim for one `GET /display?id=` render.
+Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the calculation `method` (`MABIMS`/`MWL`/`ISNA`/`Egyptian`) plus `asr_juristic` (`shafi`/`hanafi`, default `shafi`), the `boundary_countdown` opt-in and `calc_only` offline mode, the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default), and the `theme` knobs (closed enums: `palette` ∈ `classic-green|midnight|sand`, `font` ∈ `outfit|system`, `countdown_style` ∈ `boxes|inline`, `clock_format` ∈ `24h|24h-seconds|12h`, `hijri_form` ∈ `long|short`, `boundary_strip` ∈ `show|hide`, `density` ∈ `comfortable|compact`; anything else is 422). Per-display `display_settings` rows (`theme.*` plus `dim_minutes_override` 5–60) override the knobs and dim for one `GET /display?id=` render.
 
 ```json
 {
@@ -91,6 +91,7 @@ Admin session required. Full installation settings including the boundary offset
   "lat": 3.07,
   "lon": 101.69,
   "method": "MABIMS",
+  "asr_juristic": "shafi",
   "dhuha_offset_min": 28,
   "boundary_countdown": false,
   "calc_only": false,
@@ -132,6 +133,7 @@ Admin session required. Full-replace body; the response echoes the stored settin
   "lat": 3.07,
   "lon": 101.69,
   "method": "MABIMS",
+  "asr_juristic": "shafi",
   "dhuha_offset_min": 28,
   "boundary_countdown": false,
   "calc_only": false,

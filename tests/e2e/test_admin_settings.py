@@ -205,3 +205,24 @@ def test_theme_knob_outside_enum_is_422(
     payload["theme"] = {**payload["theme"], "density": "airy"}
     assert client.put("/api/settings", json=payload).status_code == 422
     assert client.get("/api/settings").json()["theme"]["palette"] == "midnight"
+
+
+def test_asr_juristic_round_trip_and_rejection(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    assert client.put("/api/settings", json=_settings_payload()).status_code == 200
+    assert client.get("/api/settings").json()["asr_juristic"] == "shafi"
+    assert (
+        client.put(
+            "/api/settings", json=_settings_payload(asr_juristic="hanafi")
+        ).status_code
+        == 200
+    )
+    assert client.get("/api/settings").json()["asr_juristic"] == "hanafi"
+    assert (
+        client.put(
+            "/api/settings", json=_settings_payload(asr_juristic="maliki")
+        ).status_code
+        == 422
+    )

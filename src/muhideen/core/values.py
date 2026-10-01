@@ -171,6 +171,10 @@ ThemeDensity = Literal["comfortable", "compact"]
 """Closed density enum: default spacing or a compact variant."""
 
 
+AsrJuristic = Literal["shafi", "hanafi"]
+"""Asr juristic setting: Standard (Shafi, shadow factor 1) or Hanafi (factor 2)."""
+
+
 THEME_DEFAULTS: dict[str, str] = {
     "palette": "classic-green",
     "font": "outfit",
@@ -296,6 +300,7 @@ class Settings:
     lat: float | None = None
     lon: float | None = None
     method: str = "MABIMS"
+    asr_juristic: AsrJuristic = "shafi"
     boundary_countdown: bool = False
     calc_only: bool = False
     imsak_offset_min: int = 10
@@ -310,6 +315,8 @@ class Settings:
         """Enforce offset/coordinate guards and non-empty rule coverage."""
         if not -2 <= self.hijri_offset <= 2:
             raise ValueError(f"hijri_offset out of range: {self.hijri_offset}")
+        if self.asr_juristic not in ("shafi", "hanafi"):
+            raise ValueError(f"unknown asr juristic setting: {self.asr_juristic!r}")
         if (self.lat is None) != (self.lon is None):
             raise ValueError("lat and lon must be set together")
         if self.lat is not None and not -90 <= self.lat <= 90:

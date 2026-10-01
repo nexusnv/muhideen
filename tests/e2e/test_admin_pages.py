@@ -135,6 +135,22 @@ def test_wizard_equivalent_body_accepted(
     assert client.get("/api/settings").json()["masjid_name"] == "Masjid Baru"
 
 
+def test_wizard_body_carries_method(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    client.post("/api/auth/setup", json={"password": "password123"})
+    assert (
+        client.put("/api/settings", json=_wizard_body(method="MWL")).status_code == 200
+    )
+    assert client.get("/api/settings").json()["method"] == "MWL"
+
+
+def test_setup_page_has_method_select(client: TestClient) -> None:
+    html = client.get("/admin/setup").text
+    assert 'id="w-method"' in html
+    assert 'value="MWL"' in html
+
+
 def test_js_defaults_mirror_settings_dto(
     surface: SimpleNamespace, client: TestClient
 ) -> None:

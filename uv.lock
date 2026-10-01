@@ -7,12 +7,12 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "adhanpy"
-version = "1.0.5"
+name = "al-falak"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/82/77/1111dd754493146e14d4a28ac4df114cc5c74b4317055a300dd5df3df1bf/adhanpy-1.0.5.tar.gz", hash = "sha256:9b6670f8d563d61d4f9fde581165cbe692c917710b694cb6b5e2130ffc902680", size = 13738, upload-time = "2023-01-28T15:54:32.095Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/b5/601a9e0f9788c72eaeb2bfa6d62ed32403474be8497a18375240305b6bd2/al_falak-1.0.0.tar.gz", hash = "sha256:1983700643781791b3b3abe436e248b3ee28c6b8f4a5b9bc2f6e4e1116897a35", size = 147975, upload-time = "2026-10-01T11:19:02.629Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/5b/89b9705b95aca620409574ce4bd4e013c33d3fd1f27edf7ab9b9ca40a18c/adhanpy-1.0.5-py3-none-any.whl", hash = "sha256:79d765e6b91d3b29448988691957b51109faaca10f498eb3656e7c87b56b6066", size = 17178, upload-time = "2023-01-28T15:54:30.328Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/e2/d2d44262219a0fd5bd7f7a19a4a0b8856f605dbca6bcc5e366d268e5c2e1/al_falak-1.0.0-py3-none-any.whl", hash = "sha256:1fd90599f8da65dd40cb183de63eb3523465060e8dd9a26d4130be54b0c29ed4", size = 26306, upload-time = "2026-10-01T11:19:01.357Z" },
 ]
 
 [[package]]
@@ -757,7 +757,7 @@ name = "muhideen"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "adhanpy" },
+    { name = "al-falak" },
     { name = "apscheduler" },
     { name = "argon2-cffi" },
     { name = "fastapi" },
@@ -782,7 +782,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adhanpy", specifier = "==1.0.5" },
+    { name = "al-falak", specifier = "==1.0.0" },
     { name = "apscheduler", specifier = ">=3.10" },
     { name = "argon2-cffi", specifier = ">=23.1" },
     { name = "fastapi", specifier = ">=0.115" },

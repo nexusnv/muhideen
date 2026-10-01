@@ -87,6 +87,13 @@
           </select></div>
         </div>
         <div class="setting-row">
+          <div class="setting-info"><h4>Asr juristic setting</h4><p>Shadow-length rule for Asr. Shafi is standard; Hanafi prays later.</p></div>
+          <div class="setting-control control-narrow"><select id="s-asr">
+            <option value="shafi"{% if current.asr_juristic == "shafi" %} selected{% endif %}>Shafi (standard)</option>
+            <option value="hanafi"{% if current.asr_juristic == "hanafi" %} selected{% endif %}>Hanafi</option>
+          </select></div>
+        </div>
+        <div class="setting-row">
           <div class="setting-info"><h4>Coordinates</h4><p>Used only when the offline engine calculates. Leave blank to follow the zone timetable.</p></div>
           <div class="setting-control">
             <label class="field"><span class="lbl">Lat (−90…90)</span><input id="s-lat" type="number" step="any" min="-90" max="90" placeholder="3.07" value="{{ current.lat if current.lat is not none else '' }}"></label>

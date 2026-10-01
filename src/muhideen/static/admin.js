@@ -27,6 +27,7 @@
     "lat": null,
     "lon": null,
     "method": "MABIMS",
+    "asr_juristic": "shafi",
     "boundary_countdown": false,
     "calc_only": false,
     "imsak_offset_min": 10,
@@ -125,6 +126,7 @@
         masjid_name: document.getElementById("w-name").value,
         zone: document.getElementById("w-zone").value,
         calc_only: document.getElementById("w-calc").checked,
+        method: document.getElementById("w-method").value,
         lat: num("w-lat"),
         lon: num("w-lon"),
         hijri_offset: Number(document.getElementById("w-hijri").value)
@@ -316,6 +318,7 @@
       lat: num("s-lat"),
       lon: num("s-lon"),
       method: document.getElementById("s-method").value,
+      asr_juristic: document.getElementById("s-asr").value,
       boundary_countdown: document.getElementById("s-boundary").checked,
       calc_only: document.getElementById("s-calc").checked,
       imsak_offset_min: Number(document.getElementById("s-imsak").value),

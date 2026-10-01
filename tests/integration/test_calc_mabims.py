@@ -122,12 +122,36 @@ def test_unknown_method_raises_value_error() -> None:
 
 
 @pytest.mark.parametrize("method", ["MWL", "ISNA", "Egyptian"])
-def test_contract_methods_fall_back_to_mabims_parameters(method: str) -> None:
+def test_contract_methods_use_own_parameters(method: str) -> None:
     day = date(2026, 9, 23)
     base = _compute(day, 3.0738, 101.5167, "MABIMS")
     other = _compute(day, 3.0738, 101.5167, method)
-    for marker in MARKERS:
-        assert getattr(other, marker) == getattr(base, marker)
+    assert any(getattr(other, marker) != getattr(base, marker) for marker in MARKERS), (
+        f"{method} unexpectedly identical to MABIMS"
+    )
+
+
+def test_isna_maps_to_north_america_angles() -> None:
+    isna = _compute(date(2026, 9, 23), 3.0738, 101.5167, "ISNA")
+    mwl = _compute(date(2026, 9, 23), 3.0738, 101.5167, "MWL")
+    assert _mins(isna.fajr) > _mins(mwl.fajr)
+
+
+def test_dhuhr_tune_applies_to_mabims_only() -> None:
+    from alfalak import CalculationMethod, PrayerTimes
+
+    naive = datetime(2026, 9, 23)
+    mwl_times = PrayerTimes(
+        (3.0738, 101.5167),
+        naive,
+        calculation_method=CalculationMethod.MUSLIM_WORLD_LEAGUE,
+        time_zone=TZ,
+    )
+    mwl = _compute(date(2026, 9, 23), 3.0738, 101.5167, "MWL")
+    assert (mwl.dhuhr.hour, mwl.dhuhr.minute) == (
+        mwl_times.dhuhr.hour,
+        mwl_times.dhuhr.minute,
+    )
 
 
 def test_compute_day_stamps_provenance() -> None:
@@ -180,3 +204,17 @@ def test_out_of_range_offsets_raise() -> None:
         engine.compute_day(
             date(2026, 9, 23), 3.0738, 101.5167, "MABIMS", dhuha_offset_min=14
         )
+
+
+def test_asr_juristic_hanafi_delays_asr_only() -> None:
+    from muhideen.adapters.calc_mabims import MabimsCalcEngine
+
+    engine = MabimsCalcEngine(clock=FakeClock(PINNED), tz=TZ)
+    day = date(2026, 9, 23)
+    shafi = engine.compute_day(day, 3.0738, 101.5167, "MABIMS", asr_juristic="shafi")
+    hanafi = engine.compute_day(day, 3.0738, 101.5167, "MABIMS", asr_juristic="hanafi")
+    assert _mins(hanafi.asr) > _mins(shafi.asr)
+    for marker in MARKERS:
+        if marker == "asr":
+            continue
+        assert getattr(hanafi, marker) == getattr(shafi, marker)

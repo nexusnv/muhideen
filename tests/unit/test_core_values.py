@@ -637,3 +637,13 @@ def test_theme_seam_tables_are_single_source() -> None:
         ("theme.boundary_strip", "show"),
         ("theme.density", "comfortable"),
     ]
+
+
+@pytest.mark.unit
+def test_settings_asr_juristic_defaults_to_shafi() -> None:
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+    assert settings.asr_juristic == "shafi"
+    other = Settings(
+        masjid_name="M", zone="SGR01", hijri_offset=0, asr_juristic="hanafi"
+    )
+    assert settings != other

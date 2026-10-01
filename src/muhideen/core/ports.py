@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
-from muhideen.core.values import PrayerDay, Settings
+from muhideen.core.values import AsrJuristic, PrayerDay, Settings
 
 
 @runtime_checkable
@@ -93,6 +93,7 @@ class CalcEngine(Protocol):
         *,
         imsak_offset_min: int = 10,
         dhuha_offset_min: int = 28,
+        asr_juristic: AsrJuristic = "shafi",
     ) -> PrayerDay:
         """Compute one day's markers; raise ``ValueError`` for unknown methods."""
         ...
