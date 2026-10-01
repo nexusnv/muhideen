@@ -181,6 +181,24 @@ def test_body_class_carries_palette_font_density() -> None:
     assert ctx["body_class"] == "palette-midnight font-system density-compact"
 
 
+def test_body_class_matches_seam() -> None:
+    from muhideen.core.values import theme_css_class
+
+    day, event = _dtos(KL)
+    settings = _settings_with_theme(
+        palette="midnight",
+        font="system",
+        countdown_style="inline",
+        clock_format="12h",
+        hijri_form="short",
+        boundary_strip="hide",
+        density="compact",
+    )
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert ctx["body_class"] == theme_css_class(settings.theme)
+    assert ctx["body_class"] == "palette-midnight font-system density-compact"
+
+
 def test_dim_context_defaults_to_settings() -> None:
 
     day, event = _dtos(KL)

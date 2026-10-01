@@ -599,3 +599,41 @@ def test_settings_carries_default_theme() -> None:
     )
     assert settings != other
     assert isinstance(hash(other), int)
+
+
+@pytest.mark.unit
+def test_theme_seam_tables_are_single_source() -> None:
+    from muhideen.core.values import (
+        THEME_CHOICES,
+        THEME_DEFAULTS,
+        ThemeSettings,
+        theme_from_kv,
+        theme_pairs,
+    )
+
+    assert THEME_DEFAULTS == {
+        "palette": "classic-green",
+        "font": "outfit",
+        "countdown_style": "boxes",
+        "clock_format": "24h-seconds",
+        "hijri_form": "long",
+        "boundary_strip": "show",
+        "density": "comfortable",
+    }
+    assert THEME_CHOICES["palette"] == ("classic-green", "midnight", "sand")
+    assert THEME_CHOICES["font"] == ("outfit", "system")
+    assert THEME_CHOICES["countdown_style"] == ("boxes", "inline")
+    assert THEME_CHOICES["clock_format"] == ("24h", "24h-seconds", "12h")
+    assert THEME_CHOICES["hijri_form"] == ("long", "short")
+    assert THEME_CHOICES["boundary_strip"] == ("show", "hide")
+    assert THEME_CHOICES["density"] == ("comfortable", "compact")
+    assert theme_from_kv({}) == ThemeSettings()
+    assert theme_pairs(ThemeSettings()) == [
+        ("theme.palette", "classic-green"),
+        ("theme.font", "outfit"),
+        ("theme.countdown_style", "boxes"),
+        ("theme.clock_format", "24h-seconds"),
+        ("theme.hijri_form", "long"),
+        ("theme.boundary_strip", "show"),
+        ("theme.density", "comfortable"),
+    ]

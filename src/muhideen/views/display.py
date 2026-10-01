@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from muhideen.api.dto import NextEventDTO, PrayerDayDTO
 from muhideen.core.errors import ConfigError
-from muhideen.core.values import ScheduleSource, Settings
+from muhideen.core.values import ScheduleSource, Settings, theme_css_class
 
 PRAYER_ORDER = ("fajr", "dhuhr", "asr", "maghrib", "isha")
 
@@ -165,9 +165,7 @@ def build_display_context(
         "clock_format": theme.clock_format,
         "countdown_inline": theme.countdown_style == "inline",
         "show_boundaries": theme.boundary_strip == "show",
-        "body_class": (
-            f"palette-{theme.palette} font-{theme.font} density-{theme.density}"
-        ),
+        "body_class": theme_css_class(theme),
         "dim_minutes": (
             dim_minutes if dim_minutes is not None else settings.dim_minutes_default
         ),

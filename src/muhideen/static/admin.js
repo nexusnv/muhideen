@@ -47,6 +47,13 @@
     var v = document.getElementById(id).value;
     return v === "" ? null : Number(v);
   }
+  function settingsBodyFromDefaults(overrides) {
+    var body = JSON.parse(JSON.stringify(DEFAULTS));
+    for (var k in overrides) {
+      if (Object.prototype.hasOwnProperty.call(overrides, k)) body[k] = overrides[k];
+    }
+    return body;
+  }
   var loginGo = document.getElementById("login-go");
   var loginPw = document.getElementById("password");
   function doLogin() {
@@ -114,13 +121,14 @@
         document.getElementById("w-next").disabled = false;
         return;
       }
-      var body = JSON.parse(JSON.stringify(DEFAULTS));
-      body.masjid_name = document.getElementById("w-name").value;
-      body.zone = document.getElementById("w-zone").value;
-      body.calc_only = document.getElementById("w-calc").checked;
-      body.lat = num("w-lat");
-      body.lon = num("w-lon");
-      body.hijri_offset = Number(document.getElementById("w-hijri").value);
+      var body = settingsBodyFromDefaults({
+        masjid_name: document.getElementById("w-name").value,
+        zone: document.getElementById("w-zone").value,
+        calc_only: document.getElementById("w-calc").checked,
+        lat: num("w-lat"),
+        lon: num("w-lon"),
+        hijri_offset: Number(document.getElementById("w-hijri").value)
+      });
       function putSettings() {
         fetch("/api/settings", {
           method: "PUT",
@@ -297,7 +305,7 @@
       var field = document.getElementById("s-cd-" + prayers[i]);
       if (field && field.value !== "") overrides[prayers[i]] = Number(field.value);
     }
-    var body = {
+    var body = settingsBodyFromDefaults({
       masjid_name: document.getElementById("s-name").value,
       zone: document.getElementById("s-zone").value,
       hijri_offset: Number(document.getElementById("s-hijri").value),
@@ -323,7 +331,7 @@
         boundary_strip: document.getElementById("s-theme-boundary").value,
         density: document.getElementById("s-theme-density").value
       }
-    };
+    });
     fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
