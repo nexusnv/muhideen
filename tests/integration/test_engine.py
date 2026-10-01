@@ -505,4 +505,14 @@ def test_calc_receives_settings_offsets() -> None:
         calc=calc,
     )
     harness.engine.resolve_day(date(2026, 9, 23), ZONE, harness.clock.now())
-    assert calc.calls[0][4:6] == (5, 20)
+    assert calc.calls[0][4:] == (5, 20, "shafi")
+
+
+def test_calc_receives_settings_asr_juristic() -> None:
+    calc = FakeCalc()
+    harness = _harness(
+        settings=_settings(lat=3.1, lon=101.6, asr_juristic="hanafi"),
+        calc=calc,
+    )
+    harness.engine.resolve_day(date(2026, 9, 23), ZONE, harness.clock.now())
+    assert calc.calls[0][6] == "hanafi"

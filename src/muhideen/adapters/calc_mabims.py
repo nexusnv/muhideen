@@ -44,11 +44,6 @@ DHUHR_TUNE_MIN = 2
 DEFAULT_IMSAK_OFFSET_MIN = 10
 DEFAULT_DHUHA_OFFSET_MIN = 28
 
-# Only MABIMS parameters are pinned; other FR-1.3 contract methods (MWL,
-# ISNA, Egyptian) are future work and fall back to MABIMS parameters today.
-_SUPPORTED_METHODS = frozenset({"MABIMS", "MWL", "ISNA", "Egyptian"})
-
-
 # Only MABIMS parameters are fitted to JAKIM tables; the other FR-1.3
 # contract methods use al-falak's built-in reference parameters.
 # ISNA has no dedicated member: it is the North America method (15/15).
@@ -58,6 +53,8 @@ _METHODS: dict[str, CalculationMethod | None] = {
     "ISNA": CalculationMethod.NORTH_AMERICA,
     "Egyptian": CalculationMethod.EGYPTIAN,
 }
+
+_SUPPORTED_METHODS = frozenset(_METHODS)
 
 
 def _params(
@@ -69,8 +66,13 @@ def _params(
     ``adjustments``); built-in methods use their own reference angles and
     their own ``method_adjustments`` with no extra tune (both adjustment
     kinds are summed by the library, so adding ours would double-count).
+
+    Raises ``ValueError`` for unknown method strings.
     """
-    builtin = _METHODS[method]
+    try:
+        builtin = _METHODS[method]
+    except KeyError:
+        raise ValueError(f"unsupported calculation method: {method}") from None
     if builtin is None:
         params = CalculationParameters(
             fajr_angle=FAJR_ANGLE_DEG,
@@ -109,8 +111,9 @@ class MabimsCalcEngine:
     ) -> PrayerDay:
         """Compute one day's eight markers via al-falak; `ValueError` if unknown.
 
-        Contract methods beyond MABIMS (MWL, ISNA, Egyptian — FR-1.3 future
-        work) fall back to MABIMS parameters today; only truly unknown
+        Each contract method uses its own parameters: MABIMS keeps the
+        fitted custom angles, MWL/ISNA/Egyptian use al-falak's built-in
+        reference parameters (ISNA maps to North America). Truly unknown
         method strings are a cache miss (`ValueError`).
 
         al-falak supplies 6 markers (fajr, sunrise→syuruq, dhuhr, asr,

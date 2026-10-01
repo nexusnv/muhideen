@@ -1,12 +1,15 @@
 """MABIMS calc engine guards (slice 1A-6, Task 4).
 
-Pinned scope: **9 functions / 19 items** — golden vectors ×6 (each asserts
-all 8 markers ≤ `GOLDEN_TOLERANCE_MIN`), exact `imsak = fajr − 10` ×6,
-ordering, unknown-method `ValueError`, provenance, port, imsak-zero
-disable, dhuha-offset honored, out-of-range offsets raise. The 6 vectors
-come from the recorded source research; tolerance is 5 (fixed-28 default;
-SGR01 dhuha +5 worst case); golden times load from the committed year
-payloads (same provenance).
+Golden MABIMS vectors ×6 (each asserts all 8 markers ≤
+`GOLDEN_TOLERANCE_MIN`), exact `imsak = fajr − 10` ×6, ordering,
+unknown-method `ValueError`, per-method reference parameters (MWL/ISNA/
+Egyptian differ from MABIMS on user-visible markers; ISNA pinned to North
+America; dhuhr +2 tune MABIMS-only), Asr juristic, provenance, port,
+imsak-zero disable, dhuha-offset honored, out-of-range offsets raise,
+invalid Asr juristic raises, library errors surface as `ValueError`.
+The 6 vectors come from the recorded source research; tolerance is 5
+(fixed-28 default; SGR01 dhuha +5 worst case); golden times load from the
+committed year payloads (same provenance).
 """
 
 import json
@@ -63,8 +66,10 @@ def _engine() -> Any:
     return MabimsCalcEngine(clock=FakeClock(PINNED), tz=TZ)
 
 
-def _compute(day: date, lat: float, lon: float, method: str = "MABIMS") -> PrayerDay:
-    return _engine().compute_day(day, lat, lon, method)
+def _compute(
+    day: date, lat: float, lon: float, method: str = "MABIMS", **kwargs: Any
+) -> PrayerDay:
+    return _engine().compute_day(day, lat, lon, method, **kwargs)
 
 
 def _mins(t: time) -> int:
@@ -126,25 +131,57 @@ def test_contract_methods_use_own_parameters(method: str) -> None:
     day = date(2026, 9, 23)
     base = _compute(day, 3.0738, 101.5167, "MABIMS")
     other = _compute(day, 3.0738, 101.5167, method)
-    assert any(getattr(other, marker) != getattr(base, marker) for marker in MARKERS), (
-        f"{method} unexpectedly identical to MABIMS"
-    )
+    # Minute precision: user-visible difference on fajr/dhuhr/isha, not a
+    # seconds-only artifact from derived imsak/dhuha.
+    assert any(
+        _mins(getattr(other, marker)) != _mins(getattr(base, marker))
+        for marker in ("fajr", "dhuhr", "isha")
+    ), f"{method} unexpectedly identical to MABIMS"
 
 
 def test_isna_maps_to_north_america_angles() -> None:
+    from alfalak import CalculationMethod, CalculationParameters, PrayerTimes
+
+    naive = datetime(2026, 9, 23)
+    direct = PrayerTimes(
+        (3.0738, 101.5167),
+        naive,
+        calculation_parameters=CalculationParameters(
+            method=CalculationMethod.NORTH_AMERICA
+        ),
+        time_zone=TZ,
+    )
     isna = _compute(date(2026, 9, 23), 3.0738, 101.5167, "ISNA")
+    assert (isna.fajr, isna.isha) == (direct.fajr.time(), direct.isha.time())
+    # Guards mis-wires that a bare `>` would miss: MABIMS fajr (17.75°)
+    # is also later than MWL (18.0°), so `>` alone passes for MABIMS.
     mwl = _compute(date(2026, 9, 23), 3.0738, 101.5167, "MWL")
+    mabims = _compute(date(2026, 9, 23), 3.0738, 101.5167, "MABIMS")
     assert _mins(isna.fajr) > _mins(mwl.fajr)
+    assert isna.fajr != mabims.fajr
 
 
 def test_dhuhr_tune_applies_to_mabims_only() -> None:
-    from alfalak import CalculationMethod, PrayerTimes
+    from alfalak import (
+        CalculationMethod,
+        CalculationParameters,
+        PrayerAdjustments,
+        PrayerTimes,
+    )
+
+    from muhideen.adapters.calc_mabims import (
+        DHUHR_TUNE_MIN,
+        FAJR_ANGLE_DEG,
+        ISHA_ANGLE_DEG,
+    )
 
     naive = datetime(2026, 9, 23)
     mwl_times = PrayerTimes(
         (3.0738, 101.5167),
         naive,
-        calculation_method=CalculationMethod.MUSLIM_WORLD_LEAGUE,
+        calculation_parameters=CalculationParameters(
+            method=CalculationMethod.MUSLIM_WORLD_LEAGUE
+        ),
         time_zone=TZ,
     )
     mwl = _compute(date(2026, 9, 23), 3.0738, 101.5167, "MWL")
@@ -152,6 +189,23 @@ def test_dhuhr_tune_applies_to_mabims_only() -> None:
         mwl_times.dhuhr.hour,
         mwl_times.dhuhr.minute,
     )
+    mabims_times = PrayerTimes(
+        (3.0738, 101.5167),
+        naive,
+        calculation_parameters=CalculationParameters(
+            fajr_angle=FAJR_ANGLE_DEG,
+            isha_angle=ISHA_ANGLE_DEG,
+            adjustments=PrayerAdjustments(dhuhr=DHUHR_TUNE_MIN),
+        ),
+        time_zone=TZ,
+    )
+    mabims = _compute(date(2026, 9, 23), 3.0738, 101.5167, "MABIMS")
+    assert (mabims.dhuhr.hour, mabims.dhuhr.minute) == (
+        mabims_times.dhuhr.hour,
+        mabims_times.dhuhr.minute,
+    )
+    # The tune difference is user-visible (MABIMS +2 vs built-in +1).
+    assert _mins(mabims.dhuhr) != _mins(mwl.dhuhr)
 
 
 def test_compute_day_stamps_provenance() -> None:
@@ -218,3 +272,29 @@ def test_asr_juristic_hanafi_delays_asr_only() -> None:
         if marker == "asr":
             continue
         assert getattr(hanafi, marker) == getattr(shafi, marker)
+
+
+def test_invalid_asr_juristic_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="unknown asr juristic"):
+        _compute(
+            date(2026, 9, 23),
+            3.0738,
+            101.5167,
+            "MABIMS",
+            asr_juristic="maliki",  # type: ignore[arg-type]
+        )
+
+
+def test_params_unknown_method_raises_value_error() -> None:
+    from muhideen.adapters.calc_mabims import _params
+
+    with pytest.raises(ValueError, match="unsupported calculation method"):
+        _params("BOGUS")
+
+
+def test_library_error_surfaces_as_value_error() -> None:
+    from muhideen.adapters.calc_mabims import MabimsCalcEngine
+
+    engine = MabimsCalcEngine(clock=FakeClock(PINNED), tz=TZ)
+    with pytest.raises(ValueError):
+        engine.compute_day(date(2026, 9, 23), 100.0, 101.5167, "MABIMS")

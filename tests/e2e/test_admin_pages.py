@@ -66,10 +66,22 @@ def _wizard_body(**overrides: Any) -> dict[str, Any]:
         "lat": 3.07,
         "lon": 101.69,
         "method": "MABIMS",
+        "asr_juristic": "shafi",
         "boundary_countdown": False,
         "calc_only": True,
         "imsak_offset_min": 10,
         "dhuha_offset_min": 28,
+        "countdown_before_adhan_min": 5,
+        "countdown_before_adhan_overrides": {},
+        "theme": {
+            "palette": "classic-green",
+            "font": "outfit",
+            "countdown_style": "boxes",
+            "clock_format": "24h-seconds",
+            "hijri_form": "long",
+            "boundary_strip": "show",
+            "density": "comfortable",
+        },
     }
     body.update(overrides)
     return body
