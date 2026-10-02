@@ -63,6 +63,18 @@ def _hijri_long(hijri_date: str | None) -> str:
         return hijri_date
 
 
+def twelve_h(hhmm: str) -> tuple[str, str]:
+    """Split ``HH:MM`` into 12-hour ``(h:MM, AM/PM)`` parts (presentation-only).
+
+    The hour carries no leading zero (``05:48`` → ``("5:48", "AM")``);
+    midnight/noon map to 12 (``00:15`` → ``("12:15", "AM")``).
+    """
+    hour_s, minute_s = hhmm.split(":")
+    hour = int(hour_s)
+    suffix = "AM" if hour < 12 else "PM"
+    return f"{hour % 12 or 12}:{minute_s}", suffix
+
+
 def _clock_str(now: datetime, clock_format: str) -> str:
     """Live-clock label for one theme clock format (presentation-only).
 
@@ -119,6 +131,8 @@ def build_display_context(
         if label is None:
             raise ConfigError(f"missing iqamah label for prayer: {key}")
         en, ar, bm = PRAYER_LABELS["jumuah"] if is_jumuah_card else PRAYER_LABELS[key]
+        time12, period = twelve_h(times[key])
+        iqamah12, iqamah_period = twelve_h(label)
         cards.append(
             {
                 "key": key,
@@ -126,8 +140,12 @@ def build_display_context(
                 "ar": ar,
                 "bm": bm,
                 "time": times[key],
+                "time12": time12,
+                "period": period,
                 "is_next": key == next_key or is_jumuah_card,
                 "iqamah": label,
+                "iqamah12": iqamah12,
+                "iqamah_period": iqamah_period,
             }
         )
     bounds: list[dict[str, object]] = []
@@ -145,6 +163,9 @@ def build_display_context(
         bound["en"] = en
         bound["ar"] = ar
         bound["bm"] = bm
+        time12, period = twelve_h(str(bound["time"]))
+        bound["time12"] = time12
+        bound["period"] = period
         bound["is_next"] = (
             event.next_boundary is not None and event.next_boundary == key
         )
@@ -160,16 +181,37 @@ def build_display_context(
     adhan_date = event.adhan_at.date() if event.adhan_at else None
     theme = settings.theme
     hijri_long = _hijri_long(day.hijri_date)
+    # Linux-only ``%-d`` (no Windows target; repo is Debian-only per ADR-0005).
+    gregorian_long = day.date.strftime("%A %-d %B %Y")
+    # Design-locked 12h clock parts for the new screen; ``clock`` keeps the
+    # theme-knob value byte-identical (JS overrides it live anyway).
+    clock_hm, clock_period = twelve_h(event.now.strftime("%H:%M"))
+    adhan_iso = event.adhan_at.isoformat() if event.adhan_at else ""
+    iqamah_iso = event.iqamah_at.isoformat() if event.iqamah_at else ""
+    # Countdown wording mirrors the ``pre_note`` state precedent: the ticking
+    # block is gated on ``countdown_target`` by the template, so a missing
+    # target blanks the label too.
+    if event.state in ("NORMAL", "PRE_ADHAN"):
+        countdown_label, countdown_target = f"{labels[0]} call to prayer in", adhan_iso
+    elif event.state in ("IQAMAH_COUNTDOWN", "ADHAN"):
+        countdown_label, countdown_target = "Iqomah in", iqamah_iso
+    else:
+        countdown_label, countdown_target = "", ""
+    if not countdown_target:
+        countdown_label = ""
     return {
         "masjid_name": settings.masjid_name,
         "zone": settings.zone,
         "gregorian": day.date.isoformat(),
+        "gregorian_long": gregorian_long,
         "hijri": day.hijri_date or "—",
         "hijri_long": hijri_long,
         "hijri_display": (
             hijri_long if theme.hijri_form == "long" else (day.hijri_date or "—")
         ),
         "clock": _clock_str(event.now, theme.clock_format),
+        "clock_hm": clock_hm,
+        "clock_period": clock_period,
         "clock_format": theme.clock_format,
         "countdown_inline": theme.countdown_style == "inline",
         "show_boundaries": theme.boundary_strip == "show",
@@ -194,9 +236,11 @@ def build_display_context(
         "now_iso": event.now.isoformat(),
         "state": event.state,
         "next_key": next_key,
-        "adhan_iso": event.adhan_at.isoformat() if event.adhan_at else "",
+        "adhan_iso": adhan_iso,
         "pre_note": f"Preparing for {labels[0]}" if event.state == "PRE_ADHAN" else "",
-        "iqamah_iso": event.iqamah_at.isoformat() if event.iqamah_at else "",
+        "countdown_label": countdown_label,
+        "countdown_target": countdown_target,
+        "iqamah_iso": iqamah_iso,
         "dim_until_iso": event.dim_until.isoformat() if event.dim_until else "",
         "adhan_end_iso": (
             (event.adhan_at + timedelta(seconds=settings.adhan_duration_s)).isoformat()

@@ -58,7 +58,7 @@ def test_backup_preserves_data_and_user_version(tmp_path: Path) -> None:
     assert backup_to(db, dest) == dest
     conn = sqlite3.connect(dest)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
         assert "masjid_name" in _settings_kv(conn)
         prayer_count = conn.execute("SELECT COUNT(*) FROM prayer_times").fetchone()
         assert prayer_count is not None and prayer_count[0] == 1

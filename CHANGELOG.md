@@ -104,6 +104,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Theme `clock_format` default flips to `12h` (the display screen itself is design-locked 12h and ignores the knob; it stays settable for future surfaces). **Migration note**: `0004_theme_clock_default` rewrites seeded `theme.clock_format = '24h-seconds'` rows to `'12h'` (explicit `24h` choices untouched; pre-1.0, no production installs — downgrading flips `12h` rows back).
 - Debian-only v1.0 retarget (issue #46): Raspberry Pi support deferred to a future version (see ADR-0005); kiosk-mode Chromium launch + power-loss/clock-fault behavior documented; human QA checklist at `docs/qa/v1.0-debian-checklist.md`.
 
 - UI is English-only (BM toggle removed); Arabic prayer names stay invariant; `locales/en.json` seeds file-based translation. Display hero marks tomorrow Fajr.

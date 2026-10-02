@@ -130,10 +130,14 @@ def test_countdown_style_maps_to_template_flag() -> None:
 def test_clock_format_variants() -> None:
 
     day, event = _dtos(KL)
-    assert _ctx(day=day, event=event, settings=_settings())["clock"] == "12:20:00"
+    assert _ctx(day=day, event=event, settings=_settings())["clock"] == "12:20 PM"
     ctx = _ctx(day=day, event=event, settings=_settings_with_theme(clock_format="24h"))
     assert ctx["clock"] == "12:20"
     assert ctx["clock_format"] == "24h"
+    ctx = _ctx(
+        day=day, event=event, settings=_settings_with_theme(clock_format="24h-seconds")
+    )
+    assert ctx["clock"] == "12:20:00"
     ctx = _ctx(day=day, event=event, settings=_settings_with_theme(clock_format="12h"))
     assert ctx["clock"] == "12:20 PM"
 
@@ -261,3 +265,88 @@ def test_context_carries_adhan_audio() -> None:
     )
     assert ctx["adhan_audio_url"] == "/static/uploads/adhan.mp3"
     assert ctx["adhan_volume"] == 40
+
+
+def test_twelve_h_vectors() -> None:
+    from muhideen.views.display import twelve_h
+
+    assert twelve_h("05:48") == ("5:48", "AM")
+    assert twelve_h("12:45") == ("12:45", "PM")
+    assert twelve_h("00:15") == ("12:15", "AM")
+    assert twelve_h("18:05") == ("6:05", "PM")
+
+
+def test_cards_carry_12h_keys() -> None:
+    from muhideen.views.display import twelve_h
+
+    day, event = _dtos(KL)
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    by_key = {c["key"]: c for c in ctx["cards"]}
+    assert (by_key["fajr"]["time12"], by_key["fajr"]["period"]) == ("5:45", "AM")
+    assert (by_key["dhuhr"]["time12"], by_key["dhuhr"]["period"]) == ("12:15", "PM")
+    assert (by_key["asr"]["time12"], by_key["asr"]["period"]) == ("3:30", "PM")
+    assert (by_key["maghrib"]["time12"], by_key["maghrib"]["period"]) == ("6:05", "PM")
+    assert (by_key["isha"]["time12"], by_key["isha"]["period"]) == ("7:25", "PM")
+    for card in ctx["cards"]:
+        assert twelve_h(str(card["iqamah"])) == (
+            card["iqamah12"],
+            card["iqamah_period"],
+        )
+
+
+def test_bounds_carry_12h_keys() -> None:
+    day, event = _dtos(KL)
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    by_key = {b["key"]: b for b in ctx["bounds"]}
+    assert (by_key["imsak"]["time12"], by_key["imsak"]["period"]) == ("5:35", "AM")
+    assert (by_key["syuruq"]["time12"], by_key["syuruq"]["period"]) == ("6:55", "AM")
+    assert (by_key["dhuha"]["time12"], by_key["dhuha"]["period"]) == ("7:25", "AM")
+
+
+def test_gregorian_long() -> None:
+    day, event = _dtos(KL)
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    assert ctx["gregorian_long"] == "Monday 20 October 2025"
+
+
+def test_clock_fallback_split_keys_and_clock_untouched() -> None:
+    day, event = _dtos(KL)
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    assert ctx["clock"] == "12:20 PM"
+    assert ctx["clock_hm"] == "12:20"
+    assert ctx["clock_period"] == "PM"
+    early = event.model_copy(update={"now": datetime(2025, 10, 20, 5, 45, tzinfo=KL)})
+    early_ctx = _ctx(day=day, event=early, settings=_settings())
+    assert early_ctx["clock_hm"] == "5:45"
+    assert early_ctx["clock_period"] == "AM"
+
+
+def test_countdown_label_target_matrix() -> None:
+    day, event = _dtos(KL)
+    settings = _settings()
+
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert ctx["countdown_label"] == "Dhuhr call to prayer in"
+    assert ctx["countdown_target"] == event.adhan_at.isoformat()
+
+    pre = event.model_copy(update={"state": "PRE_ADHAN"})
+    pre_ctx = _ctx(day=day, event=pre, settings=settings)
+    assert pre_ctx["countdown_label"] == "Dhuhr call to prayer in"
+    assert pre_ctx["countdown_target"] == event.adhan_at.isoformat()
+
+    iqamah_at = datetime(2025, 10, 20, 12, 30, tzinfo=KL)
+    for state in ("IQAMAH_COUNTDOWN", "ADHAN"):
+        with_iqamah = event.model_copy(update={"state": state, "iqamah_at": iqamah_at})
+        iq_ctx = _ctx(day=day, event=with_iqamah, settings=settings)
+        assert iq_ctx["countdown_label"] == "Iqomah in"
+        assert iq_ctx["countdown_target"] == iqamah_at.isoformat()
+
+    missing = event.model_copy(update={"state": "IQAMAH_COUNTDOWN", "iqamah_at": None})
+    missing_ctx = _ctx(day=day, event=missing, settings=settings)
+    assert missing_ctx["countdown_label"] == ""
+    assert missing_ctx["countdown_target"] == ""
+
+    dim = event.model_copy(update={"state": "SALAH_DIM"})
+    dim_ctx = _ctx(day=day, event=dim, settings=settings)
+    assert dim_ctx["countdown_label"] == ""
+    assert dim_ctx["countdown_target"] == ""

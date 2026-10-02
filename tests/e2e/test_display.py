@@ -1,15 +1,20 @@
-"""E2E display surface: regions, cards, banners, slates (slice 1B-1)."""
+"""E2E display surface: mockup regions, 12h timetable, countdown (redesign)."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import re
+from datetime import datetime, time, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from muhideen.core.values import PrayerDay, ScheduleSource
+
 pytestmark = pytest.mark.e2e
+
+PRAYER_KEYS = ("fajr", "dhuhr", "asr", "maghrib", "isha")
 
 
 def _seed_settings(surface: SimpleNamespace, **overrides: Any) -> None:
@@ -34,7 +39,27 @@ def _advance_to(surface: SimpleNamespace, target: datetime) -> None:
     surface.clock.advance(delta)
 
 
-def test_display_renders_all_regions(
+def _seed_jakim_day(surface: SimpleNamespace) -> None:
+    """Seed a fresh cached JAKIM row so no banner fires (banner-absent case)."""
+    surface.prayer_repo.save_day(
+        PrayerDay(
+            date=surface.clock.now().date(),
+            zone="SGR01",
+            imsak=time(5, 38),
+            fajr=time(5, 48),
+            syuruq=time(6, 58),
+            dhuha=time(7, 28),
+            dhuhr=time(13, 0),
+            asr=time(16, 35),
+            maghrib=time(19, 8),
+            isha=time(20, 28),
+            source=ScheduleSource.JAKIM,
+            fetched_at=surface.clock.now() - timedelta(hours=1),
+        )
+    )
+
+
+def test_display_renders_mockup_regions(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
     _seed_settings(surface)
@@ -42,30 +67,58 @@ def test_display_renders_all_regions(
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     html = response.text
-    for region in ("hdr", "hero-clock", "hero-next", "cards", "bounds", "ftr"):
-        assert f'id="{region}"' in html
-    assert html.count('class="card next"') == 1
+    # Hidden JS anchor + state class on the body.
+    assert 'id="hero-clock"' in html
+    assert "hidden data-now=" in html
+    assert "state-normal" in html
+    # Timetable: header + one row per prayer, exactly one highlighted.
+    for header in ("Prayer</div>", "Adhan</div>", "Iqomah</div>"):
+        assert header in html
+    for key in PRAYER_KEYS:
+        assert f'id="row-{key}"' in html
+    assert html.count("prayer-row current") == 1
+    # 12h adhan + iqamah cells (5 rows + bounds strip).
+    assert (
+        len(re.findall(r">\d{1,2}:\d{2}<small class=\"period\">(AM|PM)</small>", html))
+        >= 10
+    )
+    # Clock block: server 12h fallback with blinking-colon span + period.
+    assert 'id="live-clock"' in html
+    assert '12<span class="colon">:</span>20' in html
+    assert ">PM</span>" in html
+    # Dates + mosque block.
+    assert "20 October 2025" in html
     assert "1447" in html  # Hijri date present (calc 2026 day + offset 0)
+    assert "Masjid Test" in html
+    assert "SGR01" in html
+    # Bounds strip + countdown block (NORMAL carries a target).
+    assert 'id="bounds"' in html
+    assert 'id="countdown-label"' in html
+    assert 'id="countdown" data-target="2025-10-20T' in html
 
 
-def test_display_english_arabic_cards(
+def test_display_timetable_english_only(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
     _seed_settings(surface)
     html = client.get("/display", params={"id": "HALL-01"}).text
-    for token in ("Fajr", "Dhuhr", "Isha", "الفجر", "المغرب"):
+    for token in ("Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"):
         assert token in html
+    # Backend still computes ar/bm (unit-guarded) but the screen is EN-only.
+    for token in ("الفجر", "المغرب", "Subuh", "Zohor", "Jumaat"):
+        assert token not in html
 
 
-def test_display_bm_labels(surface: SimpleNamespace, client: TestClient) -> None:
+def test_display_bounds_english_only(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
     _seed_settings(surface)
     html = client.get("/display", params={"id": "HALL-01"}).text
-    for token in ("Subuh", "Zohor"):
-        assert token in html
     assert 'id="bound-syuruq"' in html
-    bound_span = html.split('id="bound-syuruq"')[1].split("</span>")[0]
-    assert "Syuruk" in bound_span
-    assert "الشروق" in bound_span
+    bound_div = html.split('id="bound-syuruq"')[1].split("</div>")[0]
+    assert "Syuruq" in bound_div
+    assert "Syuruk" not in bound_div
+    assert "الشروق" not in bound_div
 
 
 def test_display_hides_disabled_imsak(
@@ -83,17 +136,29 @@ def test_display_calc_fallback_banner(
     _seed_settings(surface)
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert "CALC" in html  # seeded coords, no cache: calc source is stale
+    assert 'id="banners"' in html
 
 
-def test_display_boundary_countdown_region(
+def test_display_omits_banner_strip_without_banners(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    _seed_jakim_day(surface)
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="banners"' not in html
+    assert "CALC" not in html
+    assert 'id="row-dhuhr"' in html  # normal layout otherwise intact
+
+
+def test_display_boundary_next_marker(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
     _seed_settings(surface, boundary_countdown=True)
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="bound-next"' in html
+    assert html.count("additional-time next") == 1
     _seed_settings(surface)
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="bound-next"' not in html
+    assert "additional-time next" not in html
 
 
 def test_display_before_setup_is_503_slate(
@@ -131,7 +196,7 @@ def test_display_carries_tzoffset_for_fixed_offset_clock(
     assert "data-tz=" not in html
 
 
-def test_state_walkthrough_pre_adhan_hides_footer(
+def test_state_walkthrough_pre_adhan_countdown(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
     _seed_settings(surface)
@@ -142,13 +207,15 @@ def test_state_walkthrough_pre_adhan_hides_footer(
     target = datetime(2025, 10, 20, int(hour), int(minute)) - timedelta(minutes=2)
     _advance_to(surface, target)
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="note-pre"' in html
-    assert 'id="ftr"' not in html
-    assert 'id="bound-syuruq"' in html
-    assert "Preparing for" in html
+    assert "state-pre_adhan" in html
+    assert 'id="countdown-label">Dhuhr call to prayer in<' in html
+    assert f'data-target="2025-10-20T{hour}:{minute}' in html
+    assert 'id="bounds"' in html  # same layout, bounds intact
+    assert 'id="dim-skip"' not in html
+    assert 'id="adhan-audio"' not in html
 
 
-def test_state_walkthrough_adhan_overlay(
+def test_state_walkthrough_adhan_countdown(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
     _seed_settings(surface)
@@ -159,9 +226,12 @@ def test_state_walkthrough_adhan_overlay(
     target = datetime(2025, 10, 20, int(hour), int(minute)) + timedelta(seconds=60)
     _advance_to(surface, target)
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="overlay-adhan"' in html
+    assert "state-adhan" in html
     assert "hidden data-now=" in html
-    assert 'id="cards"' not in html
+    assert 'id="countdown-label">Iqomah in<' in html
+    assert re.search(r'id="countdown" data-target="2025-10-20T\d{2}:\d{2}', html)
+    assert 'id="row-dhuhr"' in html  # same layout, no overlay page
+    assert 'id="dim-skip"' not in html
 
 
 def test_state_walkthrough_iqamah_and_dim(
@@ -174,16 +244,19 @@ def test_state_walkthrough_iqamah_and_dim(
     iqamah = datetime.fromisoformat(event["iqamah_at"])
     _advance_to(surface, iqamah - timedelta(minutes=1))
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="iqamah-hero"' in html
-    assert "data-countdown" in html
+    assert 'id="countdown-label">Iqomah in<' in html
+    day = iqamah.date().isoformat()
+    target_prefix = f'data-target="{day}T{iqamah.strftime("%H:%M")}'
+    assert target_prefix in html
     _advance_to(surface, iqamah + timedelta(minutes=2))
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="dim"' in html
+    assert "state-salah_dim" in html
     assert "hidden data-now=" in html
+    assert 'id="countdown"' not in html  # blank area: block omitted entirely
+    assert 'id="countdown-label"' not in html
+    assert 'id="dim-skip"' in html
     assert "data-dim-until=" in html
-    assert 'id="dim-skip-hint"' in html
-    assert 'id="cards"' not in html
-    assert 'id="ftr"' not in html
+    assert 'id="row-fajr"' in html  # same layout dimmed, not a dim page
 
 
 def test_state_walkthrough_jumuah_friday(
@@ -193,43 +266,60 @@ def test_state_walkthrough_jumuah_friday(
     _advance_to(surface, datetime(2025, 10, 24, 12, 20))
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert "Jumuah" in html
-    assert "Jumaat" in html
-
-
-def test_hero_marks_tomorrow_fajr(surface: SimpleNamespace, client: TestClient) -> None:
-    from datetime import datetime
-
-    _seed_settings(surface)
-    _advance_to(surface, datetime(2025, 10, 20, 21, 0))
-    html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="next-tomorrow"' in html
+    assert "Jumaat" not in html
+    assert 'id="countdown-label">Jumuah call to prayer in<' in html
+    assert 'prayer-row current" id="row-dhuhr"' in html
 
 
 def test_display_per_card_iqamah_elements(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
-    import re
-
     _seed_settings(surface)
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="cards"' in html
     for key in ("fajr", "dhuhr", "asr", "maghrib", "isha"):
-        match = re.search(rf'id="iqamah-{key}">(\d{{2}}:\d{{2}})<', html)
-        assert match, f"missing HH:MM iqamah element for {key}"
+        pattern = rf'id="iqamah-{key}">\d{{1,2}}:\d{{2}}<small class="period">'
+        pattern += r"(AM|PM)</small>"
+        match = re.search(pattern, html)
+        assert match, f"missing 12h iqamah element for {key}"
 
 
-def test_display_reskin_regions(surface: SimpleNamespace, client: TestClient) -> None:
+def test_display_new_structure_tokens(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
     _seed_settings(surface)
     html = client.get("/display", params={"id": "HALL-01"}).text
     for token in (
-        "countdown-box",
-        "iqamah-row",
-        "brand-block",
-        "glow-emerald",
+        "prayer-screen",
+        "prayer-table",
+        "prayer-row header",
         'id="live-clock"',
-        'id="date-hijri"',
+        "clock-hm",
+        "colon",
+        "gregorian-date",
+        "hijri-date",
+        "mosque-name",
+        "mosque-block",
+        "countdown-label",
+        "additional-times",
+        'id="hero-clock"',
     ):
         assert token in html
+    # Dropped render: boxes, bars, overlays, footer, trilingual extras.
+    for token in (
+        'id="overlay-adhan"',
+        'id="iqamah-hero"',
+        'id="note-pre"',
+        'id="next-tomorrow"',
+        'id="dim"',
+        'id="dim-skip-hint"',
+        'id="cards"',
+        'id="ftr"',
+        'id="carousel-dot"',
+        'id="qr-hint"',
+        "countdown-box",
+        "data-bar-start",
+    ):
+        assert token not in html
 
 
 def _seed_display_override(
@@ -256,10 +346,10 @@ def test_display_applies_per_display_theme_overrides(
     _seed_display_override(surface, "HALL-01", "theme.clock_format", "12h")
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert "palette-midnight" in html
-    assert "countdown-inline" in html
-    assert 'data-clock-format="12h"' in html
-    assert "12:20 PM" in html
     assert "palette-classic-green" not in html
+    # Design-locked 12h: the knob never renders as a data attr; times carry periods.
+    assert "data-clock-format" not in html
+    assert '<small class="period">' in html
 
 
 def test_display_unknown_id_falls_back_to_global_theme(
@@ -267,9 +357,21 @@ def test_display_unknown_id_falls_back_to_global_theme(
 ) -> None:
     _seed_settings(surface)
     html = client.get("/display", params={"id": "NOPE"}).text
-    assert "palette-classic-green" in html
-    assert 'data-clock-format="24h-seconds"' in html
-    assert 'data-dim-source="settings"' in html
+    assert "palette-classic-green font-outfit density-comfortable" in html
+    assert "data-clock-format" not in html
+    assert "data-dim-source" not in html
+
+
+def _dim_html_after_override(
+    surface: SimpleNamespace, client: TestClient
+) -> tuple[str, datetime]:
+    """Render SALAH_DIM; return the html plus the iqamah instant for delta math."""
+    event = client.get(
+        "/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"}
+    ).json()
+    iqamah = datetime.fromisoformat(event["iqamah_at"])
+    _advance_to(surface, iqamah + timedelta(minutes=2))
+    return client.get("/display", params={"id": "HALL-01"}).text, iqamah
 
 
 def test_display_applies_per_display_dim_override(
@@ -280,15 +382,9 @@ def test_display_applies_per_display_dim_override(
     _seed_settings(surface)
     _seed_display_override(surface, "HALL-01", "dim_minutes_override", "30")
     html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'data-dim-minutes="30"' in html
-    assert 'data-dim-source="display"' in html
-    event = client.get(
-        "/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"}
-    ).json()
-    iqamah = datetime.fromisoformat(event["iqamah_at"])
-    _advance_to(surface, iqamah + timedelta(minutes=2))
-    html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="dim"' in html
+    assert 'id="dim-skip"' not in html  # normal states carry no skip holder
+    html, iqamah = _dim_html_after_override(surface, client)
+    assert "state-salah_dim" in html
     dim_until = datetime.fromisoformat(
         re.search(r'data-dim-until="([^"]+)"', html).group(1)  # type: ignore[union-attr]
     )
@@ -309,6 +405,8 @@ def test_display_hides_boundary_strip_on_override(
 def test_display_applies_group_dim_pin(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
+    import re
+
     _seed_settings(surface)
     with surface.db.write() as conn:
         conn.execute(
@@ -319,14 +417,18 @@ def test_display_applies_group_dim_pin(
             "UPDATE display_groups SET dim_minutes_override = 30 WHERE name = ?",
             ("Default",),
         )
-    html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'data-dim-minutes="30"' in html
-    assert 'data-dim-source="group"' in html
+    html, iqamah = _dim_html_after_override(surface, client)
+    dim_until = datetime.fromisoformat(
+        re.search(r'data-dim-until="([^"]+)"', html).group(1)  # type: ignore[union-attr]
+    )
+    assert (dim_until - iqamah).total_seconds() / 60 == 30
 
 
 def test_display_display_dim_beats_group_dim(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
+    import re
+
     _seed_settings(surface)
     _seed_display_override(surface, "HALL-01", "dim_minutes_override", "25")
     with surface.db.write() as conn:
@@ -334,47 +436,11 @@ def test_display_display_dim_beats_group_dim(
             "UPDATE display_groups SET dim_minutes_override = 30 WHERE name = ?",
             ("Default",),
         )
-    html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'data-dim-minutes="25"' in html
-    assert 'data-dim-source="display"' in html
-
-
-def test_display_carousel_dot_shown_by_default(
-    surface: SimpleNamespace, client: TestClient
-) -> None:
-    _seed_settings(surface)
-    html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="ftr"' in html
-    assert 'id="carousel-dot"' in html
-
-
-def test_display_hides_carousel_dot_on_group_toggle(
-    surface: SimpleNamespace, client: TestClient
-) -> None:
-    _seed_settings(surface)
-    with surface.db.write() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO displays (id, name, group_name) VALUES (?, ?, ?)",
-            ("HALL-01", "Main Hall", "Default"),
-        )
-        conn.execute(
-            "UPDATE display_groups SET carousel_enabled = 0 WHERE name = ?",
-            ("Default",),
-        )
-    html = client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="carousel-dot"' not in html
-    assert 'id="ftr"' in html
-    assert 'id="qr-hint"' in html
-    assert 'id="cards"' in html
-
-
-def test_display_unknown_id_shows_carousel_dot(
-    surface: SimpleNamespace, client: TestClient
-) -> None:
-    _seed_settings(surface)
-    html = client.get("/display", params={"id": "NOPE"}).text
-    assert 'id="ftr"' in html
-    assert 'id="carousel-dot"' in html
+    html, iqamah = _dim_html_after_override(surface, client)
+    dim_until = datetime.fromisoformat(
+        re.search(r'data-dim-until="([^"]+)"', html).group(1)  # type: ignore[union-attr]
+    )
+    assert (dim_until - iqamah).total_seconds() / 60 == 25
 
 
 @pytest.mark.parametrize(
@@ -447,14 +513,15 @@ def test_display_adhan_audio_matrix(
     html = audio_client.get("/display", params={"id": "HALL-01"}).text
     assert 'id="adhan-audio"' not in html
     html = _adhan_html()
-    assert 'id="overlay-adhan"' in html
+    assert "state-adhan" in html
+    assert 'id="row-dhuhr"' in html  # same layout, no overlay page
     assert 'id="adhan-audio"' not in html
 
-    # (b) uploaded + enabled + non-quiet: ADHAN overlay plays at set volume.
+    # (b) uploaded + enabled + non-quiet: ADHAN plays at set volume.
     store_adhan_audio(blob, tmp_path / "uploads")
     _seed_settings(surface, adhan_audio_enabled=True, adhan_volume=40)
     html = audio_client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="overlay-adhan"' in html
+    assert "state-adhan" in html
     assert '<audio id="adhan-audio"' in html
     assert "/static/uploads/adhan.mp3" in html
     assert 'data-volume="40"' in html
@@ -468,11 +535,11 @@ def test_display_adhan_audio_matrix(
         quiet_hours_end="23:59",
     )
     html = audio_client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="overlay-adhan"' in html
+    assert "state-adhan" in html
     assert 'id="adhan-audio"' not in html
 
     # (d) muted next prayer: silent.
     _seed_settings(surface, adhan_audio_enabled=True, adhan_muted_prayers=["dhuhr"])
     html = audio_client.get("/display", params={"id": "HALL-01"}).text
-    assert 'id="overlay-adhan"' in html
+    assert "state-adhan" in html
     assert 'id="adhan-audio"' not in html
