@@ -32,7 +32,9 @@ def store_adhan_audio(data: bytes, dest_dir: str | Path) -> Path:
     directory = Path(dest_dir)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / ADHAN_FILENAME
-    path.write_bytes(data)
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_bytes(data)
+    tmp_path.replace(path)
     return path
 
 

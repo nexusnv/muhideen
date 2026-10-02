@@ -728,6 +728,19 @@ def test_adhan_upload_rejects_non_mp3_and_oversize(authed: TestClient) -> None:
     )
 
 
+def test_adhan_upload_rejects_oversize_base64_before_decode(
+    authed: TestClient,
+) -> None:
+    from muhideen.adapters.adhan_audio import MAX_ADHAN_BYTES
+
+    bound = (MAX_ADHAN_BYTES + 2) // 3 * 4 + 4
+    oversize = "A" * (bound + 100)
+    assert (
+        authed.post("/api/adhan-audio", json={"audio_base64": oversize}).status_code
+        == 413
+    )
+
+
 def test_adhan_delete_is_idempotent(authed: TestClient, tmp_path: Path) -> None:
     import base64
 

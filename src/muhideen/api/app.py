@@ -127,6 +127,15 @@ _TEMPLATES = Jinja2Templates(
 )
 
 
+def _adhan_audio_url(media_dir: Path) -> str:
+    """Public URL for the canonical adhan file; default when outside the static root."""
+    try:
+        rel = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
+    except ValueError:
+        return f"/static/uploads/{ADHAN_FILENAME}"
+    return f"/static/{rel.as_posix()}/{ADHAN_FILENAME}"
+
+
 def _require_tz_aware(value: datetime) -> datetime:
     """Reject naive datetimes; require a UTC offset on ``now``."""
     if value.tzinfo is None:
@@ -782,7 +791,7 @@ def create_app(deps: AppDeps) -> FastAPI:
             )
             and (media_dir / ADHAN_FILENAME).exists()
         ):
-            adhan_url = f"/static/uploads/{ADHAN_FILENAME}"
+            adhan_url = _adhan_audio_url(media_dir)
         ctx = build_display_context(
             day=day_dto,
             event=event_dto,
@@ -1264,6 +1273,8 @@ def create_app(deps: AppDeps) -> FastAPI:
         Uploads replace each other under the canonical ``adhan.mp3`` name,
         so the display URL stays stable across swaps.
         """
+        if len(payload.audio_base64) > (MAX_ADHAN_BYTES + 2) // 3 * 4 + 4:
+            raise HTTPException(status_code=413, detail="audio exceeds 10MB limit")
         try:
             data = base64.b64decode(payload.audio_base64, validate=True)
         except (ValueError, binascii.Error) as exc:

@@ -31,3 +31,25 @@ def test_delete_is_missing_ok(tmp_path) -> None:
     store_adhan_audio(VALID_MP3, tmp_path)
     assert delete_adhan_audio(tmp_path) is True
     assert delete_adhan_audio(tmp_path) is False
+
+
+def test_store_is_atomic_and_leaves_no_tmp_litter(tmp_path) -> None:
+    from muhideen.adapters.adhan_audio import store_adhan_audio
+
+    store_adhan_audio(VALID_MP3, tmp_path)
+    assert list(tmp_path.glob("*.tmp")) == []
+    store_adhan_audio(FRAME_MP3, tmp_path)
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert (tmp_path / "adhan.mp3").read_bytes() == FRAME_MP3
+
+
+def test_adhan_audio_url_helper_default_and_custom(tmp_path) -> None:
+    from muhideen.adapters.adhan_audio import ADHAN_FILENAME
+    from muhideen.api.app import _STATIC_DIR, _adhan_audio_url
+
+    assert _adhan_audio_url(_STATIC_DIR / "uploads") == "/static/uploads/adhan.mp3"
+    custom = _STATIC_DIR / "uploads" / "custom-subdir"
+    assert _adhan_audio_url(custom) == f"/static/uploads/custom-subdir/{ADHAN_FILENAME}"
+    assert (
+        _adhan_audio_url(tmp_path / "elsewhere") == f"/static/uploads/{ADHAN_FILENAME}"
+    )
