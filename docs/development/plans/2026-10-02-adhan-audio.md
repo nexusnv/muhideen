@@ -72,12 +72,14 @@ pytestmark = pytest.mark.unit
 VALID_MP3 = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 1024  # minimal ID3 header
 FRAME_MP3 = b"\xff\xfb\x90\x00" + b"\x00" * 1024  # MPEG frame sync
 
+
 def test_store_accepts_id3_and_frame_sync(tmp_path) -> None:
     from muhideen.adapters.adhan_audio import store_adhan_audio
 
     for blob in (VALID_MP3, FRAME_MP3):
         path = store_adhan_audio(blob, tmp_path)
         assert path.name == "adhan.mp3" and path.read_bytes() == blob
+
 
 def test_store_rejects_non_mp3_and_oversize(tmp_path) -> None:
     from muhideen.adapters.adhan_audio import MAX_ADHAN_BYTES, store_adhan_audio
@@ -86,6 +88,7 @@ def test_store_rejects_non_mp3_and_oversize(tmp_path) -> None:
         store_adhan_audio(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, tmp_path)
     with pytest.raises(ValueError, match="exceeds"):
         store_adhan_audio(b"ID3" + b"\x00" * (MAX_ADHAN_BYTES + 1), tmp_path)
+
 
 def test_delete_is_missing_ok(tmp_path) -> None:
     from muhideen.adapters.adhan_audio import delete_adhan_audio, store_adhan_audio
@@ -174,7 +177,10 @@ def test_adhan_audio_defaults_silent_and_guards() -> None:
     from muhideen.core.values import Settings
 
     s = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
-    assert (s.adhan_audio_enabled, s.adhan_volume) is not None  # placeholder shape check
+    assert (
+        s.adhan_audio_enabled,
+        s.adhan_volume,
+    ) is not None  # placeholder shape check
 ```
 
 then flesh to real asserts (enabled False, volume 70, quiet None/None, muted []); plus `pytest.raises(ValueError)` for volume 101, quiet-start-without-end, muted `["syuruq"]` (boundary), muted `["nope"]` (unknown). Repo file (`tests/integration/test_sqlite_settings_repo.py`): round-trip (enabled True, volume 40, quiet 22:00–06:00, muted ["fajr"]) + legacy fallback (delete the 5 keys → defaults).
@@ -192,19 +198,25 @@ adhan_audio_enabled: bool = False
 adhan_volume: int = 70
 quiet_hours_start: str | None = None
 quiet_hours_end: str | None = None
-adhan_muted_prayers: list[str] = field(default_factory=list, hash=False)  # check Settings dataclass field style for list defaults (countdown_before_adhan_overrides uses field(default_factory=dict, hash=False) — mirror it)
+adhan_muted_prayers: list[str] = field(
+    default_factory=list, hash=False
+)  # check Settings dataclass field style for list defaults (countdown_before_adhan_overrides uses field(default_factory=dict, hash=False) — mirror it)
 # __post_init__:
 if not 0 <= self.adhan_volume <= 100:
     raise ValueError(f"adhan_volume out of range 0-100: {self.adhan_volume}")
-_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")  # module-level; check file imports re first
+_HHMM = re.compile(
+    r"^([01]\d|2[0-3]):[0-5]\d$"
+)  # module-level; check file imports re first
 if (self.quiet_hours_start is None) != (self.quiet_hours_end is None):
     raise ValueError("quiet hours need both start and end")
 for bound in (self.quiet_hours_start, self.quiet_hours_end):
     if bound is not None and not _HHMM.match(bound):
         raise ValueError(f"quiet hours must be HH:MM: {bound!r}")
 for prayer_key in self.adhan_muted_prayers:
-    try: marker = MarkerName(prayer_key)
-    except ValueError: raise ValueError(f"unknown prayer for adhan mute: {prayer_key!r}") from None
+    try:
+        marker = MarkerName(prayer_key)
+    except ValueError:
+        raise ValueError(f"unknown prayer for adhan mute: {prayer_key!r}") from None
     if marker_kind(marker) is MarkerKind.BOUNDARY:
         raise ValueError(f"boundary marker cannot mute adhan: {prayer_key}")
 ```
@@ -250,16 +262,24 @@ Expected: FAIL (404 no route).
 ```python
 class AdhanAudioUploadDTO(ContractDTO):
     """Adhan MP3 upload: base64 bytes (no multipart parser on the offline footprint)."""
+
     audio_base64: Annotated[str, Field(min_length=1)]
+
 
 @app.post("/api/adhan-audio", dependencies=[Depends(admin)], status_code=201)
 def upload_adhan_audio(payload: AdhanAudioUploadDTO) -> dict[str, Any]:
-    try: data = base64.b64decode(payload.audio_base64, validate=True)
-    except (ValueError, binascii.Error) as exc: raise HTTPException(400, "invalid base64") from exc
-    if len(data) > MAX_ADHAN_BYTES: raise HTTPException(413, "audio exceeds 10MB limit")
-    try: stored = store_adhan_audio(data, media_dir)
-    except ValueError as exc: raise HTTPException(400, str(exc)) from exc
+    try:
+        data = base64.b64decode(payload.audio_base64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(400, "invalid base64") from exc
+    if len(data) > MAX_ADHAN_BYTES:
+        raise HTTPException(413, "audio exceeds 10MB limit")
+    try:
+        stored = store_adhan_audio(data, media_dir)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {"file": stored.name, "size": len(data)}
+
 
 @app.delete("/api/adhan-audio", dependencies=[Depends(admin)])
 def delete_adhan_audio_route() -> dict[str, Any]:

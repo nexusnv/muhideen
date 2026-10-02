@@ -245,3 +245,19 @@ def test_context_carries_bm_names() -> None:
         themed_ctx = _ctx(day=day, event=event, settings=theme_settings)
         assert themed_ctx["cards"][0]["bm"] == "Subuh"
         assert themed_ctx["next_name_bm"] == "Zohor"
+
+
+def test_context_carries_adhan_audio() -> None:
+    day, event = _dtos(KL)
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    assert ctx["adhan_audio_url"] is None
+    assert ctx["adhan_volume"] == 70
+    ctx = _ctx(
+        day=day,
+        event=event,
+        settings=_settings(),
+        adhan_audio_url="/static/uploads/adhan.mp3",
+        adhan_volume=40,
+    )
+    assert ctx["adhan_audio_url"] == "/static/uploads/adhan.mp3"
+    assert ctx["adhan_volume"] == 40

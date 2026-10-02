@@ -163,4 +163,10 @@
     dimEl.addEventListener("pointerup", cancelPress);
     dimEl.addEventListener("pointerleave", cancelPress);
   }
+  var adhanEl = document.getElementById("adhan-audio");
+  if (adhanEl) {
+    adhanEl.volume = Math.min(1, Math.max(0, (parseInt(adhanEl.getAttribute("data-volume") || "70", 10)) / 100));
+    var p = adhanEl.play();
+    if (p && p.catch) p.catch(function () {});
+  }
 })();

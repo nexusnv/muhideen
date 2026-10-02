@@ -662,3 +662,36 @@ def test_timezone_defaults_to_kl_and_rejects_unknown() -> None:
             hijri_offset=0,
             timezone="Mars/Olympus",
         )
+
+
+@pytest.mark.unit
+def test_adhan_audio_defaults_silent_and_guards() -> None:
+    settings = Settings(masjid_name="M", zone="SGR01", hijri_offset=0)
+    assert settings.adhan_audio_enabled is False
+    assert settings.adhan_volume == 70
+    assert settings.quiet_hours_start is None
+    assert settings.quiet_hours_end is None
+    assert settings.adhan_muted_prayers == []
+    with pytest.raises(ValueError, match="adhan_volume"):
+        Settings(masjid_name="M", zone="SGR01", hijri_offset=0, adhan_volume=101)
+    with pytest.raises(ValueError, match="quiet hours"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            quiet_hours_start="22:00",
+        )
+    with pytest.raises(ValueError, match="boundary"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            adhan_muted_prayers=["syuruq"],
+        )
+    with pytest.raises(ValueError, match="unknown prayer"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            adhan_muted_prayers=["nope"],
+        )

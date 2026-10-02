@@ -362,9 +362,9 @@ class ThemeDTO(ContractDTO):
 class SettingsDTO(ContractDTO):
     """Full-replace admin settings body and response.
 
-    All fields required except the pre-adhan countdown knobs and the
-    theme knobs, which default so older wizard bodies still validate
-    (additive contract change).
+    All fields required except the pre-adhan countdown knobs, the
+    adhan-audio knobs, and the theme knobs, which default so older
+    wizard bodies still validate (additive contract change).
     """
 
     masjid_name: Annotated[str, Field(min_length=1, max_length=200)]
@@ -388,6 +388,11 @@ class SettingsDTO(ContractDTO):
     )
     theme: ThemeDTO = Field(default_factory=ThemeDTO)
     timezone: str = "Asia/Kuala_Lumpur"
+    adhan_audio_enabled: bool = False
+    adhan_volume: Annotated[int, Field(ge=0, le=100)] = 70
+    quiet_hours_start: TimeHHMM | None = None
+    quiet_hours_end: TimeHHMM | None = None
+    adhan_muted_prayers: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_domain(cls, settings: Settings) -> SettingsDTO:
@@ -416,6 +421,11 @@ class SettingsDTO(ContractDTO):
             ),
             theme=ThemeDTO.from_domain(settings.theme),
             timezone=settings.timezone,
+            adhan_audio_enabled=settings.adhan_audio_enabled,
+            adhan_volume=settings.adhan_volume,
+            quiet_hours_start=settings.quiet_hours_start,
+            quiet_hours_end=settings.quiet_hours_end,
+            adhan_muted_prayers=list(settings.adhan_muted_prayers),
         )
 
     def to_domain(self) -> Settings:
@@ -442,6 +452,11 @@ class SettingsDTO(ContractDTO):
             ),
             theme=self.theme.to_domain(),
             timezone=self.timezone,
+            adhan_audio_enabled=self.adhan_audio_enabled,
+            adhan_volume=self.adhan_volume,
+            quiet_hours_start=self.quiet_hours_start,
+            quiet_hours_end=self.quiet_hours_end,
+            adhan_muted_prayers=list(self.adhan_muted_prayers),
         )
 
 

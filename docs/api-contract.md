@@ -69,7 +69,7 @@ Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-onl
 
 ## `GET /api/settings`
 
-Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the calculation `method` (`MABIMS`/`MWL`/`ISNA`/`Egyptian`) plus `asr_juristic` (`shafi`/`hanafi`, default `shafi`), the `boundary_countdown` opt-in and `calc_only` offline mode, the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default), the `timezone` IANA device-clock zone (e.g. `Asia/Kuala_Lumpur`, default `Asia/Kuala_Lumpur`; changing it requires a service restart to take effect), and the `theme` knobs (closed enums: `palette` ∈ `classic-green|midnight|sand`, `font` ∈ `outfit|system`, `countdown_style` ∈ `boxes|inline`, `clock_format` ∈ `24h|24h-seconds|12h`, `hijri_form` ∈ `long|short`, `boundary_strip` ∈ `show|hide`, `density` ∈ `comfortable|compact`; anything else is 422). Per-display `display_settings` rows (`theme.*` plus `dim_minutes_override` 5–60) override the knobs and dim for one `GET /display?id=` render.
+Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the calculation `method` (`MABIMS`/`MWL`/`ISNA`/`Egyptian`) plus `asr_juristic` (`shafi`/`hanafi`, default `shafi`), the `boundary_countdown` opt-in and `calc_only` offline mode, the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default), the `timezone` IANA device-clock zone (e.g. `Asia/Kuala_Lumpur`, default `Asia/Kuala_Lumpur`; changing it requires a service restart to take effect), and the `theme` knobs (closed enums: `palette` ∈ `classic-green|midnight|sand`, `font` ∈ `outfit|system`, `countdown_style` ∈ `boxes|inline`, `clock_format` ∈ `24h|24h-seconds|12h`, `hijri_form` ∈ `long|short`, `boundary_strip` ∈ `show|hide`, `density` ∈ `comfortable|compact`; anything else is 422). Per-display `display_settings` rows (`theme.*` plus `dim_minutes_override` 5–60) override the knobs and dim for one `GET /display?id=` render. Adhan audio is additive and silent by default: `adhan_audio_enabled` (default `false`), `adhan_volume` 0–100 (default 70), `quiet_hours_start`/`quiet_hours_end` (`HH:MM`, both-or-neither; overnight wrap allowed, e.g. `22:00`–`06:00` quiets when the current time is at or past start or before end), and `adhan_muted_prayers` (prayer-name list, default `[]`).
 
 ```json
 {
@@ -78,6 +78,9 @@ Admin session required. Full installation settings including the boundary offset
   "hijri_offset": 0,
   "imsak_offset_min": 10,
   "adhan_duration_s": 180,
+  "adhan_audio_enabled": false,
+  "adhan_volume": 70,
+  "adhan_muted_prayers": [],
   "dim_minutes_default": 20,
   "dim_minutes_jumuah": 45,
   "iqamah_rules": [
@@ -97,6 +100,8 @@ Admin session required. Full installation settings including the boundary offset
   "calc_only": false,
   "countdown_before_adhan_min": 5,
   "countdown_before_adhan_overrides": {"fajr": 10},
+  "quiet_hours_start": null,
+  "quiet_hours_end": null,
   "theme": {
     "palette": "classic-green",
     "font": "outfit",
@@ -112,7 +117,7 @@ Admin session required. Full installation settings including the boundary offset
 
 ## `PUT /api/settings`
 
-Admin session required. Full-replace body; the response echoes the stored settings. A successful write publishes a `config-update` event with the `settings` group. `timezone` is an IANA zone name (default `Asia/Kuala_Lumpur`); a changed timezone takes effect on service restart.
+Admin session required. Full-replace body; the response echoes the stored settings. The adhan-audio fields ride the same full-replace body (see `GET /api/settings`). A successful write publishes a `config-update` event with the `settings` group. `timezone` is an IANA zone name (default `Asia/Kuala_Lumpur`); a changed timezone takes effect on service restart.
 
 ```json
 {
@@ -121,6 +126,9 @@ Admin session required. Full-replace body; the response echoes the stored settin
   "hijri_offset": 0,
   "imsak_offset_min": 10,
   "adhan_duration_s": 180,
+  "adhan_audio_enabled": false,
+  "adhan_volume": 70,
+  "adhan_muted_prayers": [],
   "dim_minutes_default": 20,
   "dim_minutes_jumuah": 45,
   "iqamah_rules": [
@@ -140,6 +148,8 @@ Admin session required. Full-replace body; the response echoes the stored settin
   "calc_only": false,
   "countdown_before_adhan_min": 5,
   "countdown_before_adhan_overrides": {"fajr": 10},
+  "quiet_hours_start": null,
+  "quiet_hours_end": null,
   "theme": {
     "palette": "classic-green",
     "font": "outfit",
@@ -350,6 +360,18 @@ Admin session required. Stores one uploaded image (base64 JSON, 5MB cap, JPG/PNG
 ## `DELETE /api/playlists/{playlist_id}/items/{sort_order}`
 
 Admin session required. Removes the item at one sort position, keeping the rest in place. Unknown playlists and unknown positions are 404; success returns an `ok` envelope.
+
+## `POST /api/adhan-audio`
+
+Admin session required. Stores one adhan MP3 (base64 JSON, 10MB cap, MP3 magic only: `ID3` header or MPEG frame sync) under the canonical `adhan.mp3` name; uploads replace each other so the display URL stays stable. Invalid base64 and non-MP3 bytes are 400, payloads over 10MB are 413. Success is 201 with a `file`/`size` envelope (`{"file": "adhan.mp3", "size": 10}` for the sample below). The file is served via the existing `/static` mount at `/static/uploads/adhan.mp3` (custom `media_dir` deployments keep working iff the dir stays under the static root). The display plays it during the ADHAN overlay only (kiosk Chromium runs with no-gesture autoplay, so no user gesture is needed); every other state stays silent.
+
+```json
+{"audio_base64":"SUQzBAAAAAAAAA=="}
+```
+
+## `DELETE /api/adhan-audio`
+
+Admin session required. Removes the adhan MP3; idempotent (a missing file is still 200 with an `ok` envelope).
 
 ## `GET /api/displays`
 

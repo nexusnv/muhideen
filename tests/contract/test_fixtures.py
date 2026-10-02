@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from muhideen.api.app import (
     ActiveToggleDTO,
+    AdhanAudioUploadDTO,
     DisplayGroupUpdateDTO,
     DisplayRegisterDTO,
     DisplayUpdateDTO,
@@ -248,6 +249,11 @@ def test_playlist_toggle_and_item_fixtures_round_trip() -> None:
     assert item.model_dump(mode="json") == _load("playlist-item.json")
 
 
+def test_adhan_audio_upload_fixture_round_trips() -> None:
+    upload = AdhanAudioUploadDTO.model_validate(_load("adhan-audio-upload.json"))
+    assert upload.model_dump(mode="json") == _load("adhan-audio-upload.json")
+
+
 def test_display_registry_fixtures_round_trip() -> None:
     register = DisplayRegisterDTO.model_validate(_load("display-register.json"))
     assert register.model_dump(mode="json") == _load("display-register.json")
@@ -273,6 +279,7 @@ def test_all_contract_surfaces_have_fixtures() -> None:
         "active-toggle.json",
         "playlist-image-upload.json",
         "playlist-item.json",
+        "adhan-audio-upload.json",
         "display-register.json",
         "display-update.json",
         "display-group-update.json",

@@ -685,3 +685,74 @@ class _PinnedClock:
 
     def monotonic(self) -> float:
         return 0.0
+
+
+def _mp3() -> bytes:
+    return b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 1024
+
+
+def test_adhan_upload_round_trip(authed: TestClient, tmp_path: Path) -> None:
+    import base64
+
+    blob = _mp3()
+    response = authed.post(
+        "/api/adhan-audio",
+        json={"audio_base64": base64.b64encode(blob).decode()},
+    )
+    assert response.status_code == 201
+    assert response.json() == {"file": "adhan.mp3", "size": len(blob)}
+    assert (tmp_path / "uploads" / "adhan.mp3").read_bytes() == blob
+
+
+def test_adhan_upload_rejects_non_mp3_and_oversize(authed: TestClient) -> None:
+    import base64
+
+    from muhideen.adapters.adhan_audio import MAX_ADHAN_BYTES
+
+    assert (
+        authed.post(
+            "/api/adhan-audio",
+            json={"audio_base64": base64.b64encode(b"not-an-mp3").decode()},
+        ).status_code
+        == 400
+    )
+    assert (
+        authed.post(
+            "/api/adhan-audio", json={"audio_base64": "!!!not-base64!!!"}
+        ).status_code
+        == 400
+    )
+    big = base64.b64encode(b"x" * (MAX_ADHAN_BYTES + 1)).decode()
+    assert (
+        authed.post("/api/adhan-audio", json={"audio_base64": big}).status_code == 413
+    )
+
+
+def test_adhan_delete_is_idempotent(authed: TestClient, tmp_path: Path) -> None:
+    import base64
+
+    assert (
+        authed.post(
+            "/api/adhan-audio",
+            json={"audio_base64": base64.b64encode(_mp3()).decode()},
+        ).status_code
+        == 201
+    )
+    assert (tmp_path / "uploads" / "adhan.mp3").exists()
+    removed = authed.delete("/api/adhan-audio")
+    assert removed.status_code == 200
+    assert removed.json() == {"ok": True}
+    assert not (tmp_path / "uploads" / "adhan.mp3").exists()
+    again = authed.delete("/api/adhan-audio")
+    assert again.status_code == 200
+    assert again.json() == {"ok": True}
+
+
+def test_adhan_routes_require_admin(media_client: TestClient) -> None:
+    assert (
+        media_client.post(
+            "/api/adhan-audio", json={"audio_base64": "aGVsbG8="}
+        ).status_code
+        == 401
+    )
+    assert media_client.delete("/api/adhan-audio").status_code == 401
