@@ -547,3 +547,42 @@ def test_settings_timezone_defaults_for_legacy_rows(tmp_path: Path) -> None:
     with db.write() as conn:
         conn.execute("DELETE FROM settings WHERE key = 'timezone'")
     assert repo.load().timezone == "Asia/Kuala_Lumpur"
+
+
+def test_adhan_audio_keys_round_trip(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    settings = Settings(
+        masjid_name="Masjid Test",
+        zone="SGR01",
+        hijri_offset=0,
+        adhan_audio_enabled=True,
+        adhan_volume=40,
+        quiet_hours_start="22:00",
+        quiet_hours_end="06:00",
+        adhan_muted_prayers=["fajr"],
+    )
+    repo.save(settings)
+    loaded = repo.load()
+    assert loaded == settings
+    assert (loaded.adhan_audio_enabled, loaded.adhan_volume) == (True, 40)
+    assert (loaded.quiet_hours_start, loaded.quiet_hours_end) == ("22:00", "06:00")
+    assert loaded.adhan_muted_prayers == ["fajr"]
+
+
+def test_adhan_audio_keys_default_for_legacy_rows(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0))
+    with db.write() as conn:
+        conn.execute(
+            "DELETE FROM settings WHERE key IN"
+            " ('adhan_audio_enabled', 'adhan_volume', 'quiet_hours_start',"
+            " 'quiet_hours_end', 'adhan_muted_prayers')"
+        )
+    loaded = repo.load()
+    assert loaded.adhan_audio_enabled is False
+    assert loaded.adhan_volume == 70
+    assert loaded.quiet_hours_start is None
+    assert loaded.quiet_hours_end is None
+    assert loaded.adhan_muted_prayers == []

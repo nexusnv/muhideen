@@ -12,6 +12,7 @@
   <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
   <div id="hero-eyebrow">THE CALL TO PRAYER</div>
   <h1>{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</h1>
+  {% if adhan_audio_url %}<audio id="adhan-audio" src="{{ adhan_audio_url }}" data-volume="{{ adhan_volume }}" preload="auto"></audio>{% endif %}
   <div id="adhan-bar"><div id="adhan-fill" data-bar-start="{{ adhan_iso }}" data-bar-end="{{ adhan_end_iso }}"></div></div>
 </main>
 {% elif state == "SALAH_DIM" %}

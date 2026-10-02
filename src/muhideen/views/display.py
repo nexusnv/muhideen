@@ -86,6 +86,8 @@ def build_display_context(
     iqamah: dict[str, str],
     dim_minutes: int | None = None,
     dim_source: str = "settings",
+    adhan_audio_url: str | None = None,
+    adhan_volume: int = 70,
 ) -> dict[str, object]:
     """Map resolved DTOs to the display template context (no time reads).
 
@@ -174,6 +176,8 @@ def build_display_context(
             dim_minutes if dim_minutes is not None else settings.dim_minutes_default
         ),
         "dim_source": dim_source,
+        "adhan_audio_url": adhan_audio_url,
+        "adhan_volume": adhan_volume,
         "next_name_en": labels[0],
         "next_name_ar": labels[1],
         "next_name_bm": labels[2],

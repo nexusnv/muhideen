@@ -364,3 +364,77 @@ def test_display_corrupt_override_slates_503(
     response = client.get("/display", params={"id": "HALL-01"})
     assert response.status_code == 503
     assert 'id="slate"' in response.text
+
+
+@pytest.fixture
+def audio_client(surface: SimpleNamespace, tmp_path) -> Any:
+    """App sharing the surface repos/clock over an isolated upload dir."""
+    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
+    from muhideen.api.app import AppDeps, create_app
+
+    deps = AppDeps(
+        settings_repo=surface.settings_repo,
+        prayer_repo=surface.prayer_repo,
+        display_repo=surface.display_repo,
+        user_repo=surface.user_repo,
+        clock=surface.clock,
+        event_bus=surface.bus,
+        database=surface.db,
+        playlist_repo=SqlitePlaylistRepo(surface.db),
+        media_dir=tmp_path / "uploads",
+    )
+    app = create_app(deps)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_display_adhan_audio_matrix(
+    surface: SimpleNamespace, audio_client: TestClient, tmp_path
+) -> None:
+    from muhideen.adapters.adhan_audio import store_adhan_audio
+
+    blob = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 1024
+
+    def _adhan_html() -> str:
+        prayer = audio_client.get(
+            "/api/prayer-day", params={"date": "2025-10-20", "zone": "SGR01"}
+        ).json()
+        hour, minute = prayer["prayers"]["dhuhr"].split(":")
+        target = datetime(2025, 10, 20, int(hour), int(minute)) + timedelta(seconds=60)
+        _advance_to(surface, target)
+        return audio_client.get("/display", params={"id": "HALL-01"}).text
+
+    # (a) fresh install (no file, defaults): silent in every state.
+    _seed_settings(surface)
+    html = audio_client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="adhan-audio"' not in html
+    html = _adhan_html()
+    assert 'id="overlay-adhan"' in html
+    assert 'id="adhan-audio"' not in html
+
+    # (b) uploaded + enabled + non-quiet: ADHAN overlay plays at set volume.
+    store_adhan_audio(blob, tmp_path / "uploads")
+    _seed_settings(surface, adhan_audio_enabled=True, adhan_volume=40)
+    html = audio_client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="overlay-adhan"' in html
+    assert '<audio id="adhan-audio"' in html
+    assert "/static/uploads/adhan.mp3" in html
+    assert 'data-volume="40"' in html
+
+    # (c) quiet hours covering now: silent.
+    _seed_settings(
+        surface,
+        adhan_audio_enabled=True,
+        adhan_volume=40,
+        quiet_hours_start="00:00",
+        quiet_hours_end="23:59",
+    )
+    html = audio_client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="overlay-adhan"' in html
+    assert 'id="adhan-audio"' not in html
+
+    # (d) muted next prayer: silent.
+    _seed_settings(surface, adhan_audio_enabled=True, adhan_muted_prayers=["dhuhr"])
+    html = audio_client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="overlay-adhan"' in html
+    assert 'id="adhan-audio"' not in html

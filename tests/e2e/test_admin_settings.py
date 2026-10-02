@@ -237,3 +237,22 @@ def test_asr_juristic_round_trip_and_rejection(
         ).status_code
         == 422
     )
+
+
+def test_adhan_audio_settings_round_trip(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    payload = _settings_payload(
+        adhan_audio_enabled=True,
+        adhan_volume=40,
+        quiet_hours_start="22:00",
+        quiet_hours_end="06:00",
+        adhan_muted_prayers=["fajr"],
+    )
+    assert client.put("/api/settings", json=payload).status_code == 200
+    body = client.get("/api/settings").json()
+    assert body["adhan_audio_enabled"] is True
+    assert body["adhan_volume"] == 40
+    assert (body["quiet_hours_start"], body["quiet_hours_end"]) == ("22:00", "06:00")
+    assert body["adhan_muted_prayers"] == ["fajr"]

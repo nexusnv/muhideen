@@ -159,6 +159,49 @@
       </div>
     </section>
 
+    <section id="section-audio" class="admin-section">
+      <div class="card-head">
+        <h2><span class="ico">🔊</span><span>Adhan audio<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Optional MP3 played during the ADHAN overlay</div></span></h2>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-info"><h4>Enable adhan audio</h4><p>Play the uploaded MP3 during the ADHAN stage. Off by default.</p></div>
+          <div class="setting-control"><label class="switch"><input id="s-adhan-enabled" type="checkbox"{% if current.adhan_audio_enabled %} checked{% endif %}><span class="slider"></span><span class="sw-label" data-on="On" data-off="Off"></span></label></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Adhan MP3</h4><p>MP3 only, 10MB max. Uploads replace each other.</p></div>
+          <div class="setting-control">
+            <input id="s-adhan-file" type="file" accept="audio/mpeg,.mp3">
+            <button id="s-adhan-upload" class="btn btn-sm" type="button">Upload</button>
+            <button id="s-adhan-delete" class="btn btn-sm" type="button">Delete</button>
+            <p id="s-adhan-status" class="hint"></p>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Volume</h4><p>Master playback volume, 0–100.</p></div>
+          <div class="setting-control control-narrow"><input id="s-adhan-volume" type="number" min="0" max="100" value="{{ current.adhan_volume }}"></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Quiet hours</h4><p>No audio between start and end (overnight wrap allowed). Both blank means no quiet hours.</p></div>
+          <div class="setting-control">
+            <label class="field"><span class="lbl">Start</span><input id="s-quiet-start" type="time" value="{{ current.quiet_hours_start if current.quiet_hours_start is not none else '' }}"></label>
+            <label class="field"><span class="lbl">End</span><input id="s-quiet-end" type="time" value="{{ current.quiet_hours_end if current.quiet_hours_end is not none else '' }}"></label>
+          </div>
+        </div>
+        <div class="setting-row stack">
+          <div class="setting-info"><h4>Mute per prayer</h4><p>Checked prayers stay silent.</p></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;">
+            <label class="field"><span class="lbl">Fajr</span><input id="s-mute-fajr" type="checkbox"{% if 'fajr' in current.adhan_muted_prayers %} checked{% endif %}></label>
+            <label class="field"><span class="lbl">Dhuhr</span><input id="s-mute-dhuhr" type="checkbox"{% if 'dhuhr' in current.adhan_muted_prayers %} checked{% endif %}></label>
+            <label class="field"><span class="lbl">Asr</span><input id="s-mute-asr" type="checkbox"{% if 'asr' in current.adhan_muted_prayers %} checked{% endif %}></label>
+            <label class="field"><span class="lbl">Maghrib</span><input id="s-mute-maghrib" type="checkbox"{% if 'maghrib' in current.adhan_muted_prayers %} checked{% endif %}></label>
+            <label class="field"><span class="lbl">Isha</span><input id="s-mute-isha" type="checkbox"{% if 'isha' in current.adhan_muted_prayers %} checked{% endif %}></label>
+            <label class="field"><span class="lbl">Jumuah</span><input id="s-mute-jumuah" type="checkbox"{% if 'jumuah' in current.adhan_muted_prayers %} checked{% endif %}></label>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="section-display" class="admin-section">
       <div class="card-head">
         <h2><span class="ico">🖥</span><span>Display &amp; theme<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Look of the public screen</div></span></h2>

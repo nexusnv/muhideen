@@ -35,6 +35,11 @@
     "dhuha_offset_min": 28,
     "countdown_before_adhan_min": 5,
     "countdown_before_adhan_overrides": {},
+    "adhan_audio_enabled": false,
+    "adhan_volume": 70,
+    "quiet_hours_start": null,
+    "quiet_hours_end": null,
+    "adhan_muted_prayers": [],
     "theme": {
       "palette": "classic-green",
       "font": "outfit",
@@ -310,6 +315,13 @@
       var field = document.getElementById("s-cd-" + prayers[i]);
       if (field && field.value !== "") overrides[prayers[i]] = Number(field.value);
     }
+    var muted = [];
+    for (var m = 0; m < prayers.length; m++) {
+      var muteBox = document.getElementById("s-mute-" + prayers[m]);
+      if (muteBox && muteBox.checked) muted.push(prayers[m]);
+    }
+    var quietStart = document.getElementById("s-quiet-start").value;
+    var quietEnd = document.getElementById("s-quiet-end").value;
     var body = settingsBodyFromDefaults({
       masjid_name: document.getElementById("s-name").value,
       zone: document.getElementById("s-zone").value,
@@ -329,6 +341,11 @@
       dhuha_offset_min: Number(document.getElementById("s-dhuha").value),
       countdown_before_adhan_min: cdDefaultEl ? Number(cdDefaultEl.value) : 5,
       countdown_before_adhan_overrides: overrides,
+      adhan_audio_enabled: document.getElementById("s-adhan-enabled").checked,
+      adhan_volume: Number(document.getElementById("s-adhan-volume").value),
+      quiet_hours_start: quietStart === "" ? null : quietStart,
+      quiet_hours_end: quietEnd === "" ? null : quietEnd,
+      adhan_muted_prayers: muted,
       theme: {
         palette: document.getElementById("s-theme-palette").value,
         font: document.getElementById("s-theme-font").value,
@@ -347,6 +364,34 @@
       if (r.status === 200) { msg("s-msg", "Saved — live reload"); return; }
       msg("s-msg", "Invalid settings (422)");
     }).catch(function () { msg("s-msg", "Network error"); });
+  });
+  var adhanUpload = document.getElementById("s-adhan-upload");
+  if (adhanUpload) adhanUpload.addEventListener("click", function () {
+    var picker = document.getElementById("s-adhan-file");
+    if (!picker.files || !picker.files[0]) { msg("s-adhan-status", "Choose an MP3 first"); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var audio_base64 = String(reader.result).split(",", 2)[1] || "";
+      fetch("/api/adhan-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio_base64: audio_base64 }),
+      }).then(function (r) {
+        if (r.status === 201) { msg("s-adhan-status", "Uploaded"); return; }
+        if (r.status === 413) { msg("s-adhan-status", "File too large (10MB limit)"); return; }
+        if (r.status === 400) { msg("s-adhan-status", "Unreadable audio (MP3 only)"); return; }
+        msg("s-adhan-status", "Request failed (" + r.status + ")");
+      }).catch(function () { msg("s-adhan-status", "Network error"); });
+    };
+    reader.onerror = function () { msg("s-adhan-status", "Could not read file"); };
+    reader.readAsDataURL(picker.files[0]);
+  });
+  var adhanDelete = document.getElementById("s-adhan-delete");
+  if (adhanDelete) adhanDelete.addEventListener("click", function () {
+    fetch("/api/adhan-audio", { method: "DELETE" }).then(function (r) {
+      if (r.status === 200) { msg("s-adhan-status", "Deleted"); return; }
+      msg("s-adhan-status", "Request failed (" + r.status + ")");
+    }).catch(function () { msg("s-adhan-status", "Network error"); });
   });
   var qrToggle = document.getElementById("qr-toggle");
   if (qrToggle) qrToggle.addEventListener("click", function () {

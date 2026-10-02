@@ -266,6 +266,15 @@ class SqliteSettingsRepo:
                     if key.startswith("countdown_min_")
                     and key != "countdown_min_default"
                 },
+                adhan_audio_enabled=_parse_bool(kv.get("adhan_audio_enabled", "0")),
+                adhan_volume=int(kv.get("adhan_volume", "70")),
+                quiet_hours_start=kv.get("quiet_hours_start"),
+                quiet_hours_end=kv.get("quiet_hours_end"),
+                adhan_muted_prayers=sorted(
+                    part
+                    for part in kv.get("adhan_muted_prayers", "").split(",")
+                    if part
+                ),
                 lat=_parse_optional_float(kv.get("lat")),
                 lon=_parse_optional_float(kv.get("lon")),
                 iqamah_rules=_rules_from_rows(rule_rows) or DEFAULT_IQAMAH_RULES,
@@ -301,7 +310,22 @@ class SqliteSettingsRepo:
             *_theme_pairs(settings.theme),
             ("boundary_countdown", "1" if settings.boundary_countdown else "0"),
             ("calc_only", "1" if settings.calc_only else "0"),
+            (
+                "adhan_audio_enabled",
+                "1" if settings.adhan_audio_enabled else "0",
+            ),
+            ("adhan_volume", str(settings.adhan_volume)),
+            (
+                "adhan_muted_prayers",
+                ",".join(sorted(settings.adhan_muted_prayers)),
+            ),
         ]
+        if (
+            settings.quiet_hours_start is not None
+            and settings.quiet_hours_end is not None
+        ):  # both-or-neither, enforced by the VO guard
+            pairs.append(("quiet_hours_start", settings.quiet_hours_start))
+            pairs.append(("quiet_hours_end", settings.quiet_hours_end))
         if settings.lat is not None:  # both-or-neither, enforced by the VO guard
             pairs.append(("lat", repr(settings.lat)))
             pairs.append(("lon", repr(settings.lon)))
@@ -318,6 +342,11 @@ class SqliteSettingsRepo:
         with self._db.write() as conn:
             if settings.lat is None:
                 conn.execute("DELETE FROM settings WHERE key IN (?, ?)", ("lat", "lon"))
+            if settings.quiet_hours_start is None:
+                conn.execute(
+                    "DELETE FROM settings WHERE key IN (?, ?)",
+                    ("quiet_hours_start", "quiet_hours_end"),
+                )
             # Overrides are keyed per prayer: clear the namespace first so a
             # dropped override cannot linger and resurrect on the next load.
             conn.execute("DELETE FROM settings WHERE key LIKE 'countdown_min%'")

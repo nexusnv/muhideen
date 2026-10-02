@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from muhideen.api.app import (
     ActiveToggleDTO,
+    AdhanAudioUploadDTO,
     DisplayGroupUpdateDTO,
     DisplayRegisterDTO,
     DisplayUpdateDTO,
@@ -65,6 +66,8 @@ SECTION_DTOS: dict[str, list[type[BaseModel]]] = {
         PlaylistItemDTO,
     ],
     "DELETE /api/playlists/{playlist_id}/items/{sort_order}": [],
+    "POST /api/adhan-audio": [AdhanAudioUploadDTO],
+    "DELETE /api/adhan-audio": [],
     "GET /api/displays": [],
     "POST /api/displays": [DisplayRegisterDTO],
     "PATCH /api/displays/{display_id}": [DisplayUpdateDTO],
@@ -97,6 +100,8 @@ SECTION_FIXTURES: dict[str, list[str]] = {
         "playlist-item.json",
     ],
     "DELETE /api/playlists/{playlist_id}/items/{sort_order}": [],
+    "POST /api/adhan-audio": ["adhan-audio-upload.json"],
+    "DELETE /api/adhan-audio": [],
     "GET /api/displays": [],
     "POST /api/displays": ["display-register.json"],
     "PATCH /api/displays/{display_id}": ["display-update.json"],

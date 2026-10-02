@@ -16,6 +16,7 @@ at the boundary.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from enum import StrEnum
@@ -291,6 +292,10 @@ def theme_css_class(theme: ThemeSettings) -> str:
     return f"palette-{theme.palette} font-{theme.font} density-{theme.density}"
 
 
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+"""Quiet-hours bound shape: 24h ``HH:MM`` (same wire shape as prayer times)."""
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Installation identity, display tuning, and schedule-source switches."""
@@ -316,6 +321,11 @@ class Settings:
     )
     theme: ThemeSettings = field(default_factory=ThemeSettings)
     timezone: str = TIMEZONE_DEFAULT
+    adhan_audio_enabled: bool = False
+    adhan_volume: int = 70
+    quiet_hours_start: str | None = None
+    quiet_hours_end: str | None = None
+    adhan_muted_prayers: list[str] = field(default_factory=list[str], hash=False)
 
     def __post_init__(self) -> None:
         """Enforce offset/coordinate guards and non-empty rule coverage."""
@@ -357,6 +367,24 @@ class Settings:
             if not 0 <= minutes <= 90:
                 raise ValueError(
                     f"countdown override out of range for {prayer_key}: {minutes}"
+                )
+        if not 0 <= self.adhan_volume <= 100:
+            raise ValueError(f"adhan_volume out of range 0-100: {self.adhan_volume}")
+        if (self.quiet_hours_start is None) != (self.quiet_hours_end is None):
+            raise ValueError("quiet hours need both start and end")
+        for bound in (self.quiet_hours_start, self.quiet_hours_end):
+            if bound is not None and not _HHMM.match(bound):
+                raise ValueError(f"quiet hours must be HH:MM: {bound!r}")
+        for prayer_key in self.adhan_muted_prayers:
+            try:
+                marker = MarkerName(prayer_key)
+            except ValueError:
+                raise ValueError(
+                    f"unknown prayer for adhan mute: {prayer_key!r}"
+                ) from None
+            if marker_kind(marker) is MarkerKind.BOUNDARY:
+                raise ValueError(
+                    f"boundary time marker cannot mute adhan: {prayer_key}"
                 )
         seen: set[MarkerName] = set()
         for rule in self.iqamah_rules:

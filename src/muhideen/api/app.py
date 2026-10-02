@@ -30,6 +30,12 @@ from pydantic import AfterValidator, Field
 from starlette.responses import StreamingResponse
 from starlette.types import Send
 
+from muhideen.adapters.adhan_audio import (
+    ADHAN_FILENAME,
+    MAX_ADHAN_BYTES,
+    delete_adhan_audio,
+    store_adhan_audio,
+)
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
 from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.images import MAX_IMAGE_BYTES, store_image
@@ -121,11 +127,33 @@ _TEMPLATES = Jinja2Templates(
 )
 
 
+def _adhan_audio_url(media_dir: Path) -> str:
+    """Public URL for the canonical adhan file; default when outside the static root."""
+    try:
+        rel = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
+    except ValueError:
+        return f"/static/uploads/{ADHAN_FILENAME}"
+    return f"/static/{rel.as_posix()}/{ADHAN_FILENAME}"
+
+
 def _require_tz_aware(value: datetime) -> datetime:
     """Reject naive datetimes; require a UTC offset on ``now``."""
     if value.tzinfo is None:
         raise ValueError("now must include a UTC offset (tz-aware ISO8601)")
     return value
+
+
+def _in_quiet_hours(now: str, start: str | None, end: str | None) -> bool:
+    """Report whether ``HH:MM`` ``now`` falls inside quiet ``start``–``end``.
+
+    Overnight wraps (``22:00``–``06:00``) match ``now >= start or now < end``;
+    same-day ranges match ``start <= now < end``. Unset bounds never match.
+    """
+    if start is None or end is None:
+        return False
+    if start <= end:
+        return start <= now < end
+    return now >= start or now < end
 
 
 class PlaylistItemDTO(ContractDTO):
@@ -241,6 +269,12 @@ class PlaylistImageUploadDTO(ContractDTO):
 
     image_base64: Annotated[str, Field(min_length=1)]
     duration_s: Annotated[int, Field(gt=0)]
+
+
+class AdhanAudioUploadDTO(ContractDTO):
+    """Adhan MP3 upload: base64 bytes (no multipart parser on the offline footprint)."""
+
+    audio_base64: Annotated[str, Field(min_length=1)]
 
 
 class DisplayRegisterDTO(ContractDTO):
@@ -746,6 +780,18 @@ def create_app(deps: AppDeps) -> FastAPI:
                 {"code": 503, "message": "Setup required"},
                 status_code=503,
             )
+        adhan_url: str | None = None
+        if (
+            settings.adhan_audio_enabled
+            and event_dto.next_prayer not in settings.adhan_muted_prayers
+            and not _in_quiet_hours(
+                event_dto.now.strftime("%H:%M"),
+                settings.quiet_hours_start,
+                settings.quiet_hours_end,
+            )
+            and (media_dir / ADHAN_FILENAME).exists()
+        ):
+            adhan_url = _adhan_audio_url(media_dir)
         ctx = build_display_context(
             day=day_dto,
             event=event_dto,
@@ -753,6 +799,8 @@ def create_app(deps: AppDeps) -> FastAPI:
             iqamah=labels,
             dim_minutes=dim_minutes,
             dim_source=dim_source,
+            adhan_audio_url=adhan_url,
+            adhan_volume=settings.adhan_volume,
         )
         return _TEMPLATES.TemplateResponse(request, "display.html", ctx)
 
@@ -1212,6 +1260,40 @@ def create_app(deps: AppDeps) -> FastAPI:
         if len(remaining) == len(playlist.items):
             raise HTTPException(status_code=404, detail="unknown playlist item")
         store.save(_replace(playlist, items=remaining))
+        return {"ok": True}
+
+    @app.post(
+        "/api/adhan-audio",
+        dependencies=[Depends(admin)],
+        status_code=201,
+    )
+    def upload_adhan_audio(payload: AdhanAudioUploadDTO) -> dict[str, Any]:
+        """Store the adhan MP3 (base64 JSON, 10MB cap, MP3 magic only).
+
+        Uploads replace each other under the canonical ``adhan.mp3`` name,
+        so the display URL stays stable across swaps.
+        """
+        if len(payload.audio_base64) > (MAX_ADHAN_BYTES + 2) // 3 * 4 + 4:
+            raise HTTPException(status_code=413, detail="audio exceeds 10MB limit")
+        try:
+            data = base64.b64decode(payload.audio_base64, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise HTTPException(status_code=400, detail="invalid base64") from exc
+        if len(data) > MAX_ADHAN_BYTES:
+            raise HTTPException(status_code=413, detail="audio exceeds 10MB limit")
+        try:
+            stored = store_adhan_audio(data, media_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"file": stored.name, "size": len(data)}
+
+    @app.delete(
+        "/api/adhan-audio",
+        dependencies=[Depends(admin)],
+    )
+    def delete_adhan_audio_route() -> dict[str, Any]:
+        """Remove the adhan MP3; idempotent when no file was uploaded."""
+        delete_adhan_audio(media_dir)
         return {"ok": True}
 
     @app.get(
