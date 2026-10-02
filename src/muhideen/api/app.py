@@ -456,9 +456,20 @@ async def _event_stream(
                         stage = await asyncio.to_thread(
                             _tick_stage, engine, settings_repo, current, playlist_repo
                         )
+                    except ConfigError as exc:
+                        logger.error(
+                            "tick stage error (config): %s — check settings;"
+                            " display falls back to the route slate",
+                            exc,
+                        )
+                        stage = "error"
                     except MuhideenError as exc:
-                        logger.warning("tick stage fallback to clock: %s", exc)
-                        stage = "clock"
+                        logger.warning(
+                            "tick stage error (schedule): %s — display falls"
+                            " back to the route slate",
+                            exc,
+                        )
+                        stage = "error"
                     payload = TickEventDTO.from_domain(
                         current,
                         stage,
@@ -964,12 +975,19 @@ def create_app(deps: AppDeps) -> FastAPI:
             return RedirectResponse("/admin/login")
         stored = playlist_store
         playlists = stored.list() if stored is not None else []
+        preview_error: str | None = None
         try:
             preview: dict[str, Any] | None = (
                 _occupancy_preview() if stored is not None else None
             )
-        except (ConfigError, ScheduleError):
-            preview = None
+        except (ConfigError, ScheduleError) as exc:
+            # Surface the reason instead of silent null: the editor embeds
+            # the message in the preview slot (a JS-safe shape — ``stage``
+            # plus an empty ``playlists`` list — since the page script only
+            # null-guards before reading ``playlists``). The ``None`` slot
+            # stays reserved for "no database".
+            preview_error = str(exc)
+            preview = {"error": preview_error, "stage": "error", "playlists": []}
         ctx: dict[str, Any] = {
             "lang": "en",
             "nav_base": "/admin/settings",
@@ -980,6 +998,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                 ]
             ),
             "preview_json": json.dumps(preview) if preview is not None else "null",
+            "preview_error": preview_error,
         }
         return _TEMPLATES.TemplateResponse(request, "admin/playlists.html", ctx)
 

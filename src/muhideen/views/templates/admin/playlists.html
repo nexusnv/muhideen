@@ -34,6 +34,7 @@
 
     <section id="occupancy-preview" class="admin-section" data-preview='{{ preview_json }}'>
       <div class="card-head"><h2><span class="ico">●</span><span>On stage now</span></h2><span class="pill-note">Next 24 h scan</span></div>
+      {% if preview_error %}<div class="card-body"><p class="alert" role="alert">{{ preview_error }}</p></div>{% endif %}
       <div class="card-body"><div id="preview-body"></div></div>
     </section>
 

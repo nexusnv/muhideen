@@ -43,7 +43,7 @@ Server-computed state per PRD §8. Client never computes. All timestamps ISO8601
 
 ## `GET /api/events` (SSE `text/event-stream`)
 
-Events: `state` (on transition), `tick` (1/min heartbeat with server `now` + Main Stage id `stage`; the display reloads when `stage` changes), `config-update` (settings/theme/playlist changed → refetch). `state` payloads always carry `time_synced` (FR-1.6) and carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `stage` is one of `clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, or `playlist:<id>`. `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`. OpenAPI documents the three payload schemas inline as an `anyOf` (under `type: object`) beneath the `text/event-stream` content.
+Events: `state` (on transition), `tick` (1/min heartbeat with server `now` + Main Stage id `stage`; the display reloads when `stage` changes), `config-update` (settings/theme/playlist changed → refetch). `state` payloads always carry `time_synced` (FR-1.6) and carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `stage` is one of `clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, `playlist:<id>`, or `error` (config/schedule failure — the display reloads into the route slate instead of rendering a healthy Clock). `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`. OpenAPI documents the three payload schemas inline as an `anyOf` (under `type: object`) beneath the `text/event-stream` content.
 
 ## `POST /api/displays/heartbeat`
 
@@ -251,7 +251,7 @@ Admin session required. Lists every playlist with ordered items as a `playlists`
 
 ## `GET /api/playlists/preview`
 
-Admin session required. Server-side Stage preview computed over the Task 5 occupancy engine: `stage` is the current Stage id (`clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, `playlist:<id>`), and each entry reports `on_stage_now` plus the next 5-minute sample in the coming 24h at which it would hold the Stage (`next_at`, `null` when never in-window). 503 before setup, 404 without a schedule.
+Admin session required. Server-side Stage preview computed over the Task 5 occupancy engine: `stage` is the current Stage id (`clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, `playlist:<id>`), and each entry reports `on_stage_now` plus the next 5-minute sample in the coming 24h at which it would hold the Stage (`next_at`, `null` when never in-window). 503 before setup, 404 without a schedule. The playlist-editor page embeds the same payload shape; when the preview cannot resolve (missing config or schedule) the embedded payload carries an additive `error` key with the reason (`stage` reads `error`, `playlists` is empty) instead of silent null, and the page renders the reason in the preview slot.
 
 ## `GET /api/playlists/{playlist_id}`
 

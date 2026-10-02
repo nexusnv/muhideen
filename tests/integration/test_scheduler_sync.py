@@ -265,6 +265,8 @@ def test_chained_failures_schedule_15m_then_1h() -> None:
 
 
 def test_gives_up_after_three_retries(caplog: pytest.LogCaptureFixture) -> None:
+    # After 3 short retries the chain continues on a 6h long-pole instead
+    # of going silent until the next 02:00 run.
     client = FakeJAKIMClient(error=SyncError("boom", zone="SGR01"))
     scheduler = _build(client=client)
     with caplog.at_level(logging.WARNING, logger=LOGGER):
@@ -273,10 +275,59 @@ def test_gives_up_after_three_retries(caplog: pytest.LogCaptureFixture) -> None:
         scheduler.get_job("jakim-sync-retry-2").func()
         scheduler.get_job("jakim-sync-retry-3").func()
     assert scheduler.get_job("jakim-sync-retry-4") is None
+    assert scheduler.get_job("jakim-sync-retry-long") is not None
     messages = [r.getMessage() for r in _records(caplog)]
-    assert any("gave up" in m for m in messages)
+    assert any("will retry in 6h" in m for m in messages)
     # initial run + 3 retries = 4 attempts total (attempt=3 must not under-report)
     assert any("after 4 attempts" in m for m in messages)
+
+
+def test_non_transient_sync_error_skips_retry(caplog: pytest.LogCaptureFixture) -> None:
+    clock = FakeClock(PINNED)
+    client = FakeJAKIMClient(
+        error=SyncError("zone rejected", zone="BAD01", transient=False)
+    )
+    scheduler = _build(client=client, clock=clock)
+    with caplog.at_level(logging.ERROR, logger=LOGGER):
+        assert _sync_job(scheduler=scheduler, client=client, clock=clock) is None
+    assert scheduler.get_job("jakim-sync-retry-1") is None
+    assert scheduler.get_job("jakim-sync-retry-long") is None
+    error_messages = [
+        r.getMessage() for r in _records(caplog) if r.levelno >= logging.ERROR
+    ]
+    assert any("BAD01" in m and "check the zone" in m for m in error_messages)
+
+
+def test_transient_failure_continues_long_pole_after_three_retries(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    clock = FakeClock(PINNED)
+    client = FakeJAKIMClient(error=SyncError("boom", zone="SGR01"))
+    scheduler = _build(client=client, clock=clock)
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert _sync_job(scheduler=scheduler, client=client, clock=clock) is None
+        scheduler.get_job("jakim-sync-retry-1").func()
+        scheduler.get_job("jakim-sync-retry-2").func()
+        scheduler.get_job("jakim-sync-retry-3").func()
+    long_job = scheduler.get_job("jakim-sync-retry-long")
+    assert long_job is not None
+    assert long_job.trigger.run_date == clock.now() + timedelta(hours=6)
+    assert long_job.misfire_grace_time is None  # a late wake still retries
+    assert long_job.coalesce is True
+    messages = [r.getMessage() for r in _records(caplog)]
+    assert any("will retry in 6h" in m for m in messages)
+    # re-arm: a further failure of the long-pole job re-schedules the same
+    # stable id instead of going silent. The scheduler is never started in
+    # tests, so re-adds accumulate as pending jobs (live startup collapses
+    # them via `replace_existing`) — the last entry is the live re-arm.
+    clock.current = PINNED + timedelta(hours=6, minutes=1)
+    long_job.func()
+    pending_long = [
+        job for job in scheduler.get_jobs() if job.id == "jakim-sync-retry-long"
+    ]
+    assert len(pending_long) == 2
+    rearmed = pending_long[-1]
+    assert rearmed.trigger.run_date == clock.now() + timedelta(hours=6)
 
 
 def test_job_logs_config_error_without_retry(caplog: pytest.LogCaptureFixture) -> None:

@@ -30,8 +30,11 @@ class ScheduleError(MuhideenError):
 class SyncError(MuhideenError):
     """A schedule source fetch failed; carries context for retries."""
 
-    def __init__(self, message: str, zone: str = "", date: str = "") -> None:
+    def __init__(
+        self, message: str, zone: str = "", date: str = "", *, transient: bool = True
+    ) -> None:
         """Carry the failing zone/date alongside the sync message."""
         self.zone = zone
         self.date = date
+        self.transient = transient
         super().__init__(message)

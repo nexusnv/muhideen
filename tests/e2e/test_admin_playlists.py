@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import html
 import io
+import json
+import re
 from datetime import datetime as _dt
 from pathlib import Path
 from types import SimpleNamespace
@@ -483,12 +486,45 @@ def test_no_database_app_serves_admin_with_503_backends() -> None:
         assert "data-preview='null'" in playlists_html.text
 
 
-def test_admin_playlists_page_without_settings_renders_empty_preview(
+def test_admin_playlists_page_without_settings_renders_error_preview(
     media_client: TestClient,
 ) -> None:
     media_client.post("/api/auth/setup", json={"password": "password123"})
-    html = media_client.get("/admin/playlists").text
-    assert "data-preview='null'" in html
+    response = media_client.get("/admin/playlists")
+    assert response.status_code == 200
+    raw = html.unescape(response.text)
+    assert "data-preview='null'" not in raw
+    match = re.search(r"data-preview='(\{.*?\})'", raw)
+    assert match is not None, "missing config must surface an error payload"
+    payload = json.loads(match.group(1))
+    assert payload["stage"] == "error"
+    assert payload["playlists"] == []
+    assert "settings not initialised" in payload["error"]
+    assert (
+        'role="alert"' in raw
+        and "settings not initialised" in raw.split('role="alert"')[1].split("</p>")[0]
+    )
+
+
+def test_admin_playlists_page_renders_preview_error_on_corrupt_settings(
+    authed: TestClient, surface: SimpleNamespace
+) -> None:
+    with surface.db.write() as conn:
+        conn.execute("UPDATE settings SET value = '99' WHERE key = 'hijri_offset'")
+    response = authed.get("/admin/playlists")
+    assert response.status_code == 200
+    raw = html.unescape(response.text)
+    assert "data-preview='null'" not in raw
+    match = re.search(r"data-preview='(\{.*?\})'", raw)
+    assert match is not None, "corrupt config must surface an error payload"
+    payload = json.loads(match.group(1))
+    assert payload["stage"] == "error"
+    assert payload["playlists"] == []
+    assert "hijri_offset out of range" in payload["error"]
+    assert (
+        'role="alert"' in raw
+        and "hijri_offset out of range" in raw.split('role="alert"')[1].split("</p>")[0]
+    )
 
 
 def test_settings_page_shows_registered_displays(authed: TestClient) -> None:

@@ -274,7 +274,9 @@ class HttpJAKIMClient:
                         # the retry path (in-client 2/4/8s bursts re-engage
                         # the endpoint's WAF ban).
                         raise SyncError(
-                            f"jakim fetch rejected with HTTP {status}", zone=zone
+                            f"jakim fetch rejected with HTTP {status}",
+                            zone=zone,
+                            transient=False,
                         ) from exc
                     if attempt < len(RETRY_DELAYS_S):
                         self._sleep(RETRY_DELAYS_S[attempt])

@@ -296,6 +296,23 @@ def test_4xx_fails_fast_without_in_client_retry(bad_status: int) -> None:
     assert calls["n"] == 1
 
 
+@pytest.mark.parametrize("bad_status", [404, 429])
+def test_4xx_marks_unrecoverable(bad_status: int) -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        calls["n"] += 1
+        return httpx.Response(bad_status)
+
+    sleeps: list[float] = []
+    with pytest.raises(SyncError) as excinfo:
+        _client(handler, sleeps).fetch_year("SGR01")
+    assert excinfo.value.transient is False
+    assert sleeps == []
+    assert calls["n"] == 1
+
+
 def test_parse_rejection_after_200_does_not_retry() -> None:
     payload = _payload()
     del payload["prayerTime"][0]["isha"]
