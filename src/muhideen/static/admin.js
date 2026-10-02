@@ -734,7 +734,14 @@
   if (manualDate) {
     var manualMarkers = ["imsak", "fajr", "syuruq", "dhuha", "dhuhr", "asr", "maghrib", "isha"];
     if (!manualDate.value) {
-      try { manualDate.value = new Date().toISOString().slice(0, 10); } catch (e) { /* noop */ }
+      try {
+        var nowD = new Date();
+        var mm = String(nowD.getMonth() + 1);
+        if (mm.length < 2) mm = "0" + mm;
+        var dd = String(nowD.getDate());
+        if (dd.length < 2) dd = "0" + dd;
+        manualDate.value = nowD.getFullYear() + "-" + mm + "-" + dd;
+      } catch (e) { /* noop */ }
     }
     function manualZone() {
       var z = document.getElementById("s-zone");
@@ -758,15 +765,21 @@
     function loadManual() {
       var d = manualDate.value;
       if (!d) return;
+      var requested = d;
       fetch("/api/prayer-day?date=" + encodeURIComponent(d)
         + "&zone=" + encodeURIComponent(manualZone())).then(function (r) {
+        if (manualDate.value !== requested) return null;
         if (r.status !== 200) {
+          for (var c = 0; c < manualMarkers.length; c++) {
+            var clearEl = document.getElementById("manual-" + manualMarkers[c]);
+            if (clearEl) clearEl.value = "";
+          }
           msg("manual-status", "No automatic schedule for this date yet — enter times and Save");
           return null;
         }
         return r.json();
       }).then(function (data) {
-        if (data) paintManual(data);
+        if (data && manualDate.value === requested) paintManual(data);
       }).catch(function () { msg("manual-status", "Network error"); });
     }
     manualDate.addEventListener("change", loadManual);

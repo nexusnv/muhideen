@@ -103,7 +103,6 @@ from muhideen.core.values import (
     Playlist,
     PlaylistItem,
     PrayerDay,
-    ScheduleSource,
     Settings,
 )
 from muhideen.domain.dim import effective_dim
@@ -918,10 +917,8 @@ def create_app(deps: AppDeps) -> FastAPI:
     def delete_manual_day(date: date) -> dict[str, Any]:
         """Release one day's manual pin; the date falls back to auto."""
         settings = deps.settings_repo.load()
-        existing = deps.prayer_repo.get_day(date, settings.zone)
-        if existing is None or existing.source is not ScheduleSource.MANUAL:
+        if not deps.prayer_repo.delete_day(date, settings.zone):
             raise HTTPException(status_code=404, detail="no manual pin for date")
-        deps.prayer_repo.delete_day(date, settings.zone)
         return {"ok": True}
 
     @app.get("/admin/login", response_class=HTMLResponse)

@@ -265,6 +265,22 @@ def test_settings_page_renders_manual_schedule_section(
     assert 'getElementById("manual-date")' in js
 
 
+def test_settings_page_manual_js_guards_prefill(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    assert client.put("/api/settings", json=_settings_payload()).status_code == 200
+    js = client.get("/static/admin.js").text
+    # Local-date init (no UTC slice that shifts the day around midnight).
+    assert "getFullYear" in js
+    assert "toISOString" not in js
+    # Stale-prefill guard: the response is ignored once the date moved on.
+    assert "requested" in js
+    assert "manualDate.value === requested" in js
+    # Non-200 prefill clears the marker inputs instead of showing old times.
+    assert 'clearEl.value = ""' in js
+
+
 def test_adhan_audio_settings_round_trip(
     surface: SimpleNamespace, client: TestClient
 ) -> None:

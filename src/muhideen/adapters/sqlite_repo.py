@@ -95,6 +95,41 @@ def _row_to_day(row: sqlite3.Row) -> PrayerDay:
     )
 
 
+_DayValues = tuple[str, str, str, str, str, str, str, str, str, str, str, str]
+
+
+def _day_values(prayer_day: PrayerDay) -> _DayValues:
+    """Render one PrayerDay as its prayer_times row values."""
+    return (
+        prayer_day.date.isoformat(),
+        prayer_day.zone,
+        prayer_day.imsak.isoformat(),
+        prayer_day.fajr.isoformat(),
+        prayer_day.syuruq.isoformat(),
+        prayer_day.dhuha.isoformat(),
+        prayer_day.dhuhr.isoformat(),
+        prayer_day.asr.isoformat(),
+        prayer_day.maghrib.isoformat(),
+        prayer_day.isha.isoformat(),
+        prayer_day.source.value,
+        prayer_day.fetched_at.isoformat(),
+    )
+
+
+_UPSERT_DAY_SQL = (
+    "INSERT INTO prayer_times ("
+    " date_gregorian, zone_code, imsak, fajr, syuruq, dhuha,"
+    " dhuhr, asr, maghrib, isha, source, fetched_at"
+    ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+    " ON CONFLICT(date_gregorian, zone_code) DO UPDATE SET"
+    " imsak=excluded.imsak, fajr=excluded.fajr,"
+    " syuruq=excluded.syuruq, dhuha=excluded.dhuha,"
+    " dhuhr=excluded.dhuhr, asr=excluded.asr,"
+    " maghrib=excluded.maghrib, isha=excluded.isha,"
+    " source=excluded.source, fetched_at=excluded.fetched_at"
+)
+
+
 class SqlitePrayerRepo:
     """``PrayerRepo`` over prayer_times: stores rows, validates nothing.
 
@@ -117,34 +152,27 @@ class SqlitePrayerRepo:
 
     def save_day(self, prayer_day: PrayerDay) -> None:
         """Upsert one day keyed by (date_gregorian, zone_code)."""
-        values = (
-            prayer_day.date.isoformat(),
-            prayer_day.zone,
-            prayer_day.imsak.isoformat(),
-            prayer_day.fajr.isoformat(),
-            prayer_day.syuruq.isoformat(),
-            prayer_day.dhuha.isoformat(),
-            prayer_day.dhuhr.isoformat(),
-            prayer_day.asr.isoformat(),
-            prayer_day.maghrib.isoformat(),
-            prayer_day.isha.isoformat(),
-            prayer_day.source.value,
-            prayer_day.fetched_at.isoformat(),
-        )
         with self._db.write() as conn:
-            conn.execute(
-                "INSERT INTO prayer_times ("
-                " date_gregorian, zone_code, imsak, fajr, syuruq, dhuha,"
-                " dhuhr, asr, maghrib, isha, source, fetched_at"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-                " ON CONFLICT(date_gregorian, zone_code) DO UPDATE SET"
-                " imsak=excluded.imsak, fajr=excluded.fajr,"
-                " syuruq=excluded.syuruq, dhuha=excluded.dhuha,"
-                " dhuhr=excluded.dhuhr, asr=excluded.asr,"
-                " maghrib=excluded.maghrib, isha=excluded.isha,"
-                " source=excluded.source, fetched_at=excluded.fetched_at",
-                values,
-            )
+            conn.execute(_UPSERT_DAY_SQL, _day_values(prayer_day))
+
+    def save_day_unless_manual(self, prayer_day: PrayerDay) -> bool:
+        """Upsert unless a manual pin holds the date; True when written.
+
+        The stored-row read and the conditional write run inside one
+        ``write()`` transaction — ``Database`` holds its single lock for
+        the whole block, so a concurrent manual PUT cannot slip between
+        the check and the write (TOCTOU-safe without a second SQL path).
+        """
+        with self._db.write() as conn:
+            row = conn.execute(
+                "SELECT source FROM prayer_times"
+                " WHERE date_gregorian = ? AND zone_code = ?",
+                (prayer_day.date.isoformat(), prayer_day.zone),
+            ).fetchone()
+            if row is not None and row["source"] == ScheduleSource.MANUAL.value:
+                return False
+            conn.execute(_UPSERT_DAY_SQL, _day_values(prayer_day))
+            return True
 
     def last_known(self, day: date, zone: str) -> PrayerDay | None:
         """Return the newest saved day on or before ``day``, else None."""
@@ -158,13 +186,21 @@ class SqlitePrayerRepo:
             ).fetchone()
         return _row_to_day(row) if row is not None else None
 
-    def delete_day(self, day: date, zone: str) -> None:
-        """Delete the saved day for date+zone (manual-pin release)."""
+    def delete_day(self, day: date, zone: str) -> bool:
+        """Delete the manual pin for date+zone; True when a pin was removed.
+
+        The ``source = 'manual'`` predicate is part of the DELETE itself,
+        so the no-pin and non-manual guards that used to be a separate
+        read are now atomic: a concurrent sync write between check and
+        delete can no longer remove the wrong row.
+        """
         with self._db.write() as conn:
-            conn.execute(
-                "DELETE FROM prayer_times WHERE date_gregorian = ? AND zone_code = ?",
+            cursor = conn.execute(
+                "DELETE FROM prayer_times"
+                " WHERE date_gregorian = ? AND zone_code = ? AND source = 'manual'",
                 (day.isoformat(), zone),
             )
+            return cursor.rowcount > 0
 
 
 def _parse_bool(raw: str) -> bool:

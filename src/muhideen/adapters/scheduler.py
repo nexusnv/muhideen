@@ -39,7 +39,6 @@ from apscheduler.triggers.date import DateTrigger
 
 from muhideen.core.errors import ConfigError, SyncError
 from muhideen.core.ports import Clock, JAKIMClient, PrayerRepo, SettingsRepo
-from muhideen.core.values import ScheduleSource
 
 logger = logging.getLogger(__name__)
 
@@ -107,19 +106,22 @@ def run_sync(
 
     `ConfigError` from `settings_repo.load()` propagates to the caller —
     first-boot setup has nothing to sync and must never retry. A
-    repository write failure during the save loop is converted to
+    repository failure during the save loop (read or write — the sync
+    only writes through `save_day_unless_manual`, whose stored-row read
+    and conditional write are one atomic step) is converted to
     `SyncError` (with the original chained): `sync_job` only schedules
     retries for `SyncError`, so an uncaught backend error (locked/full
     database) would otherwise escape the job and skip the whole 5m/15m/1h
     chain. When `SyncError` propagates, days earlier in the loop have
     already been saved — a partial save the caller sees as a failed sync.
-    Each `save_day` is an independent upsert, so the partial write is
+    Each save is an independent upsert, so the partial write is
     repaired by the next attempt, which rewrites the full year.
 
     Manually pinned days take precedence over the sync (manual > JAKIM):
-    a stored row whose `source is MANUAL` is left byte-identical and not
-    counted in the returned save count. Deleting the pin re-exposes the
-    date to the next sync.
+    `save_day_unless_manual` leaves a stored row whose `source is MANUAL`
+    byte-identical (returning False, not counted in the save count), so a
+    manual PUT racing the loop can never be clobbered. Deleting the pin
+    re-exposes the date to the next sync.
     """
     settings = settings_repo.load()
     if settings.calc_only:
@@ -127,18 +129,15 @@ def run_sync(
     days = client.fetch_year(settings.zone)
     saved = 0
     for day in days:
-        existing = prayer_repo.get_day(day.date, settings.zone)
-        if existing is not None and existing.source is ScheduleSource.MANUAL:
-            continue
         try:
-            prayer_repo.save_day(day)
+            if prayer_repo.save_day_unless_manual(day):
+                saved += 1
         except (ConfigError, SyncError):
             raise
         except Exception as exc:
             raise SyncError(
                 f"prayer repo write failed: {exc}", zone=settings.zone
             ) from exc
-        saved += 1
     return saved
 
 

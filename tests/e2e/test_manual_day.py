@@ -118,6 +118,25 @@ def test_delete_manual_day_without_pin_is_404(
     assert response.status_code == 404
 
 
+def test_delete_manual_day_leaves_jakim_row_untouched(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    # The release is a conditional delete (WHERE source='manual'): a
+    # stored automatic row is not a pin, so the DELETE 404s and the row
+    # stays servable (closes oracle note #64 on the old check-then-delete).
+    _login(client)
+    _seed_settings(client)
+    _seed_jakim_day(surface, date(2025, 10, 20))
+    response = client.delete("/api/manual-day", params={"date": "2025-10-20"})
+    assert response.status_code == 404
+    resolved = client.get(
+        "/api/prayer-day", params={"date": "2025-10-20", "zone": "SGR01"}
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["source"] == "jakim"
+    assert resolved.json()["prayers"]["asr"] == "15:35"
+
+
 def test_put_manual_day_with_swapped_markers_is_422(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
