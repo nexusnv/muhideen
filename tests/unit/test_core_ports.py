@@ -27,6 +27,12 @@ class FullPrayerRepo:
     def save_day(self, prayer_day: PrayerDay) -> None:
         raise NotImplementedError
 
+    def save_day_unless_manual(self, prayer_day: PrayerDay) -> bool:
+        raise NotImplementedError
+
+    def delete_day(self, day: date, zone: str) -> bool:
+        raise NotImplementedError
+
     def last_known(self, day: date, zone: str) -> PrayerDay | None:
         raise NotImplementedError
 
@@ -41,6 +47,20 @@ class MissingLastKnownRepo:
         raise NotImplementedError
 
     def save_day(self, prayer_day: PrayerDay) -> None:
+        raise NotImplementedError
+
+
+class MissingUnlessManualRepo:
+    def get_day(self, day: date, zone: str) -> PrayerDay | None:
+        raise NotImplementedError
+
+    def save_day(self, prayer_day: PrayerDay) -> None:
+        raise NotImplementedError
+
+    def delete_day(self, day: date, zone: str) -> bool:
+        raise NotImplementedError
+
+    def last_known(self, day: date, zone: str) -> PrayerDay | None:
         raise NotImplementedError
 
 
@@ -202,6 +222,7 @@ def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
     [
         (PartialPrayerRepo(), PrayerRepo),
         (MissingLastKnownRepo(), PrayerRepo),
+        (MissingUnlessManualRepo(), PrayerRepo),
         (PartialSettingsRepo(), SettingsRepo),
         (PartialDisplayRepo(), DisplayRepo),
         (PartialJAKIMClient(), JAKIMClient),

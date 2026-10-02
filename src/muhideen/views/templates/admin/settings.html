@@ -248,6 +248,38 @@
       </div>
     </section>
 
+    <section id="section-manual" class="admin-section">
+      <div class="card-head">
+        <h2><span class="ico">📌</span><span>Manual schedule<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Pin one day's times by hand — outranks the automatic timetable until cleared</div></span></h2>
+      </div>
+      <div class="card-body">
+        <div class="setting-row">
+          <div class="setting-info"><h4>Date</h4><p>Pick a day to pin. Switching dates loads that day's current times below.</p></div>
+          <div class="setting-control control-narrow"><input id="manual-date" type="date"></div>
+        </div>
+        <div class="setting-row stack">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;">
+            <label class="field"><span class="lbl">Imsak</span><input id="manual-imsak" type="time"></label>
+            <label class="field"><span class="lbl">Fajr</span><input id="manual-fajr" type="time"></label>
+            <label class="field"><span class="lbl">Syuruq</span><input id="manual-syuruq" type="time"></label>
+            <label class="field"><span class="lbl">Dhuha</span><input id="manual-dhuha" type="time"></label>
+            <label class="field"><span class="lbl">Dhuhr</span><input id="manual-dhuhr" type="time"></label>
+            <label class="field"><span class="lbl">Asr</span><input id="manual-asr" type="time"></label>
+            <label class="field"><span class="lbl">Maghrib</span><input id="manual-maghrib" type="time"></label>
+            <label class="field"><span class="lbl">Isha</span><input id="manual-isha" type="time"></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><h4>Pin</h4><p>Save pins the times above for the chosen date. Clear releases the pin back to automatic.</p></div>
+          <div class="setting-control">
+            <button id="manual-save" class="btn btn-sm btn-primary" type="button">Save pin</button>
+            <button id="manual-clear" class="btn btn-sm" type="button">Clear pin</button>
+            <p id="manual-status" class="hint" role="status"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="section-playlists" class="admin-section">
       <div class="card-head">
         <h2><span class="ico">▶</span><span>Slideshows</span></h2>

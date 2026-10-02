@@ -25,6 +25,24 @@ class PrayerRepo(Protocol):
         """Upsert one prayer day (insert or replace on date+zone conflict)."""
         ...
 
+    def save_day_unless_manual(self, prayer_day: PrayerDay) -> bool:
+        """Upsert unless a manual pin holds the date; True when written.
+
+        The read of the stored row and the conditional write are one
+        atomic step: a concurrent manual PUT between a separate check
+        and write must never be clobbered by the daily sync.
+        """
+        ...
+
+    def delete_day(self, day: date, zone: str) -> bool:
+        """Delete the manual pin for ``day``/``zone``.
+
+        Only a row whose source is manual is removed; anything else
+        (missing row, automatic source) leaves the table untouched and
+        returns False. The match-and-delete is one atomic step.
+        """
+        ...
+
     def last_known(self, day: date, zone: str) -> PrayerDay | None:
         """Most recent saved day with ``date <= day`` for ``zone``, else ``None``."""
         ...

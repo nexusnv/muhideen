@@ -728,4 +728,87 @@
       }).catch(function () { editorMsg("Network error"); });
     });
   }
+  /* Manual schedule: pin one day's HH:MM times (PUT) or release the pin
+     (DELETE). Prefills from GET /api/prayer-day on date change. */
+  var manualDate = document.getElementById("manual-date");
+  if (manualDate) {
+    var manualMarkers = ["imsak", "fajr", "syuruq", "dhuha", "dhuhr", "asr", "maghrib", "isha"];
+    if (!manualDate.value) {
+      try {
+        var nowD = new Date();
+        var mm = String(nowD.getMonth() + 1);
+        if (mm.length < 2) mm = "0" + mm;
+        var dd = String(nowD.getDate());
+        if (dd.length < 2) dd = "0" + dd;
+        manualDate.value = nowD.getFullYear() + "-" + mm + "-" + dd;
+      } catch (e) { /* noop */ }
+    }
+    function manualZone() {
+      var z = document.getElementById("s-zone");
+      return z ? z.value : "";
+    }
+    function paintManual(data) {
+      var times = {};
+      var groups = [data.prayers || {}, data.boundaries || {}];
+      for (var g = 0; g < groups.length; g++) {
+        for (var k in groups[g]) {
+          if (Object.prototype.hasOwnProperty.call(groups[g], k)) times[k] = groups[g][k];
+        }
+      }
+      for (var m = 0; m < manualMarkers.length; m++) {
+        var el = document.getElementById("manual-" + manualMarkers[m]);
+        if (el) el.value = times[manualMarkers[m]] || "";
+      }
+      if (data.source === "manual") msg("manual-status", "Manual pin in effect for this date");
+      else msg("manual-status", "Automatic (" + data.source + ") — Save pins this date");
+    }
+    function loadManual() {
+      var d = manualDate.value;
+      if (!d) return;
+      var requested = d;
+      fetch("/api/prayer-day?date=" + encodeURIComponent(d)
+        + "&zone=" + encodeURIComponent(manualZone())).then(function (r) {
+        if (manualDate.value !== requested) return null;
+        if (r.status !== 200) {
+          for (var c = 0; c < manualMarkers.length; c++) {
+            var clearEl = document.getElementById("manual-" + manualMarkers[c]);
+            if (clearEl) clearEl.value = "";
+          }
+          msg("manual-status", "No automatic schedule for this date yet — enter times and Save");
+          return null;
+        }
+        return r.json();
+      }).then(function (data) {
+        if (data && manualDate.value === requested) paintManual(data);
+      }).catch(function () { msg("manual-status", "Network error"); });
+    }
+    manualDate.addEventListener("change", loadManual);
+    document.getElementById("manual-save").addEventListener("click", function () {
+      var body = { date: manualDate.value };
+      for (var m = 0; m < manualMarkers.length; m++) {
+        body[manualMarkers[m]] = document.getElementById("manual-" + manualMarkers[m]).value;
+      }
+      fetch("/api/manual-day", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(function (r) {
+        if (r.status === 200) { msg("manual-status", "Pinned — manual times now outrank automatic sources"); return; }
+        if (r.status === 401) { msg("manual-status", "Login required"); return; }
+        if (r.status === 422) { msg("manual-status", "Invalid times (422) — check HH:MM ordering"); return; }
+        msg("manual-status", "Request failed (" + r.status + ")");
+      }).catch(function () { msg("manual-status", "Network error"); });
+    });
+    document.getElementById("manual-clear").addEventListener("click", function () {
+      if (!manualDate.value) return;
+      fetch("/api/manual-day?date=" + encodeURIComponent(manualDate.value), {
+        method: "DELETE",
+      }).then(function (r) {
+        if (r.status === 200) { msg("manual-status", "Pin released — date falls back to automatic"); loadManual(); return; }
+        if (r.status === 404) { msg("manual-status", "No manual pin for this date"); return; }
+        msg("manual-status", "Request failed (" + r.status + ")");
+      }).catch(function () { msg("manual-status", "Network error"); });
+    });
+    loadManual();
+  }
 })();

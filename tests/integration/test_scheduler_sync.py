@@ -56,12 +56,16 @@ class FakePrayerRepo:
         self,
         days: list[PrayerDay] | None = None,
         save_error: Exception | None = None,
+        read_error: Exception | None = None,
     ) -> None:
         self.stored: list[PrayerDay] = list(days or [])
         self.save_calls: list[PrayerDay] = []
         self._save_error = save_error
+        self._read_error = read_error
 
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
+        if self._read_error is not None:
+            raise self._read_error
         return next((d for d in self.stored if d.date == day and d.zone == zone), None)
 
     def save_day(self, prayer_day: PrayerDay) -> None:
@@ -69,6 +73,33 @@ class FakePrayerRepo:
             raise self._save_error
         self.save_calls.append(prayer_day)
         self.stored.append(prayer_day)
+
+    def save_day_unless_manual(self, prayer_day: PrayerDay) -> bool:
+        if self._read_error is not None:
+            raise self._read_error
+        if self._save_error is not None:
+            raise self._save_error
+        for index, day in enumerate(self.stored):
+            if day.date == prayer_day.date and day.zone == prayer_day.zone:
+                if day.source is ScheduleSource.MANUAL:
+                    return False
+                self.stored[index] = prayer_day
+                self.save_calls.append(prayer_day)
+                return True
+        self.save_calls.append(prayer_day)
+        self.stored.append(prayer_day)
+        return True
+
+    def delete_day(self, day: date, zone: str) -> bool:
+        for index, stored in enumerate(self.stored):
+            if (
+                stored.date == day
+                and stored.zone == zone
+                and stored.source is ScheduleSource.MANUAL
+            ):
+                del self.stored[index]
+                return True
+        return False
 
     def last_known(self, day: date, zone: str) -> PrayerDay | None:
         candidates = [d for d in self.stored if d.date <= day and d.zone == zone]
@@ -205,6 +236,32 @@ def test_repo_sync_error_reraises_unwrapped() -> None:
     with pytest.raises(SyncError) as exc_info:
         _run_sync(client=client, prayer_repo=repo)
     assert exc_info.value is error
+
+
+def test_repo_read_failure_converts_to_sync_error() -> None:
+    # The stored-row read inside save_day_unless_manual sits inside the
+    # same try as the write: an unexpected read failure (locked/full
+    # database) becomes SyncError and enters the retry chain instead of
+    # escaping sync_job.
+    client = FakeJAKIMClient(days=[_day(date(2026, 9, 24))])
+    repo = FakePrayerRepo(read_error=OSError("database is locked"))
+    with pytest.raises(SyncError, match="prayer repo write failed"):
+        _run_sync(client=client, prayer_repo=repo)
+
+
+def test_repo_read_failure_schedules_retry() -> None:
+    clock = FakeClock(PINNED)
+    client = FakeJAKIMClient(days=[_day(date(2026, 9, 24))])
+    repo = FakePrayerRepo(read_error=OSError("database is locked"))
+    scheduler = _build(client=client, prayer_repo=repo, clock=clock)
+    result = _sync_job(
+        scheduler=scheduler,
+        client=client,
+        prayer_repo=repo,
+        clock=clock,
+    )
+    assert result is None
+    assert scheduler.get_job("jakim-sync-retry-1") is not None
 
 
 def test_repo_write_failure_schedules_retry() -> None:
@@ -360,3 +417,42 @@ def test_calc_only_mode_skips_fetch() -> None:
     assert _run_sync(client=client, prayer_repo=repo, settings_repo=settings_repo) == 0
     assert client.last_zone is None
     assert repo.save_calls == []
+
+
+def test_run_sync_skips_manually_pinned_days() -> None:
+    from dataclasses import replace
+
+    manual_date = date(2026, 9, 24)
+    manual = replace(
+        _day(manual_date),
+        imsak=time(5, 40),
+        fajr=time(5, 50),
+        syuruq=time(7, 0),
+        dhuha=time(7, 25),
+        dhuhr=time(13, 5),
+        asr=time(16, 10),
+        maghrib=time(19, 8),
+        isha=time(20, 15),
+        source=ScheduleSource.MANUAL,
+    )
+    repo = FakePrayerRepo(days=[manual])
+    client = FakeJAKIMClient(days=[_day(manual_date), _day(date(2026, 9, 25))])
+    assert _run_sync(client=client, prayer_repo=repo) == 1
+    assert [d.date for d in repo.save_calls] == [date(2026, 9, 25)]
+    stored = repo.get_day(manual_date, "SGR01")
+    assert stored == manual
+    assert stored is not None and stored.source is ScheduleSource.MANUAL
+    assert (stored.imsak, stored.fajr, stored.syuruq, stored.dhuha) == (
+        manual.imsak,
+        manual.fajr,
+        manual.syuruq,
+        manual.dhuha,
+    )
+    assert (stored.dhuhr, stored.asr, stored.maghrib, stored.isha) == (
+        manual.dhuhr,
+        manual.asr,
+        manual.maghrib,
+        manual.isha,
+    )
+    other = repo.get_day(date(2026, 9, 25), "SGR01")
+    assert other is not None and other.source is ScheduleSource.JAKIM

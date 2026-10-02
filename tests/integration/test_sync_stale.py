@@ -50,6 +50,20 @@ class FakePrayerRepo:
     def save_day(self, prayer_day: PrayerDay) -> None:
         self.rows[(prayer_day.date, prayer_day.zone)] = prayer_day
 
+    def save_day_unless_manual(self, prayer_day: PrayerDay) -> bool:
+        existing = self.rows.get((prayer_day.date, prayer_day.zone))
+        if existing is not None and existing.source is ScheduleSource.MANUAL:
+            return False
+        self.rows[(prayer_day.date, prayer_day.zone)] = prayer_day
+        return True
+
+    def delete_day(self, day: date, zone: str) -> bool:
+        existing = self.rows.get((day, zone))
+        if existing is None or existing.source is not ScheduleSource.MANUAL:
+            return False
+        del self.rows[(day, zone)]
+        return True
+
     def last_known(self, day: date, zone: str) -> PrayerDay | None:
         candidates = [
             row

@@ -64,6 +64,7 @@ __all__ = [
     "HeartbeatResponseDTO",
     "IqamahModeLiteral",
     "IqamahRuleDTO",
+    "ManualDayDTO",
     "MethodLiteral",
     "NextEventDTO",
     "PrayerDayDTO",
@@ -147,6 +148,50 @@ class PrayerDayDTO(ContractDTO):
             source=day.source,
             stale=stale,
             hijri_date=hijri_date,
+        )
+
+
+class ManualDayDTO(ContractDTO):
+    """PUT /api/manual-day body: one day pinned by hand (admin only).
+
+    Flat ``date`` plus the eight day-local ``HH:MM`` markers. The request
+    carries no zone: the route stamps ``settings.zone`` server-side.
+    """
+
+    date: date
+    imsak: TimeHHMM
+    fajr: TimeHHMM
+    syuruq: TimeHHMM
+    dhuha: TimeHHMM
+    dhuhr: TimeHHMM
+    asr: TimeHHMM
+    maghrib: TimeHHMM
+    isha: TimeHHMM
+
+    def to_prayer_day(self, *, zone: str, now: datetime) -> PrayerDay:
+        """Build the MANUAL PrayerDay for ``zone`` pinned at ``now``.
+
+        This mapper only converts the wire shape (``HH:MM`` strings to
+        ``time`` objects, mirroring ``IqamahRuleDTO.to_domain``); the route
+        validates ordering with the shared ``ensure_ordered`` invariant
+        (strict ``Imsak < Fajr < ...`` for non-CALC sources, 422 on
+        violation) so this module stays free of ``domain`` imports and the
+        api layer keeps its mapping-only contract. ``fetched_at``
+        is the handler ``now`` so staleness ages honestly from pin time.
+        """
+        return PrayerDay(
+            date=self.date,
+            zone=zone,
+            imsak=time.fromisoformat(self.imsak),
+            fajr=time.fromisoformat(self.fajr),
+            syuruq=time.fromisoformat(self.syuruq),
+            dhuha=time.fromisoformat(self.dhuha),
+            dhuhr=time.fromisoformat(self.dhuhr),
+            asr=time.fromisoformat(self.asr),
+            maghrib=time.fromisoformat(self.maghrib),
+            isha=time.fromisoformat(self.isha),
+            source=ScheduleSource.MANUAL,
+            fetched_at=now,
         )
 
 

@@ -106,29 +106,39 @@ def run_sync(
 
     `ConfigError` from `settings_repo.load()` propagates to the caller —
     first-boot setup has nothing to sync and must never retry. A
-    repository write failure during the save loop is converted to
+    repository failure during the save loop (read or write — the sync
+    only writes through `save_day_unless_manual`, whose stored-row read
+    and conditional write are one atomic step) is converted to
     `SyncError` (with the original chained): `sync_job` only schedules
     retries for `SyncError`, so an uncaught backend error (locked/full
     database) would otherwise escape the job and skip the whole 5m/15m/1h
     chain. When `SyncError` propagates, days earlier in the loop have
     already been saved — a partial save the caller sees as a failed sync.
-    Each `save_day` is an independent upsert, so the partial write is
+    Each save is an independent upsert, so the partial write is
     repaired by the next attempt, which rewrites the full year.
+
+    Manually pinned days take precedence over the sync (manual > JAKIM):
+    `save_day_unless_manual` leaves a stored row whose `source is MANUAL`
+    byte-identical (returning False, not counted in the save count), so a
+    manual PUT racing the loop can never be clobbered. Deleting the pin
+    re-exposes the date to the next sync.
     """
     settings = settings_repo.load()
     if settings.calc_only:
         return 0
     days = client.fetch_year(settings.zone)
+    saved = 0
     for day in days:
         try:
-            prayer_repo.save_day(day)
+            if prayer_repo.save_day_unless_manual(day):
+                saved += 1
         except (ConfigError, SyncError):
             raise
         except Exception as exc:
             raise SyncError(
                 f"prayer repo write failed: {exc}", zone=settings.zone
             ) from exc
-    return len(days)
+    return saved
 
 
 def sync_job(
