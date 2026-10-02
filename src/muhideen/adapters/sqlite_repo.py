@@ -158,6 +158,14 @@ class SqlitePrayerRepo:
             ).fetchone()
         return _row_to_day(row) if row is not None else None
 
+    def delete_day(self, day: date, zone: str) -> None:
+        """Delete the saved day for date+zone (manual-pin release)."""
+        with self._db.write() as conn:
+            conn.execute(
+                "DELETE FROM prayer_times WHERE date_gregorian = ? AND zone_code = ?",
+                (day.isoformat(), zone),
+            )
+
 
 def _parse_bool(raw: str) -> bool:
     """Parse a ``0|1`` settings value; anything else is corruption."""

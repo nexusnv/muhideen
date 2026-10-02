@@ -39,6 +39,7 @@ from apscheduler.triggers.date import DateTrigger
 
 from muhideen.core.errors import ConfigError, SyncError
 from muhideen.core.ports import Clock, JAKIMClient, PrayerRepo, SettingsRepo
+from muhideen.core.values import ScheduleSource
 
 logger = logging.getLogger(__name__)
 
@@ -114,12 +115,21 @@ def run_sync(
     already been saved — a partial save the caller sees as a failed sync.
     Each `save_day` is an independent upsert, so the partial write is
     repaired by the next attempt, which rewrites the full year.
+
+    Manually pinned days take precedence over the sync (manual > JAKIM):
+    a stored row whose `source is MANUAL` is left byte-identical and not
+    counted in the returned save count. Deleting the pin re-exposes the
+    date to the next sync.
     """
     settings = settings_repo.load()
     if settings.calc_only:
         return 0
     days = client.fetch_year(settings.zone)
+    saved = 0
     for day in days:
+        existing = prayer_repo.get_day(day.date, settings.zone)
+        if existing is not None and existing.source is ScheduleSource.MANUAL:
+            continue
         try:
             prayer_repo.save_day(day)
         except (ConfigError, SyncError):
@@ -128,7 +138,8 @@ def run_sync(
             raise SyncError(
                 f"prayer repo write failed: {exc}", zone=settings.zone
             ) from exc
-    return len(days)
+        saved += 1
+    return saved
 
 
 def sync_job(

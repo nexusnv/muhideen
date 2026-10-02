@@ -109,6 +109,33 @@ reloads into the route slate (see `docs/api-contract.md`).
   wrong data as correct. Until the sync lands, tomorrow simply has no
   schedule; the display holds today's resolved state.
 
+## Year boundary: December/January gap
+
+* **Cause.** The JAKIM e-solat `period=year` endpoint serves the current
+  calendar year only — rows stop at 31-Dec and the `date` parameter is
+  ignored, so no fetch strategy can retrieve next-year rows from
+  December. From early December the 30-days-forward cache window runs
+  out of rows, and dates past 31-Dec resolve through the automatic
+  fallback chain (calc / last-known) until the first January fetch.
+* **Bridging (December).** Pin each needed January date by hand — in
+  `/admin/settings` under Manual schedule (pick the date, check the 8
+  times, Save pin), or directly: `PUT /api/manual-day` with a full
+  8-marker `HH:MM` body plus `date` (times must be strictly increasing,
+  else 422; a second PUT for the same date replaces the pin). The
+  response echoes the pinned day with `"source": "manual"` and
+  `"stale": true`, and the display carries the MANUAL banner. Pins
+  outrank every automatic source (manual > JAKIM > calc) and the daily
+  02:00 sync never overwrites them.
+* **Auto-recovery (January).** The first successful daily sync in the
+  new year fetches that year's full table, so unpinned January dates
+  resolve automatically again — no action needed.
+* **Releasing a pin.** Pins persist across syncs (the sync skips them),
+  so hand a date back to the automatic schedule explicitly:
+  `DELETE /api/manual-day?date=YYYY-MM-DD` (or Clear pin in the admin
+  section; dates with no pin are 404). The date immediately falls back
+  to the automatic chain, and the next sync re-saves the JAKIM row for
+  it — no restart required.
+
 ## Update (OTA)
 
 ```bash

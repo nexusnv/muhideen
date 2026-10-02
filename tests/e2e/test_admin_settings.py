@@ -239,6 +239,32 @@ def test_asr_juristic_round_trip_and_rejection(
     )
 
 
+def test_settings_page_renders_manual_schedule_section(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    assert client.put("/api/settings", json=_settings_payload()).status_code == 200
+    html = client.get("/admin/settings").text
+    assert 'id="manual-date"' in html
+    for marker in (
+        "imsak",
+        "fajr",
+        "syuruq",
+        "dhuha",
+        "dhuhr",
+        "asr",
+        "maghrib",
+        "isha",
+    ):
+        assert f'id="manual-{marker}"' in html
+    assert 'id="manual-save"' in html
+    assert 'id="manual-clear"' in html
+    assert 'id="manual-status"' in html
+    js = client.get("/static/admin.js").text
+    assert "/api/manual-day" in js
+    assert 'getElementById("manual-date")' in js
+
+
 def test_adhan_audio_settings_round_trip(
     surface: SimpleNamespace, client: TestClient
 ) -> None:

@@ -22,6 +22,7 @@ from muhideen.api import (
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
     IqamahRuleDTO,
+    ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
     SessionStatusDTO,
@@ -119,6 +120,8 @@ JSON_ENDPOINTS: dict[str, tuple[str, type[BaseModel]]] = {
     "/api/version": ("get", VersionDTO),
     # PUT /api/settings shares GET's $ref: one entry covers both methods.
     "/api/settings": ("get", SettingsDTO),
+    # PUT /api/manual-day responds with the pinned day (PrayerDayDTO shape).
+    "/api/manual-day": ("put", PrayerDayDTO),
     "/api/auth/setup": ("post", AuthResponseDTO),
     "/api/auth/login": ("post", AuthResponseDTO),
     "/api/auth/logout": ("post", AuthResponseDTO),
@@ -139,6 +142,7 @@ ALL_DTOS = (
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
     IqamahRuleDTO,
+    ManualDayDTO,
     NextEventDTO,
     PlaylistCreateDTO,
     PlaylistDTO,
@@ -192,6 +196,7 @@ def test_openapi_declares_all_five_paths() -> None:
         "/api/displays/heartbeat",
         "/api/version",
         "/api/settings",
+        "/api/manual-day",
         "/api/auth/setup",
         "/api/auth/login",
         "/api/auth/logout",
@@ -245,6 +250,10 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "application/json"
     ]["schema"]
     assert settings_body == {"$ref": "#/components/schemas/SettingsDTO"}
+    manual_body = schema["paths"]["/api/manual-day"]["put"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert manual_body == {"$ref": "#/components/schemas/ManualDayDTO"}
     # Playlist detail: PUT/PATCH share GET's $ref (same PlaylistDTO).
     put_playlist = schema["paths"]["/api/playlists/{playlist_id}"]["put"]
     assert put_playlist["responses"]["200"]["content"]["application/json"][
@@ -313,6 +322,7 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "VersionDTO",
         "SettingsDTO",
         "IqamahRuleDTO",
+        "ManualDayDTO",
         "AuthRequestDTO",
         "AuthResponseDTO",
         "SessionStatusDTO",

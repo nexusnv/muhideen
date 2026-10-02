@@ -360,3 +360,42 @@ def test_calc_only_mode_skips_fetch() -> None:
     assert _run_sync(client=client, prayer_repo=repo, settings_repo=settings_repo) == 0
     assert client.last_zone is None
     assert repo.save_calls == []
+
+
+def test_run_sync_skips_manually_pinned_days() -> None:
+    from dataclasses import replace
+
+    manual_date = date(2026, 9, 24)
+    manual = replace(
+        _day(manual_date),
+        imsak=time(5, 40),
+        fajr=time(5, 50),
+        syuruq=time(7, 0),
+        dhuha=time(7, 25),
+        dhuhr=time(13, 5),
+        asr=time(16, 10),
+        maghrib=time(19, 8),
+        isha=time(20, 15),
+        source=ScheduleSource.MANUAL,
+    )
+    repo = FakePrayerRepo(days=[manual])
+    client = FakeJAKIMClient(days=[_day(manual_date), _day(date(2026, 9, 25))])
+    assert _run_sync(client=client, prayer_repo=repo) == 1
+    assert [d.date for d in repo.save_calls] == [date(2026, 9, 25)]
+    stored = repo.get_day(manual_date, "SGR01")
+    assert stored == manual
+    assert stored is not None and stored.source is ScheduleSource.MANUAL
+    assert (stored.imsak, stored.fajr, stored.syuruq, stored.dhuha) == (
+        manual.imsak,
+        manual.fajr,
+        manual.syuruq,
+        manual.dhuha,
+    )
+    assert (stored.dhuhr, stored.asr, stored.maghrib, stored.isha) == (
+        manual.dhuhr,
+        manual.asr,
+        manual.maghrib,
+        manual.isha,
+    )
+    other = repo.get_day(date(2026, 9, 25), "SGR01")
+    assert other is not None and other.source is ScheduleSource.JAKIM

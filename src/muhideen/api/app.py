@@ -72,6 +72,7 @@ from muhideen.api.dto import (
     ContractDTO,
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
+    ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
     SessionStatusDTO,
@@ -85,6 +86,7 @@ from muhideen.core.errors import (
     MuhideenError,
     ScheduleError,
     SettingsNotInitializedError,
+    SyncError,
 )
 from muhideen.core.ports import (
     Clock,
@@ -101,10 +103,12 @@ from muhideen.core.values import (
     Playlist,
     PlaylistItem,
     PrayerDay,
+    ScheduleSource,
     Settings,
 )
 from muhideen.domain.dim import effective_dim
 from muhideen.domain.iqamah import card_iqamah_labels
+from muhideen.domain.ordering import ensure_ordered
 from muhideen.domain.playlist_window import parse_window
 from muhideen.domain.stage import (
     PlaylistOccupant,
@@ -893,6 +897,32 @@ def create_app(deps: AppDeps) -> FastAPI:
         deps.settings_repo.save(settings)
         deps.event_bus.publish("config-update", ("settings",))
         return SettingsDTO.from_domain(settings)
+
+    @app.put(
+        "/api/manual-day", response_model=PrayerDayDTO, dependencies=[Depends(admin)]
+    )
+    def put_manual_day(payload: ManualDayDTO) -> PrayerDayDTO:
+        """Pin one day's manual schedule; it outranks automatic sources."""
+        settings = deps.settings_repo.load()
+        try:
+            day = ensure_ordered(
+                payload.to_prayer_day(zone=settings.zone, now=deps.clock.now())
+            )
+        except (ValueError, SyncError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        deps.prayer_repo.save_day(day)
+        hijri_date = resolve_hijri(day.date, settings.hijri_offset)
+        return PrayerDayDTO.from_domain(day, True, hijri_date=hijri_date)
+
+    @app.delete("/api/manual-day", dependencies=[Depends(admin)])
+    def delete_manual_day(date: date) -> dict[str, Any]:
+        """Release one day's manual pin; the date falls back to auto."""
+        settings = deps.settings_repo.load()
+        existing = deps.prayer_repo.get_day(date, settings.zone)
+        if existing is None or existing.source is not ScheduleSource.MANUAL:
+            raise HTTPException(status_code=404, detail="no manual pin for date")
+        deps.prayer_repo.delete_day(date, settings.zone)
+        return {"ok": True}
 
     @app.get("/admin/login", response_class=HTMLResponse)
     def admin_login(request: Request) -> HTMLResponse:

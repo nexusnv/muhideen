@@ -25,6 +25,10 @@ class PrayerRepo(Protocol):
         """Upsert one prayer day (insert or replace on date+zone conflict)."""
         ...
 
+    def delete_day(self, day: date, zone: str) -> None:
+        """Delete the saved day for ``day``/``zone`` (manual-pin release)."""
+        ...
+
     def last_known(self, day: date, zone: str) -> PrayerDay | None:
         """Most recent saved day with ``date <= day`` for ``zone``, else ``None``."""
         ...

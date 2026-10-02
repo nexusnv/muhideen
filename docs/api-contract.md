@@ -163,6 +163,18 @@ Admin session required. Full-replace body; the response echoes the stored settin
 }
 ```
 
+## `PUT /api/manual-day`
+
+Admin session required. Pin one day's manual schedule (full 8-marker `HH:MM` body; `date` is `YYYY-MM-DD`). The request carries no zone — the day is stamped with `settings.zone` server-side, and a second PUT for the same date replaces the pin. Times must satisfy `Imsak < Fajr < Syuruq < Dhuha < Dhuhr < Asr < Maghrib < Isha`, else 422. The response echoes the pinned day in the `GET /api/prayer-day` shape with `"source": "manual"` and `"stale": true`. Precedence is structural: a manual pin outranks automatic sources (manual > JAKIM > calc) and the daily sync never overwrites it; deleting the pin re-exposes the date to the next sync.
+
+```json
+{"asr": "15:30", "date": "2025-10-20", "dhuha": "07:25", "dhuhr": "12:15", "fajr": "05:45", "imsak": "05:35", "isha": "19:25", "maghrib": "18:05", "syuruq": "06:55"}
+```
+
+## `DELETE /api/manual-day?date=YYYY-MM-DD`
+
+Admin session required. Release one day's manual pin; success returns an `ok` envelope and the date falls back to the automatic schedule. Dates with no manual pin are 404.
+
 ## `POST /api/auth/setup`
 
 First-boot only: allowed while no admin exists, otherwise 409. Creates the admin and issues a session cookie. Rate limited to 5/min/IP.

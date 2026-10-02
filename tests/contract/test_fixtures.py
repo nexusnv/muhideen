@@ -30,12 +30,14 @@ from muhideen.api.dto import (
     AuthResponseDTO,
     HeartbeatRequestDTO,
     HeartbeatResponseDTO,
+    ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
     SessionStatusDTO,
     SettingsDTO,
     VersionDTO,
 )
+from muhideen.core.errors import SyncError
 from muhideen.core.values import (
     MarkerName,
     NextEvent,
@@ -43,6 +45,7 @@ from muhideen.core.values import (
     PrayerState,
     ScheduleSource,
 )
+from muhideen.domain.ordering import ensure_ordered
 
 pytestmark = pytest.mark.contract
 
@@ -161,6 +164,46 @@ def test_prayer_day_from_domain_matches_fixture() -> None:
     assert PrayerDayDTO.from_domain(
         day, stale=False, hijri_date="1447-04-28"
     ).model_dump(mode="json") == _load("prayer-day.json")
+
+
+def test_manual_day_fixture_round_trips() -> None:
+    payload = _load("manual-day.json")
+    dto = ManualDayDTO.model_validate(payload)
+    assert dto.model_dump(mode="json") == payload
+
+
+def test_manual_day_to_prayer_day_matches_prayer_day_shape() -> None:
+    dto = ManualDayDTO.model_validate(_load("manual-day.json"))
+    day = dto.to_prayer_day(zone="SGR01", now=datetime(2025, 10, 20, 1, 0, tzinfo=KL))
+    assert day.source is ScheduleSource.MANUAL
+    assert day.zone == "SGR01"
+    assert PrayerDayDTO.from_domain(
+        day, stale=True, hijri_date="1447-04-28"
+    ).model_dump(mode="json") == {
+        "date": "2025-10-20",
+        "zone": "SGR01",
+        "prayers": {
+            "fajr": "05:45",
+            "dhuhr": "12:15",
+            "asr": "15:30",
+            "maghrib": "18:05",
+            "isha": "19:25",
+        },
+        "boundaries": {"imsak": "05:35", "syuruq": "06:55", "dhuha": "07:25"},
+        "source": "manual",
+        "stale": True,
+        "hijri_date": "1447-04-28",
+    }
+
+
+def test_manual_day_rejects_misordered_markers() -> None:
+    payload = _load("manual-day.json")
+    payload["asr"], payload["maghrib"] = payload["maghrib"], payload["asr"]
+    dto = ManualDayDTO.model_validate(payload)
+    with pytest.raises(SyncError):
+        ensure_ordered(
+            dto.to_prayer_day(zone="SGR01", now=datetime(2025, 10, 20, 1, 0, tzinfo=KL))
+        )
 
 
 def test_version_fixture_round_trips() -> None:
@@ -283,6 +326,7 @@ def test_all_contract_surfaces_have_fixtures() -> None:
         "display-register.json",
         "display-update.json",
         "display-group-update.json",
+        "manual-day.json",
     ):
         _load(name)
     assert (FIXTURES / "events-stream.txt").read_text().strip()
