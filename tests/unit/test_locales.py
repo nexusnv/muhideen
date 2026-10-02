@@ -50,11 +50,11 @@ def _walk(node: object) -> list[str]:
     ],
 )
 def test_locale_strings_live_in_owners(filename: str, groups: set[str]) -> None:
-    table = json.loads((LOCALES / filename).read_text())
+    table = json.loads((LOCALES / filename).read_text(encoding="utf-8"))
     assert set(table) == groups
     for group in groups:
         files = OWNERS[group]
-        haystack = "".join((ROOT / f).read_text() for f in files)
+        haystack = "".join((ROOT / f).read_text(encoding="utf-8") for f in files)
         values = [v for v in _walk(table[group]) if "{name}" not in v]
         assert values, f"empty group {group} in {filename}"
         for value in values:
@@ -62,7 +62,13 @@ def test_locale_strings_live_in_owners(filename: str, groups: set[str]) -> None:
 
 
 def test_ms_key_parity_with_en() -> None:
-    en = json.loads((LOCALES / "en.json").read_text())
-    ms = json.loads((LOCALES / "ms.json").read_text())
+    from muhideen.views.display import BOUNDARY_LABELS, PRAYER_LABELS
+
+    en = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+    ms = json.loads((LOCALES / "ms.json").read_text(encoding="utf-8"))
     assert set(ms["prayer"]) == set(en["prayer"])
     assert set(ms["boundary"]) == set(en["boundary"])
+    for key in ms["prayer"]:
+        assert ms["prayer"][key] == PRAYER_LABELS[key][2]
+    for key in ms["boundary"]:
+        assert ms["boundary"][key] == BOUNDARY_LABELS[key][2]
