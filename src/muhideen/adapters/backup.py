@@ -113,6 +113,8 @@ def build_backup(db: Database, media_dir: str | Path, dest_zip: str | Path) -> P
                     p for p in media.rglob("*") if p.is_file() and not p.is_symlink()
                 ):
                     zf.write(file, MEDIA_PREFIX + file.relative_to(media).as_posix())
+    # Self-check: never hand out a bundle the restore path would reject.
+    validate_archive(dest)
     return dest
 
 
