@@ -84,7 +84,8 @@ def test_display_renders_mockup_regions(
     )
     # Clock block: server 12h fallback with blinking-colon span + period.
     assert 'id="live-clock"' in html
-    assert '12<span class="colon">:</span>20' in html
+    assert '<span class="clock-h">12</span>' in html
+    assert '<span class="colon">:</span><span class="clock-m">20</span>' in html
     assert ">PM</span>" in html
     # Dates + mosque block.
     assert "20 October 2025" in html
@@ -293,7 +294,8 @@ def test_display_new_structure_tokens(
         "prayer-table",
         "prayer-row header",
         'id="live-clock"',
-        "clock-hm",
+        "clock-h",
+        "clock-m",
         "colon",
         "gregorian-date",
         "hijri-date",

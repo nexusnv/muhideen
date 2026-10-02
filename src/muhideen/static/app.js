@@ -35,7 +35,8 @@
       return { h24: base, m: mins };
     }
     var hm = str.split(":");
-    return { h24: parseInt(hm[0], 10), m: parseInt(hm[1], 10) };
+    var h24 = parseInt(hm[0], 10);
+    return { h24: h24 === 24 ? 0 : h24, m: parseInt(hm[1], 10) };
   }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
   function tick() {
@@ -44,8 +45,10 @@
     var p = parts(epoch);
     var h12 = p.h24 % 12 || 12;
     var period = p.h24 < 12 ? "AM" : "PM";
-    var hmEls = document.querySelectorAll(".clock-hm");
-    for (var i = 0; i < hmEls.length; i++) hmEls[i].innerHTML = h12 + '<span class="colon">:</span>' + pad(p.m);
+    var hEls = document.querySelectorAll(".clock-h");
+    var mEls = document.querySelectorAll(".clock-m");
+    for (var i = 0; i < hEls.length; i++) hEls[i].textContent = h12;
+    for (var j = 0; j < mEls.length; j++) mEls[j].textContent = pad(p.m);
     var perEls = document.querySelectorAll(".clock .period");
     for (var q = 0; q < perEls.length; q++) perEls[q].textContent = period;
     var cd = document.getElementById("countdown");
@@ -120,9 +123,10 @@
   var dimEl = document.querySelector("[data-dim-until]");
   if (dimEl && dimEl.getAttribute("data-dim-until")) {
     var skipKey = "muhideen-dim-skip";
+    function undim() { document.body.classList.remove("state-salah_dim"); }
     try {
       if (localStorage.getItem(skipKey) === dimEl.getAttribute("data-dim-until")) {
-        document.body.style.display = "none";
+        undim();
       }
     } catch (err) { /* storage unavailable: overlay stays */ }
     var pressTimer = null;
@@ -133,7 +137,7 @@
       cancelPress();
       pressTimer = setTimeout(function () {
         try { localStorage.setItem(skipKey, dimEl.getAttribute("data-dim-until") || ""); } catch (err) { /* fall through to hide */ }
-        window.location.reload();
+        undim();
       }, 3000);
     });
     document.body.addEventListener("pointerup", cancelPress);

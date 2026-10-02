@@ -31,7 +31,8 @@ body {
 .banner { background: #e0b73c; color: #0a3527; font-weight: 700; text-align: center; padding: 1vh; font-size: clamp(16px, 1.8vw, 28px); }
 
 /* Salah dim: same layout, darkened; long-press restores (admin). */
-body.state-salah_dim .prayer-screen { filter: brightness(.07); }
+body.state-salah_dim .prayer-screen,
+body.state-salah_dim #banners { filter: brightness(.07); }
 
 /* Screen layout: left timetable and right information column. */
 .prayer-screen {

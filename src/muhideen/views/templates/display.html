@@ -39,7 +39,7 @@
   <section class="details-panel" aria-label="Clock and mosque information">
     <div class="clock-block">
       {% set hm = clock_hm.split(':') %}
-      <time class="clock" id="live-clock"><span class="clock-hm">{{ hm[0] }}<span class="colon">:</span>{{ hm[1] }}</span> <span class="period">{{ clock_period }}</span></time>
+      <time class="clock" id="live-clock"><span class="clock-h">{{ hm[0] }}</span><span class="colon">:</span><span class="clock-m">{{ hm[1] }}</span> <span class="period">{{ clock_period }}</span></time>
     </div>
     <div class="date-block">
       <div class="gregorian-date">{{ gregorian_long }}</div>

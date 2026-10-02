@@ -59,7 +59,8 @@ def test_js_realtime_wiring_present() -> None:
         "data-target",
         "data-dim-until",
         "querySelectorAll",
-        "clock-hm",
+        "clock-h",
+        "clock-m",
         "adhan-audio",
         "data-volume",
         "pointerdown",
@@ -68,6 +69,11 @@ def test_js_realtime_wiring_present() -> None:
         "localStorage",
     ):
         assert token in js
+
+
+def test_js_uses_text_content_only() -> None:
+    js = (STATIC / "app.js").read_text()
+    assert "innerHTML" not in js
 
 
 def test_state_region_selectors_present() -> None:
