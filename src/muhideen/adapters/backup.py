@@ -205,6 +205,7 @@ def restore_backup(
                             zipfile.LargeZipFile,
                             RuntimeError,
                             zlib.error,
+                            NotImplementedError,
                         ) as exc:
                             raise ValueError(
                                 f"backup member unreadable: {info.filename!r}: {exc}"

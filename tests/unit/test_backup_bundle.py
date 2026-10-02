@@ -120,6 +120,33 @@ def test_validate_rejects_encrypted_member(
         validate_archive(archive)
 
 
+def test_staging_rejects_unsupported_compression(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from muhideen.adapters.backup import restore_backup
+    from muhideen.adapters.sqlite_repo import Database
+
+    # Central-directory compression byte 99: metadata validates, but the
+    # member read raises NotImplementedError — must map to ValueError (400),
+    # never escape toward a 500.
+    archive = _zip_with_names(tmp_path / "badcomp.zip", ["muhideen.db", "media/a.txt"])
+    real_infolist = zipfile.ZipFile.infolist
+
+    def _badcomp(self: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+        infos = real_infolist(self)
+        for item in infos:
+            if item.filename == "media/a.txt":
+                item.compress_type = 99
+        return infos
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", _badcomp)
+    live = Database(tmp_path / "live.db")
+    live_media = tmp_path / "live-media"
+    live_media.mkdir()
+    with pytest.raises(ValueError, match="unreadable"):
+        restore_backup(live, live_media, archive, migrate_fn=lambda staged: 0)
+
+
 def test_validate_rejects_oversize_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
