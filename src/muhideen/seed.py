@@ -40,7 +40,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--masjid-name", help="masjid display name (first boot only)")
     parser.add_argument(
         "--timezone",
-        default="Asia/Kuala_Lumpur",
+        default=None,
         help="IANA timezone (first boot only)",
     )
     return parser
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
                 masjid_name=args.masjid_name or "",
                 zone=args.zone,
                 hijri_offset=0,
-                timezone=args.timezone,
+                timezone=args.timezone or "Asia/Kuala_Lumpur",
             )
         except ValueError as exc:
             print(f"error: invalid settings: {exc}", file=sys.stderr)
@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"this installation is configured for {settings.zone}",
                 file=sys.stderr,
             )
-        if args.timezone != settings.timezone:
+        if args.timezone is not None and args.timezone != settings.timezone:
             print(
                 f"notice: ignoring --timezone {args.timezone}; "
                 f"this installation is configured for {settings.timezone}",
