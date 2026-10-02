@@ -81,6 +81,12 @@ What each step does, in order:
 The backend should be ready within 10 s of `network-online.target`
 (PRD §5.1 budget). No step installs Python packages from the network.
 
+**First-boot admin setup.** The installer creates no admin account:
+open `/admin/setup` on the LAN and set the password yourself. Setup is
+open only until the first admin exists (409 after, per-IP rate-limited),
+so complete this step before exposing the box to an untrusted network —
+whoever sets the password first owns the box (see ADR-0004).
+
 ## Offline-first: first boot needs connectivity or coordinates
 
 The display never renders an empty or healthy-looking page without a

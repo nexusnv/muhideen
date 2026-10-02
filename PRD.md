@@ -123,7 +123,7 @@ To create an accessible, lightweight, modern, and open-source digital signage sy
 | :--- | :--- | :--- | :--- |
 | **FR-6.1** | **Mobile-Friendly UI** | Responsive BM/EN UI, large touch targets, works offline over LAN. All dim/countdown durations editable without restart. | High |
 | **FR-6.2** | **Setup Wizard + Minimal Settings API in MVP** | First-boot wizard: masjid name, zone/latlon+method, online/offline, admin password, hijri offset. Wizard is thin client over the same settings API used later — no wizard-only code path. | High |
-| **FR-6.3** | **QR Fast-Connect (safe)** | QR encodes LAN URL only (`http://muhideen.local:8000/admin`), never credentials. First boot uses one-time setup token (expires after use/30min). QR hidden by default; shown on demand (admin keypress/button) and never during `ADHAN`/`SALAH_DIM`. mDNS + fallback IP shown alongside. AP-mode hotspot documented as fallback if LAN has client isolation. | High |
+| **FR-6.3** | **QR Fast-Connect (safe)** | QR encodes LAN URL only (`http://muhideen.local:8000/admin`), never credentials. First boot uses the first-boot gate (setup open iff no admin exists; single-use via 409 after the first admin is created; setup attempts rate-limited). QR hidden by default; shown on demand (admin keypress/button) and never during `ADHAN`/`SALAH_DIM`. mDNS + fallback IP shown alongside. AP-mode hotspot documented as fallback if LAN has client isolation. | High |
 | **FR-6.4** | **Backup / Restore / Logs** | One-click export (`sqlite + media tar.gz`), import restore, `journald` log view + version display in Admin footer. | Medium |
 
 ---
@@ -212,7 +212,7 @@ Normative constraint to allow frontend-only and backend-only contributors to wor
 * Audio opt-in, admin-uploaded only, per-prayer enable + master volume + quiet hours. No copyrighted Adhan bundled.
 
 ### 5.4 Security
-* Admin auth: Argon2id (preferred) or bcrypt, rate-limit login (5/min/IP), expiring sessions, first-boot forced password change; one-time setup token.
+* Admin auth: Argon2id (preferred) or bcrypt, rate-limit login (5/min/IP), expiring sessions, first-boot forced password change; first-boot gate (setup open only before the first admin exists — see ADR-0004).
 * LAN-only by default; no inbound internet ports; `/docs` bound to LAN/admin auth.
 * Uploads: images re-encoded via Pillow (strip EXIF), 5MB limit; theme zips validated per FR-5.2, extracted to `themes/<slug>/` with `manifest.json` required (`name,version,author,entry`).
 * QR contains no secret (§3.6).
