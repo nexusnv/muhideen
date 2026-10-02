@@ -6,7 +6,12 @@ Decision 5) — including repository write failures converted at the
 `run_sync` save boundary, so a locked/full database enters the same
 retry chain instead of escaping the job — it schedules absolute retries
 against the **injected clock**: 5 min, then 15 min, then 1 h — after the
-third failed retry it gives up until the next 02:00 run. `ConfigError`
+third failed retry the chain continues on a 6 h long-pole
+(`jakim-sync-retry-long`, re-armed on each further failure) instead of
+going silent until the next 02:00 run. A non-transient `SyncError`
+(`transient=False`, e.g. a non-429 4xx zone rejection that waiting
+cannot heal — 429 rate limits stay transient and keep retrying) never
+retries: it logs at error level and returns. `ConfigError`
 (first-boot setup incomplete) never retries: it logs and waits for the
 next daily run. Every registered job sets `misfire_grace_time=None`
 (+ `coalesce=True`): a late wake (GC pause, NTP step) still syncs —
@@ -150,9 +155,33 @@ def sync_job(
         )
         return None
     except SyncError as exc:
+        if not exc.transient:
+            logger.error(
+                "jakim sync rejected (zone=%s): %s — check the zone code "
+                "and JAKIM availability; no retry scheduled",
+                exc.zone,
+                exc,
+            )
+            return None
         if attempt >= MAX_RETRIES:
+            run_at = clock.now() + timedelta(hours=6)
+            _add_job(
+                scheduler,
+                functools.partial(
+                    sync_job,
+                    client=client,
+                    prayer_repo=prayer_repo,
+                    settings_repo=settings_repo,
+                    clock=clock,
+                    scheduler=scheduler,
+                    attempt=MAX_RETRIES,
+                ),
+                DateTrigger(run_date=run_at, timezone=clock.now().tzinfo),
+                id="jakim-sync-retry-long",
+            )
             logger.warning(
-                "jakim sync gave up after %d attempts (zone=%s): %s",
+                "jakim sync still failing after %d attempts (zone=%s): %s — "
+                "will retry in 6h",
                 attempt + 1,
                 exc.zone,
                 exc,

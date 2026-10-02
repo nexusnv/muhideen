@@ -239,3 +239,27 @@ def test_sync_failure_returns_3_and_keeps_configuration(
     assert "warning" in err and "SGR01" in err and "retry" in err
     # The configuration made it to disk: the installation is ready to retry.
     assert SqliteSettingsRepo(Database(db)).load().zone == "SGR01"
+
+
+def test_non_transient_sync_failure_names_rejection_not_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A request-level rejection (e.g. HTTP 4xx) will never heal by waiting:
+    # the warning must say so instead of promising a scheduler retry.
+    class _RejectingClient:
+        """JAKIMClient double: fetch_year always rejected (file-local)."""
+
+        def fetch_year(self, zone: str) -> list[PrayerDay]:
+            raise SyncError("rejected", transient=False)
+
+    monkeypatch.setattr(seed, "HttpJAKIMClient", lambda *, clock: _RejectingClient())
+    monkeypatch.setattr(seed, "SystemClock", _FakeClock)
+    db = tmp_path / "muhideen.db"
+
+    assert seed.main(["--db", str(db), "--zone", "BAD01"]) == 3
+
+    err = capsys.readouterr().err
+    assert "rejected" in err and "check the zone code" in err
+    assert "will retry" not in err

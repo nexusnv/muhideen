@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from collections.abc import AsyncGenerator, Iterator
@@ -279,8 +280,8 @@ def test_published_tick_stage_matches_open_window_playlist(
     assert data["stage"] == "playlist:open"
 
 
-def test_published_tick_stage_falls_back_to_clock_on_corrupt_playlist(
-    surface: SimpleNamespace, client: TestClient
+def test_published_tick_stage_surfaces_error_on_corrupt_playlist(
+    surface: SimpleNamespace, client: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
     from muhideen.core.values import Playlist, PlaylistItem
@@ -310,15 +311,95 @@ def test_published_tick_stage_falls_back_to_clock_on_corrupt_playlist(
             repo,
         )
     )
-    try:
-        next(gen)
-        surface.bus.publish("tick")
-        frame = next(gen)
-    finally:
-        gen.close()
+    with caplog.at_level(logging.ERROR):
+        try:
+            next(gen)
+            surface.bus.publish("tick")
+            frame = next(gen)
+        finally:
+            gen.close()
     event, data = _parse(frame)
     assert event == "tick"
-    assert data["stage"] == "clock"
+    assert data["stage"] == "error"
+    assert data["stage"] != "clock"
+    assert any(record.levelno >= logging.ERROR for record in caplog.records), (
+        "corrupt config must log at error level, never silently fall back"
+    )
+
+
+def test_published_tick_stage_surfaces_error_on_schedule_failure(
+    surface: SimpleNamespace,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from muhideen.core.errors import ScheduleError
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+
+    def _boom(*args: object, **kwargs: object) -> str:
+        raise ScheduleError("no schedule", zone="SGR01", date="2025-10-20")
+
+    monkeypatch.setattr(app_module, "_tick_stage", _boom)
+    gen = _stream(surface)
+    with caplog.at_level(logging.WARNING):
+        try:
+            next(gen)
+            surface.bus.publish("tick")
+            frame = next(gen)
+        finally:
+            gen.close()
+    event, data = _parse(frame)
+    assert event == "tick"
+    assert data["stage"] == "error"
+    assert data["stage"] != "clock"
+    assert any(record.levelno == logging.WARNING for record in caplog.records), (
+        "schedule failure must log at warning level"
+    )
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records), (
+        "schedule failure must not log at error level"
+    )
+
+
+def test_ticker_tick_failure_drops_open_stream_to_route_slate(
+    surface: SimpleNamespace,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ticker-to-stream failure path: corrupt settings, drive the tick.
+
+    `Engine.tick()` publishes a bare `tick` before re-raising, so the open
+    stream wakes instead of sitting silent on a frozen healthy view (the
+    60s poll only starts after disconnect): its recompute raises, the SSE
+    drops, and the display falls back to poll + reload into the route
+    slate (503 here — settings are gone entirely). Drives
+    `engine.tick()` exactly like the background ticker does, never a
+    manual `bus.publish`.
+    """
+    from muhideen.core.errors import SettingsNotInitializedError
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    # Fail fast on regression: without the bare tick the stream would idle
+    # until keep-alive instead of surfacing the failure.
+    monkeypatch.setattr(app_module, "_KEEPALIVE_S", 0.05)
+    gen = _stream(surface)
+    try:
+        assert _parse(next(gen))[0] == "state"
+        with surface.db.write() as conn:
+            conn.execute("DELETE FROM settings")
+        with pytest.raises(SettingsNotInitializedError):
+            _engine(surface).tick()
+        # The bare tick woke the stream: its recompute raises (dropping
+        # the SSE) instead of leaving the display on a healthy frame.
+        with pytest.raises(SettingsNotInitializedError):
+            next(gen)
+    finally:
+        gen.close()
+    display = client.get("/display", params={"id": "HALL-01"})
+    assert display.status_code == 503
+    assert 'id="slate"' in display.text
+    nxt = client.get("/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"})
+    assert nxt.status_code == 503
 
 
 def test_config_update_carries_changed_groups(
@@ -417,6 +498,31 @@ def test_events_before_setup_is_503(
 ) -> None:
     response = client.get("/api/events")
     assert response.status_code == 503
+
+
+def test_offline_first_no_coordinates_slates_display_and_next_event(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    """Offline-first pin: fresh DB + no coords + unreachable JAKIM slates.
+
+    Settings exist but carry no coordinates, and nothing was ever synced
+    (empty prayer cache — the e2e equivalent of JAKIM being unreachable at
+    first boot, since no JAKIM client is wired into the test surface), so
+    no schedule resolves: `/display` renders a slate and `/api/next-event`
+    surfaces the failure instead of a healthy payload. Both answer 404, not
+    503: the installation *is* configured, so this is the unknown-schedule
+    branch of the API contract, not the unconfigured-installation branch.
+    """
+    from datetime import date
+
+    _seed_settings(surface)
+    assert surface.prayer_repo.get_day(date(2025, 10, 20), "SGR01") is None
+    display = client.get("/display", params={"id": "HALL-01"})
+    assert display.status_code == 404
+    assert 'id="slate"' in display.text
+    nxt = client.get("/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"})
+    assert nxt.status_code == 404
+    assert "no schedule" in nxt.json()["detail"]
 
 
 def test_real_client_disconnect_unsubscribes(

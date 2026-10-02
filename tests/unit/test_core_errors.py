@@ -26,3 +26,8 @@ def test_context_carried() -> None:
     assert str(error) == "no data"
     sync_error = SyncError("timeout", zone="WKP01")
     assert (sync_error.zone, sync_error.date) == ("WKP01", "")
+
+
+@pytest.mark.unit
+def test_sync_error_transient_defaults_true() -> None:
+    assert SyncError("x", zone="z").transient is True

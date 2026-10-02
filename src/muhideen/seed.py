@@ -107,7 +107,11 @@ def main(argv: list[str] | None = None) -> int:
     except SyncError as exc:
         print(
             f"warning: sync failed for zone {settings.zone}: {exc}; "
-            "the scheduler will retry",
+            + (
+                "the scheduler will retry"
+                if exc.transient
+                else "rejected — check the zone code (not retried)"
+            ),
             file=sys.stderr,
         )
         return 3

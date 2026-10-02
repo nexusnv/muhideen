@@ -81,6 +81,34 @@ What each step does, in order:
 The backend should be ready within 10 s of `network-online.target`
 (PRD §5.1 budget). No step installs Python packages from the network.
 
+## Offline-first: first boot needs connectivity or coordinates
+
+The display never renders an empty or healthy-looking page without a
+schedule. First boot must satisfy **one** of:
+
+* **JAKIM reachability** — `muhideen-seed` (install step 7) fetches the
+  configured zone's year into the prayer cache; when the fetch fails, the
+  scheduler retries it (transient failures re-arm on a 6h long-pole —
+  429 rate limits stay transient and retry; other, unrecoverable 4xx
+  rejections never retry — recheck the zone code instead of waiting).
+* **Coordinates** — `lat`/`lon` settings let the built-in MABIMS
+  calculator resolve each day locally with no network at all.
+
+Otherwise — fresh database, no coordinates, JAKIM unreachable — the
+outcome is a documented slate, never a Clock: `GET /display` renders the
+error slate, and schedule reads such as
+`GET /api/next-event?now=…` answer 404 with a detail message (503 is
+reserved for an installation with no settings at all). The SSE tick
+likewise reports the `error` stage instead of `clock`, so the display
+reloads into the route slate (see `docs/api-contract.md`).
+
+* **Why tomorrow stays empty instead of backfilled:** the engine never
+  sources tomorrow's Fajr from the last-known cache
+  (`Engine._tomorrow` in `src/muhideen/engine/engine.py`) — a past
+  template day must not seed tomorrow's times, because that would present
+  wrong data as correct. Until the sync lands, tomorrow simply has no
+  schedule; the display holds today's resolved state.
+
 ## Update (OTA)
 
 ```bash
