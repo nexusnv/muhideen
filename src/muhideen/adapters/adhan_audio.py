@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 
 MAX_ADHAN_BYTES = 10 * 1024 * 1024
@@ -32,9 +34,16 @@ def store_adhan_audio(data: bytes, dest_dir: str | Path) -> Path:
     directory = Path(dest_dir)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / ADHAN_FILENAME
-    tmp_path = path.with_suffix(".tmp")
-    tmp_path.write_bytes(data)
-    tmp_path.replace(path)
+    # Unique tmp name per upload: concurrent uploads must not share one
+    # path, and a failed write must not litter (same-dir replace is atomic).
+    fd, tmp_name = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
     return path
 
 
