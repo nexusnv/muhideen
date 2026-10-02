@@ -57,6 +57,17 @@ def test_display_english_arabic_cards(
         assert token in html
 
 
+def test_display_bm_labels(surface: SimpleNamespace, client: TestClient) -> None:
+    _seed_settings(surface)
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    for token in ("Subuh", "Zohor"):
+        assert token in html
+    assert 'id="bound-syuruq"' in html
+    bound_span = html.split('id="bound-syuruq"')[1].split("</span>")[0]
+    assert "Syuruk" in bound_span
+    assert "الشروق" in bound_span
+
+
 def test_display_hides_disabled_imsak(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
@@ -182,6 +193,7 @@ def test_state_walkthrough_jumuah_friday(
     _advance_to(surface, datetime(2025, 10, 24, 12, 20))
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert "Jumuah" in html
+    assert "Jumaat" in html
 
 
 def test_hero_marks_tomorrow_fajr(surface: SimpleNamespace, client: TestClient) -> None:

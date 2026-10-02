@@ -1,0 +1,15 @@
+{
+  "prayer": {
+    "fajr": "Subuh",
+    "dhuhr": "Zohor",
+    "asr": "Asar",
+    "maghrib": "Maghrib",
+    "isha": "Isyak",
+    "jumuah": "Jumaat"
+  },
+  "boundary": {
+    "imsak": "Imsak",
+    "syuruq": "Syuruk",
+    "dhuha": "Dhuha"
+  }
+}

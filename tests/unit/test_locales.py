@@ -1,4 +1,4 @@
-"""Locale table honesty: every en.json value lives in its owner (pre-flight)."""
+"""Locale table honesty: every en/ms locale value lives in its owner (pre-flight)."""
 
 import json
 from pathlib import Path
@@ -42,12 +42,33 @@ def _walk(node: object) -> list[str]:
     return [node]
 
 
-def test_every_english_string_lives_in_its_owner() -> None:
-    table = json.loads((LOCALES / "en.json").read_text())
-    assert set(table) == set(OWNERS)
-    for group, files in OWNERS.items():
-        haystack = "".join((ROOT / f).read_text() for f in files)
+@pytest.mark.parametrize(
+    ("filename", "groups"),
+    [
+        ("en.json", set(OWNERS)),
+        ("ms.json", {"prayer", "boundary"}),
+    ],
+)
+def test_locale_strings_live_in_owners(filename: str, groups: set[str]) -> None:
+    table = json.loads((LOCALES / filename).read_text(encoding="utf-8"))
+    assert set(table) == groups
+    for group in groups:
+        files = OWNERS[group]
+        haystack = "".join((ROOT / f).read_text(encoding="utf-8") for f in files)
         values = [v for v in _walk(table[group]) if "{name}" not in v]
-        assert values, f"empty group {group}"
+        assert values, f"empty group {group} in {filename}"
         for value in values:
             assert value in haystack, f"{value!r} of [{group}] not found in owners"
+
+
+def test_ms_key_parity_with_en() -> None:
+    from muhideen.views.display import BOUNDARY_LABELS, PRAYER_LABELS
+
+    en = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+    ms = json.loads((LOCALES / "ms.json").read_text(encoding="utf-8"))
+    assert set(ms["prayer"]) == set(en["prayer"])
+    assert set(ms["boundary"]) == set(en["boundary"])
+    for key in ms["prayer"]:
+        assert ms["prayer"][key] == PRAYER_LABELS[key][2]
+    for key in ms["boundary"]:
+        assert ms["boundary"][key] == BOUNDARY_LABELS[key][2]

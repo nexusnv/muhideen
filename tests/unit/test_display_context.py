@@ -215,3 +215,33 @@ def test_dim_context_accepts_display_override() -> None:
     )
     assert ctx["dim_minutes"] == 30
     assert ctx["dim_source"] == "display"
+
+
+def test_context_carries_bm_names() -> None:
+    day, event = _dtos(KL)
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    assert ctx["cards"][0]["bm"] == "Subuh"
+    assert ctx["next_name_bm"] == "Zohor"
+
+    jumuah_event = event.model_copy(update={"next_prayer": "jumuah"})
+    jumuah_ctx = _ctx(day=day, event=jumuah_event, settings=_settings())
+    assert jumuah_ctx["next_name_bm"] == "Jumaat"
+    dhuhr_card = next(c for c in jumuah_ctx["cards"] if c["key"] == "dhuhr")
+    assert dhuhr_card["bm"] == "Jumaat"
+
+    bounds_by_key = {b["key"]: b for b in ctx["bounds"]}
+    assert bounds_by_key["imsak"]["bm"] == "Imsak"
+    assert bounds_by_key["imsak"]["ar"] == "الإمساك"
+    assert bounds_by_key["syuruq"]["bm"] == "Syuruk"
+    assert bounds_by_key["syuruq"]["ar"] == "الشروق"
+    assert bounds_by_key["dhuha"]["bm"] == "Dhuha"
+    assert bounds_by_key["dhuha"]["ar"] == "الضحى"
+
+    for theme_settings in (
+        _settings_with_theme(palette="midnight"),
+        _settings_with_theme(font="system"),
+        _settings_with_theme(density="compact"),
+    ):
+        themed_ctx = _ctx(day=day, event=event, settings=theme_settings)
+        assert themed_ctx["cards"][0]["bm"] == "Subuh"
+        assert themed_ctx["next_name_bm"] == "Zohor"
