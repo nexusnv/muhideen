@@ -27,8 +27,9 @@ Python 3.11+ FastAPI-sync + Uvicorn 1 worker + SQLite WAL + Jinja2 + HTMX/Alpine
 
 ## Hardware
 
-* Recommended all-in-one: Pi 4 2GB+ / Pi 5 / x86 thin client.
-* Pi 3B+ degraded. Pi Zero 2 W thin-client or headless-server only, not all-in-one.
+* Recommended all-in-one: any Debian (Bookworm+) machine with 2GB+ RAM
+  and a desktop UI for the kiosk browser / x86 thin client.
+* Below 1GB RAM: thin-client or headless-server only, not all-in-one.
 * Full kiosk budget: ≤1 GB with Chromium at 1080p. Backend only: ≤80 MB idle.
 
 ## Repo layout

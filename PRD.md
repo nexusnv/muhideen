@@ -7,7 +7,7 @@
 | :--- | :--- |
 | **Project Name** | Muhideen |
 | **Status** | Proposed — Rev 3 (marker taxonomy: Prayer Time vs Boundary Time Markers) |
-| **Target Platforms** | Linux (Debian / Raspberry Pi OS), x86/ARM devices |
+| **Target Platforms** | Linux (Debian), x86_64/ARM64 devices |
 | **Primary Region Focus** | Malaysia (JAKIM Integration), extensible globally |
 | **License** | MIT |
 
@@ -151,11 +151,11 @@ Backend-only RAM shown. Full kiosk system always adds 300–600MB for X11 + Chro
 
 **Option B' — Python 3.11+ (sync) + SQLite WAL + Jinja2 + HTMX / Alpine.js + hand-written vanilla CSS (ADR-0001).**
 
-1. **Python native** on Debian/RPi OS Bookworm; stdlib `sqlite3`, APScheduler, Pillow, hostname/time handling. No Node at any stage. Toolchain is `uv` only (see CONTRIBUTING.md).
+1. **Python native** on Debian Bookworm; stdlib `sqlite3`, APScheduler, Pillow, hostname/time handling. No Node at any stage. Toolchain is `uv` only (see CONTRIBUTING.md).
 2. **Sync server (locked):** FastAPI with `def` sync endpoints + Uvicorn single worker. Pydantic DTOs are the executable contract (§6.3, `docs/api-contract.md`). No async DB code; SQLite accessed from a single writer thread. SSE via `text/event-stream`. OpenAPI docs at `/docs` (LAN + admin auth only).
 3. **No build step, no Tailwind:** hand-written `static/app.css` (~10KB target). Tailwind Play CDN forbidden (offline + perf). Contributors editing HTML/themes never run Node; maintainers have no Node toolchain to keep.
 4. **SQLite WAL behind ports (ADR-0003)** single-file, zero-admin. `PRAGMA journal_mode=WAL; synchronous=NORMAL;` + atomic backup via `VACUUM INTO`. Heartbeats received every 30s but flushed in 60s batches via single writer.
-5. **Offline installer:** `uv.lock` + vendored wheel tarball (`vendor/wheels/`) built for `armv7l/aarch64/x86_64`. Install with `uv pip install --no-index --find-links vendor/wheels` or `uv sync --offline`. No live package index on device.
+5. **Offline installer:** `uv.lock` + vendored wheel tarball (`vendor/wheels/`) built for `aarch64/x86_64`. Install with `uv pip install --no-index --find-links vendor/wheels` or `uv sync --offline`. No live package index on device.
 
 ### 4.3 Architecture Rules (ports-and-adapters)
 
@@ -187,7 +187,7 @@ Normative constraint to allow frontend-only and backend-only contributors to wor
 |  Realtime Sync     | SSE primary (/api/events), 60s poll fallback      |
 |  App Server        | Python 3.11+ FastAPI-sync + Uvicorn 1 worker (ADR-0001) |
 |  DB                | SQLite3 WAL (single file)                          |
-|  OS & Runtime      | Debian / RPi OS + systemd + timesyncd/chrony       |
+|  OS & Runtime      | Debian + systemd + timesyncd/chrony       |
 |  Client Display    | Chromium --kiosk (pull + heartbeat, §3.4)          |
 +-----------------------------------------------------------------------+
 ```
@@ -197,10 +197,10 @@ Normative constraint to allow frontend-only and backend-only contributors to wor
 ## 5. Non-Functional Requirements (NFR)
 
 ### 5.1 Performance & Resource Limits (split)
-* **Backend only:** ≤80 MB RSS idle, ≤150 MB during JAKIM sync; CPU <3% idle on Pi 3B+.
-* **Full kiosk (backend+X11+Chromium):** ≤1 GB on Pi 4 2GB at 1080p idle; CPU <15% idle. This is the honest system budget.
-* **Hardware tiers:** Recommended Pi 4 2GB+/Pi 5/x86 thin client for all-in-one. Pi 3B+ supported degraded (slower render). **Pi Zero 2 W (512MB) unsupported for all-in-one** — supported only as thin display client against a separate server, or headless server without local browser.
-* **Boot:** backend `ready` ≤10s after `network-online.target`; first prayer render ≤30s on Pi 4, ≤45s on Pi 3B+ after OS boot (Chromium dominates). 15s all-in for kiosk is removed as unrealistic.
+* **Backend only:** ≤80 MB RSS idle, ≤150 MB during JAKIM sync; CPU <3% idle on low-end hardware.
+* **Full kiosk (backend+X11+Chromium):** ≤1 GB on a 2GB all-in-one box at 1080p idle; CPU <15% idle. This is the honest system budget.
+* **Hardware tiers:** all-in-one = any Debian machine with 2GB+ RAM and a desktop UI for the kiosk browser; thin display client = a TV/projection screen with a browser pointed at the server, or a directly-connected display used as the kiosk monitor. **Sub-1GB machines unsupported for all-in-one** — supported only as thin display clients or headless servers.
+* **Boot:** backend `ready` ≤10s after `network-online.target`; first prayer render ≤30s after OS boot (Chromium dominates). 15s all-in for kiosk is removed as unrealistic.
 
 ### 5.2 Reliability & Fault Tolerance
 * Offline-first per FR-1.2 fallback chain; background sync never blocks display render.
@@ -322,7 +322,7 @@ Single-repo logical split (§4.4). Backend implements first; frontend builds aga
 ## 7. Deployment & OS Integration
 
 ### 7.1 Hardware Policy
-All-in-one requires Pi 4 2GB+ / Pi 5 / x86. Zero 2 W only as thin client or headless server. Documented in installer preflight check (refuse all-in-one install on <1GB RAM with override flag).
+All-in-one requires a Debian machine with 2GB+ RAM (thin client or headless server below that). Documented in installer preflight check (refuse all-in-one install on <1GB RAM with override flag).
 
 ### 7.2 Linux Setup
 1. **Service:** `muhideen.service` (`After=network-online.target time-sync.target`, `Restart=always`), runs Uvicorn single worker on `127.0.0.1:8000` + LAN via `--host 0.0.0.0` behind admin auth. Single process, sync handlers, single SQLite writer.
@@ -368,6 +368,6 @@ Edge rules: Boundary Time Markers (Imsak, Syuruq, Dhuha) never trigger PRE_ADHAN
 
 * **Phase 1 (MVP):** 1a backend first (FastAPI-sync single worker, sync+fallback, schema §6.2, contract §6.3 + fixtures + mock-api, state machine §8, installer with vendored wheels + `uv.lock`); 1b frontend against fixtures (one vanilla-CSS theme matching preview, minimal settings API + wizard, dim). No group UI (single `Default` group), no CEC. Frontend-only contributors stay unblocked after 1a fixtures land.
 * **Phase 2:** carousel manager, theme sandbox/upload/preview, backup/restore, audio upload, extra themes.
-* **Phase 3:** grouping UI, targeted configs, CEC, community theme library docs, thin-client Zero 2 W image, Go single-binary appliance evaluation (drop-in behind §4.3 contract).
+* **Phase 3:** grouping UI, targeted configs, CEC, community theme library docs, thin-client ARM64 image, Go single-binary appliance evaluation (drop-in behind §4.3 contract).
 
 Out of scope MVP: video carousel, cloud dashboard, prayer-request messaging, zakat/khutbah CMS.
