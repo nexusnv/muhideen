@@ -86,6 +86,7 @@ def build_display_context(
     iqamah: dict[str, str],
     dim_minutes: int | None = None,
     dim_source: str = "settings",
+    show_carousel: bool = True,
     adhan_audio_url: str | None = None,
     adhan_volume: int = 70,
 ) -> dict[str, object]:
@@ -95,8 +96,9 @@ def build_display_context(
     upstream through the domain Iqamah module; the builder renders them
     and computes nothing. ``dim_minutes``/``dim_source`` carry the
     display's effective dim (per-display pin, else group pin, else the
-    global default); the caller resolves the precedence, the builder
-    only renders it.
+    global default); ``show_carousel`` carries the display's group
+    carousel flag (group pin, else default-on); the caller resolves the
+    precedence, the builder only renders it.
     """
     times = {
         "fajr": day.prayers.fajr,
@@ -176,6 +178,7 @@ def build_display_context(
             dim_minutes if dim_minutes is not None else settings.dim_minutes_default
         ),
         "dim_source": dim_source,
+        "show_carousel": show_carousel,
         "adhan_audio_url": adhan_audio_url,
         "adhan_volume": adhan_volume,
         "next_name_en": labels[0],

@@ -434,23 +434,30 @@ class SqliteDisplaySettingsRepo:
             if row["key"] in DISPLAY_SETTINGS_ALLOWLIST
         }
 
-    def group_dim_override(self, display_id: str) -> str | None:
-        """Group dim pin for one display id, else ``None``.
+    def group_presentation(self, display_id: str) -> tuple[str | None, bool]:
+        """Group dim pin + carousel flag for one display id (single query).
 
-        Raw stored string (unparsed — the domain Dim module owns parsing
-        and the range rule, so a corrupt group row slates exactly like a
-        corrupt display row). Unknown ids read back as ``None``.
+        Returns the dim raw stored string (unparsed — the domain Dim
+        module owns parsing and the range rule, so a corrupt group row
+        slates exactly like a corrupt display row) or ``None``, plus the
+        carousel flag (``True`` for unknown ids / NULL rows, mirroring
+        the theme fallback). One JOIN serves both so the display route
+        never issues a second group lookup.
         """
         with self._db.read() as conn:
             row = conn.execute(
-                "SELECT g.dim_minutes_override AS dim FROM displays d"
+                "SELECT g.dim_minutes_override AS dim,"
+                " g.carousel_enabled AS carousel"
+                " FROM displays d"
                 " LEFT JOIN display_groups g ON g.name = d.group_name"
                 " WHERE d.id = ?",
                 (display_id,),
             ).fetchone()
-        if row is None or row["dim"] is None:
-            return None
-        return str(row["dim"])
+        if row is None:
+            return None, True
+        dim = str(row["dim"]) if row["dim"] is not None else None
+        carousel = True if row["carousel"] is None else bool(row["carousel"])
+        return dim, carousel
 
     def set_override(self, display_id: str, key: str, value: str) -> None:
         """Store one override after allowlist + value validation."""

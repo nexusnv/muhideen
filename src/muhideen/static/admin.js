@@ -528,7 +528,7 @@
         anchor_marker: anchor === "" ? null : anchor,
         anchor_start_offset_min: Number(document.getElementById("pl-anchor-start").value) || 0,
         anchor_stop_offset_min: Number(document.getElementById("pl-anchor-stop").value) || 0,
-        cycle_mode: "indefinite",
+        cycle_mode: cycles === "" ? "indefinite" : "repeat",
         max_cycles: cycles === "" ? null : Number(cycles),
         items: currentItems,
       };

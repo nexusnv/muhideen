@@ -339,6 +339,44 @@ def test_display_display_dim_beats_group_dim(
     assert 'data-dim-source="display"' in html
 
 
+def test_display_carousel_dot_shown_by_default(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="ftr"' in html
+    assert 'id="carousel-dot"' in html
+
+
+def test_display_hides_carousel_dot_on_group_toggle(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    with surface.db.write() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO displays (id, name, group_name) VALUES (?, ?, ?)",
+            ("HALL-01", "Main Hall", "Default"),
+        )
+        conn.execute(
+            "UPDATE display_groups SET carousel_enabled = 0 WHERE name = ?",
+            ("Default",),
+        )
+    html = client.get("/display", params={"id": "HALL-01"}).text
+    assert 'id="carousel-dot"' not in html
+    assert 'id="ftr"' in html
+    assert 'id="qr-hint"' in html
+    assert 'id="cards"' in html
+
+
+def test_display_unknown_id_shows_carousel_dot(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _seed_settings(surface)
+    html = client.get("/display", params={"id": "NOPE"}).text
+    assert 'id="ftr"' in html
+    assert 'id="carousel-dot"' in html
+
+
 @pytest.mark.parametrize(
     "key,value",
     [
