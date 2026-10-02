@@ -17,9 +17,7 @@
     "banner_stale": "STALE — showing fallback schedule",
     "banner_unsynced": "TIME UNSYNCED",
     "banner_calc": "CALC — computed schedule",
-    "banner_manual": "MANUAL — set by admin",
-    "skip_hint": "Hold 3s to restore (admin)",
-    "qr_hint": "Admin: muhideen.local:8000/admin"
+    "banner_manual": "MANUAL — set by admin"
   },
   "admin_login": {
     "title": "Login",

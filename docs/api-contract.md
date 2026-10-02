@@ -106,7 +106,7 @@ Admin session required. Full installation settings including the boundary offset
     "palette": "classic-green",
     "font": "outfit",
     "countdown_style": "boxes",
-    "clock_format": "24h-seconds",
+    "clock_format": "12h",
     "hijri_form": "long",
     "boundary_strip": "show",
     "density": "comfortable"
@@ -154,7 +154,7 @@ Admin session required. Full-replace body; the response echoes the stored settin
     "palette": "classic-green",
     "font": "outfit",
     "countdown_style": "boxes",
-    "clock_format": "24h-seconds",
+    "clock_format": "12h",
     "hijri_form": "long",
     "boundary_strip": "show",
     "density": "comfortable"

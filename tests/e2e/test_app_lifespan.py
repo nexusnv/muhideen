@@ -121,7 +121,7 @@ def test_lifespan_runs_migrations_at_boot(tmp_path: Path) -> None:
     app = create_app(deps)
     with TestClient(app):
         pass
-    assert current_version(db) == 3
+    assert current_version(db) == 4
 
 
 def test_lifespan_flushes_heartbeats_on_shutdown(tmp_path: Path) -> None:
@@ -318,4 +318,4 @@ def test_production_app_factory_boots_full_surface(tmp_path: Path) -> None:
         assert client.get("/api/version").status_code == 200
     from muhideen.adapters.sqlite_repo import Database
 
-    assert current_version(Database(db_path)) == 3
+    assert current_version(Database(db_path)) == 4

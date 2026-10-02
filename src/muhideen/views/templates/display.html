@@ -6,91 +6,71 @@
 <title>{{ masjid_name }} — Prayer Times</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
-<body class="{{ body_class }}" data-clock-format="{{ clock_format }}" data-dim-minutes="{{ dim_minutes }}" data-dim-source="{{ dim_source }}">
-{% if state == "ADHAN" %}
-<main id="overlay-adhan" class="hero-gradient glow-emerald">
-  <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
-  <div id="hero-eyebrow">THE CALL TO PRAYER</div>
-  <h1>{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</h1>
-  {% if adhan_audio_url %}<audio id="adhan-audio" src="{{ adhan_audio_url }}" data-volume="{{ adhan_volume }}" preload="auto"></audio>{% endif %}
-  <div id="adhan-bar"><div id="adhan-fill" data-bar-start="{{ adhan_iso }}" data-bar-end="{{ adhan_end_iso }}"></div></div>
-</main>
-{% elif state == "SALAH_DIM" %}
-<main id="dim" data-dim-until="{{ dim_until_iso }}">
-  <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
-  <h1>{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</h1>
-  <div id="dim-clock" class="js-clock">{{ clock }}</div>
-  <div id="dim-bar"><div id="dim-fill" data-bar-start="{{ iqamah_iso }}" data-bar-end="{{ dim_until_iso }}"></div></div>
-  <div id="dim-skip-hint">Hold 3s to restore (admin)</div>
-</main>
-{% else %}
-<header id="hdr">
-  <span id="masjid">{{ masjid_name }} / {{ zone }}</span>
-  <span id="dates">{{ gregorian }} · {{ hijri }}</span>
-</header>
+<body class="{{ body_class }} state-{{ state|lower }}">
+<span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
 {% if banners %}<div id="banners">{% for b in banners %}<div class="banner">{{ b }}</div>{% endfor %}</div>{% endif %}
-{% if state == "PRE_ADHAN" %}<div id="note-pre">{{ pre_note }}</div>{% endif %}
-<main id="hero" class="hero-gradient glow-emerald">
-  <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
-  <div class="brand-corner">masjid <b>box</b></div>
-  {% if state == "IQAMAH_COUNTDOWN" %}
-  <div id="hero-next">
-    <div id="hero-eyebrow">IQAMAH FOR <span id="next-name">{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</span> IN</div>
-    <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
-  </div>
-  <div class="countdown-wrap giant{% if countdown_inline %} countdown-inline{% endif %}" data-cd-target="{{ iqamah_iso }}">
-    <div class="countdown-box"><span class="cd-val" data-cd-h>--</span><span class="cd-lab">HOURS</span></div>
-    <span class="cd-sep">:</span>
-    <div class="countdown-box"><span class="cd-val" data-cd-m>--</span><span class="cd-lab">MINUTES</span></div>
-    <span class="cd-sep">:</span>
-    <div class="countdown-box"><span class="cd-val" data-cd-s>--</span><span class="cd-lab">SECONDS</span></div>
-  </div>
-  <div id="iqamah-hero" data-countdown="{{ iqamah_iso }}" hidden></div>
-  {% else %}
-  <div id="hero-next">
-    <div id="hero-eyebrow">THE CALL TO PRAYER OF <span id="next-name">{{ next_name_en }} · {{ next_name_ar }} · {{ next_name_bm }}</span> IS IN</div>
-    <div id="next-time">{{ next_time }}{% if next_tomorrow %} <span id="next-tomorrow">(tomorrow)</span>{% endif %}</div>
-  </div>
-  <div class="countdown-wrap{% if countdown_inline %} countdown-inline{% endif %}" data-cd-target="{{ adhan_iso }}">
-    <div class="countdown-box"><span class="cd-val" data-cd-h>--</span><span class="cd-lab">HOURS</span></div>
-    <span class="cd-sep">:</span>
-    <div class="countdown-box"><span class="cd-val" data-cd-m>--</span><span class="cd-lab">MINUTES</span></div>
-    <span class="cd-sep">:</span>
-    <div class="countdown-box"><span class="cd-val" data-cd-s>--</span><span class="cd-lab">SECONDS</span></div>
-  </div>
-  <span data-countdown="{{ adhan_iso }}" hidden></span>
-  {% endif %}
-</main>
-<section id="strip">
-  <div class="live-block">
-    <div id="live-clock" class="js-clock digital-font">{{ clock }}</div>
-    <div class="dates"><span id="date-greg">{{ gregorian }}</span><span id="date-hijri" data-hijri-long="{{ hijri_long }}">{{ hijri_display }}</span></div>
-  </div>
-  <section id="cards">
-    {% for c in cards %}
-    <div class="card{% if c.is_next %} next{% endif %}" id="card-{{ c.key }}">
-      <div class="n">{{ c.en }} · {{ c.ar }} · {{ c.bm }}</div>
-      <div class="t">{{ c.time }}</div>
-      <div class="iqamah-row"><span class="iqamah-lab">IQAMAH</span><span id="iqamah-{{ c.key }}">{{ c.iqamah }}</span></div>
+<main class="prayer-screen" aria-label="Mosque prayer times display">
+  <section class="timetable-panel" aria-label="Prayer timetable">
+    <div class="prayer-table">
+      <div class="prayer-row header">
+        <div class="cell">Prayer</div>
+        <div class="cell">Adhan</div>
+        <div class="cell">Iqomah</div>
+      </div>
+      {% for c in cards %}
+      <div class="prayer-row{% if c.is_next %} current{% endif %}" id="row-{{ c.key }}">
+        <div class="cell prayer-name">{{ c.en }}</div>
+        <div class="cell prayer-time">{{ c.time12 }}<small class="period">{{ c.period }}</small></div>
+        <div class="cell prayer-time" id="iqamah-{{ c.key }}">{{ c.iqamah12 }}<small class="period">{{ c.iqamah_period }}</small></div>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
+    {% if show_boundaries %}
+    <div class="additional-times" id="bounds">
+      {% for b in bounds %}
+      <div class="additional-time{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">
+        <span class="additional-label">{{ b.en }}</span>
+        <span class="additional-value">{{ b.time12 }}<small class="period">{{ b.period }}</small></span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </section>
-</section>
-{% if show_boundaries %}
-<section id="bounds">
-  {% for b in bounds %}
-  <span class="bound{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">{{ b.en }} · {{ b.ar }} · {{ b.bm }} {{ b.time }}</span>
-  {% endfor %}
-  {% if next_boundary %}<span id="bound-next">{{ next_boundary }} {{ boundary_at }}</span>{% endif %}
-</section>
-{% endif %}
-{% if state == "NORMAL" %}
-<footer id="ftr">
-  <div class="brand-block"><span class="brand-name">{{ masjid_name }}</span><span class="brand-zone">{{ zone }}</span></div>
-  {% if show_carousel %}<span id="carousel-dot">●</span>{% endif %}<span id="qr-hint">Admin: muhideen.local:8000/admin</span>
-</footer>
-{% endif %}
-{% endif %}
+  <section class="details-panel" aria-label="Clock and mosque information">
+    <div class="clock-block">
+      {% set hm = clock_hm.split(':') %}
+      <time class="clock" id="live-clock"><span class="clock-h">{{ hm[0] }}</span><span class="colon">:</span><span class="clock-m">{{ hm[1] }}</span> <span class="period">{{ clock_period }}</span></time>
+    </div>
+    <div class="date-block">
+      <div class="gregorian-date">{{ gregorian_long }}</div>
+      <div class="hijri-date">{{ hijri_display }}</div>
+    </div>
+    <div class="mosque-block">
+      <div class="mosque-logo" aria-hidden="true">
+        <svg viewBox="0 0 100 100">
+          <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="miter">
+            <path d="M50 5 59 23 77 14 74 34 94 38 79 51 91 68 70 68 66 91 50 76 34 91 30 68 9 68 21 51 6 38 26 34 23 14 41 23Z"/>
+            <path d="M50 15 62 34 84 39 68 53 71 75 50 64 29 75 32 53 16 39 38 34Z"/>
+            <path d="M50 5V76M23 14 74 68M77 14 26 68M6 38 91 68M94 38 9 68M41 23 66 91M59 23 34 91"/>
+            <circle cx="50" cy="50" r="13"/>
+          </g>
+        </svg>
+      </div>
+      <div class="mosque-copy">
+        <h1 class="mosque-name">{{ masjid_name }}</h1>
+        <p>{{ zone }}</p>
+      </div>
+    </div>
+    {% if countdown_target %}
+    <div class="countdown-block">
+      <p class="countdown-label" id="countdown-label">{{ countdown_label }}</p>
+      <time class="countdown" id="countdown" data-target="{{ countdown_target }}">--:--:--</time>
+    </div>
+    {% endif %}
+  </section>
+</main>
+{% if state == "ADHAN" and adhan_audio_url %}<audio id="adhan-audio" src="{{ adhan_audio_url }}" data-volume="{{ adhan_volume }}" preload="auto"></audio>{% endif %}
+{% if state == "SALAH_DIM" %}<span id="dim-skip" data-dim-until="{{ dim_until_iso }}" hidden></span>{% endif %}
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -216,7 +216,7 @@ def test_manual_pin_outranks_jakim_and_calc(
 
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert "MANUAL" in html
-    assert "15:30" in html
+    assert ">3:30<small" in html  # 12h design-locked render of pinned 15:30
 
 
 def test_december_gap_bridged_by_manual_pin(
@@ -250,4 +250,4 @@ def test_december_gap_bridged_by_manual_pin(
     response = client.get("/display", params={"id": "HALL-01"})
     assert response.status_code == 200
     assert "MANUAL" in response.text
-    assert "15:30" in response.text
+    assert ">3:30<small" in response.text  # 12h design-locked render of pinned 15:30

@@ -9,9 +9,8 @@ pytestmark = pytest.mark.unit
 STATIC = Path(__file__).resolve().parents[2] / "src" / "muhideen" / "static"
 
 PALETTE = (
-    ("#f4f1e8", "#0a3527"),
+    ("#f8fbf9", "#075743"),
     ("#e0b73c", "#0a3527"),
-    ("#9db8ad", "#0a3527"),
 )
 
 
@@ -27,12 +26,13 @@ def _contrast(fg: str, bg: str) -> float:
 
 
 def test_css_legibility_rules_present() -> None:
-    import re
-
     css = (STATIC / "app.css").read_text()
-    # Reskin hero: giant countdown digits (10m legibility), card times large.
-    assert re.search(r"\.cd-val\s*\{[^}]*font-size:\s*12vh", css)
-    assert "3.5vh" in css
+    # Mockup screen: prayer rows highlight the next prayer, the clock colon
+    # blinks (seconds tick without digits), countdown uses tabular figures.
+    assert ".prayer-row.current" in css
+    assert "colon-blink" in css
+    assert "tabular-nums" in css
+    assert "clamp(" in css
 
 
 def test_palette_contrast_aa() -> None:
@@ -56,9 +56,13 @@ def test_js_realtime_wiring_present() -> None:
         "data-tzoffset",
         "timeZone",
         "getAttribute",
-        "data-countdown",
-        "data-bar-start",
+        "data-target",
+        "data-dim-until",
         "querySelectorAll",
+        "clock-h",
+        "clock-m",
+        "adhan-audio",
+        "data-volume",
         "pointerdown",
         "3000",
         "muhideen-dim-skip",
@@ -67,15 +71,24 @@ def test_js_realtime_wiring_present() -> None:
         assert token in js
 
 
+def test_js_uses_text_content_only() -> None:
+    js = (STATIC / "app.js").read_text()
+    assert "innerHTML" not in js
+
+
 def test_state_region_selectors_present() -> None:
     css = (STATIC / "app.css").read_text()
     for selector in (
-        "#note-pre",
-        "#overlay-adhan",
-        "#iqamah-hero",
-        "#dim",
-        "#dim-clock",
-        "#dim-skip-hint",
+        "#hero-clock[hidden]",
+        "#banners",
+        ".prayer-row.current",
+        ".colon",
+        "colon-blink",
+        "state-salah_dim",
+        "#dim-skip[hidden]",
+        "#adhan-audio",
+        ".countdown",
+        ".slate-error",
     ):
         assert selector in css
 
@@ -83,22 +96,28 @@ def test_state_region_selectors_present() -> None:
 def test_state_template_ids_present() -> None:
     html = (STATIC.parent / "views" / "templates" / "display.html").read_text()
     for token in (
-        'id="overlay-adhan"',
-        'id="iqamah-hero"',
-        'id="dim"',
-        'id="note-pre"',
-        "data-countdown",
-        "data-bar-start",
+        'id="hero-clock"',
+        'id="row-{{ c.key }}"',
+        'id="iqamah-{{ c.key }}"',
+        'id="bounds"',
+        'id="bound-{{ b.key }}"',
+        'id="live-clock"',
+        'id="countdown-label"',
+        'id="countdown"',
+        "data-target",
         "hidden data-now",
         "data-dim-until",
+        'id="banners"',
+        'id="adhan-audio"',
+        'id="dim-skip"',
     ):
         assert token in html
 
 
-# Phase 1C reskin tokens (class names locked to the new app.css).
-# Mapping note: countdown-box = H/M/S countdown boxes fed by data-countdown
-# targets; iqamah-row = per-card iqamah row; brand-block = footer brand block;
-# glow-emerald = hero gradient glow. Per-card iqamah id scheme: iqamah-<key>.
+# Mockup-screen tokens (class names locked to the new app.css/template).
+# Mapping note: prayer-screen = two-column grid; prayer-row = timetable row
+# (.current = highlighted next prayer); additional-times = bounds strip;
+# clock-block/countdown-block/mosque-block = right-column blocks.
 
 
 def test_js_stage_reload_wiring_present() -> None:
@@ -110,61 +129,73 @@ def test_js_stage_reload_wiring_present() -> None:
         assert token in js
 
 
-def test_reskin_css_tokens_present() -> None:
+def test_mockup_css_tokens_present() -> None:
     css = (STATIC / "app.css").read_text()
     for token in (
-        "countdown-box",
-        "iqamah-row",
-        "brand-block",
-        "glow-emerald",
+        "prayer-screen",
+        "prayer-row",
+        "additional-times",
+        "clock-block",
+        "countdown-block",
+        "mosque-block",
     ):
         assert token in css
 
 
-def test_reskin_template_tokens_present() -> None:
+def test_mockup_template_tokens_present() -> None:
     html = (STATIC.parent / "views" / "templates" / "display.html").read_text()
     for token in (
-        "countdown-box",
-        "iqamah-row",
-        "brand-block",
-        "glow-emerald",
+        "prayer-screen",
+        "prayer-row",
+        "additional-times",
+        "clock-block",
+        "countdown-block",
+        "mosque-block",
         'id="iqamah-{{ c.key }}"',
-        "hijri_long",
+        "gregorian_long",
+        "hijri_display",
         'id="live-clock"',
     ):
         assert token in html
 
 
-def test_theme_css_variants_present() -> None:
-    css = (STATIC / "app.css").read_text()
-    for token in (
-        "countdown-inline",
-        "palette-midnight",
-        "palette-sand",
-        "font-system",
-        "density-compact",
-    ):
-        assert token in css
-
-
 def test_theme_template_tokens_present() -> None:
     html = (STATIC.parent / "views" / "templates" / "display.html").read_text()
+    # No data-clock-format / data-dim-minutes / data-dim-source / countdown-inline:
+    # the screen is design-locked 12h and ignores the knobs by design (they
+    # stay settable for future surfaces; dim surfaces only via data-dim-until).
     for token in (
-        "countdown-inline",
         "hijri_display",
+        "gregorian_long",
         "show_boundaries",
         "body_class",
+        "countdown_label",
+        "countdown_target",
+        "clock_hm",
+        "clock_period",
+        "dim_until_iso",
+        "adhan_audio_url",
+        "banners",
+    ):
+        assert token in html
+    for token in (
         "data-clock-format",
         "data-dim-minutes",
         "data-dim-source",
+        "countdown-inline",
     ):
-        assert token in html
+        assert token not in html
 
 
 def test_js_honours_clock_format() -> None:
+    # Design-locked 12h: the screen ignores the theme knob, so JS resolves
+    # wall time from the server epoch plus the tz attrs (no clock-format
+    # branching).
     js = (STATIC / "app.js").read_text()
     for token in (
-        "data-clock-format",
-        "clockFmt",
+        "data-tz",
+        "timeZone",
+        "anchor",
+        "serverEpoch",
     ):
         assert token in js

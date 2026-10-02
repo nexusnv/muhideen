@@ -20,66 +20,45 @@
     return serverNow + (performance.now() - baseMono);
   }
   if (clockEl && clockEl.getAttribute("data-now")) anchor(clockEl.getAttribute("data-now"));
-  var clockFmt = document.body ? document.body.getAttribute("data-clock-format") : null;
-  function fmt(epoch) {
-    var use12 = clockFmt === "12h";
-    var withSeconds = clockFmt !== "24h" && clockFmt !== "12h";
-    var locale = use12 ? "en-US" : "en-GB";
-    var base = { hour12: use12, hour: "2-digit", minute: "2-digit" };
-    if (withSeconds) base.second = "2-digit";
+  function parts(epoch) {
+    var str;
     if (tzName) {
       try {
-        var opts = { hour12: use12, hour: "2-digit", minute: "2-digit", timeZone: tzName };
-        if (withSeconds) opts.second = "2-digit";
-        return new Date(epoch).toLocaleTimeString(locale, opts);
-      } catch (err) { tzName = null; }
+        str = new Date(epoch).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", timeZone: tzName });
+      } catch (err) { tzName = null; str = null; }
     }
-    if (tzOffset === tzOffset) {
-      var shifted = { hour12: use12, hour: "2-digit", minute: "2-digit", timeZone: "UTC" };
-      if (withSeconds) shifted.second = "2-digit";
-      return new Date(epoch + tzOffset * 60000).toLocaleTimeString(locale, shifted);
+    if (!str) {
+      var shifted = tzOffset === tzOffset ? epoch + tzOffset * 60000 : epoch;
+      var d = new Date(shifted);
+      var base = tzOffset === tzOffset ? d.getUTCHours() : d.getHours();
+      var mins = tzOffset === tzOffset ? d.getUTCMinutes() : d.getMinutes();
+      return { h24: base, m: mins };
     }
-    return new Date(epoch).toLocaleTimeString(locale, base);
+    var hm = str.split(":");
+    var h24 = parseInt(hm[0], 10);
+    return { h24: h24 === 24 ? 0 : h24, m: parseInt(hm[1], 10) };
   }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
   function tick() {
     var epoch = serverEpoch();
     if (epoch === null) return;
-    var clocks = document.querySelectorAll(".js-clock");
-    for (var i = 0; i < clocks.length; i++) clocks[i].textContent = fmt(epoch);
-    var downs = document.querySelectorAll("[data-countdown]");
-    for (var j = 0; j < downs.length; j++) {
-      var target = new Date(downs[j].getAttribute("data-countdown")).getTime();
+    var p = parts(epoch);
+    var h12 = p.h24 % 12 || 12;
+    var period = p.h24 < 12 ? "AM" : "PM";
+    var hEls = document.querySelectorAll(".clock-h");
+    var mEls = document.querySelectorAll(".clock-m");
+    for (var i = 0; i < hEls.length; i++) hEls[i].textContent = h12;
+    for (var j = 0; j < mEls.length; j++) mEls[j].textContent = pad(p.m);
+    var perEls = document.querySelectorAll(".clock .period");
+    for (var q = 0; q < perEls.length; q++) perEls[q].textContent = period;
+    var cd = document.getElementById("countdown");
+    if (cd) {
+      var target = new Date(cd.getAttribute("data-target")).getTime();
+      if (target !== target) { cd.textContent = "--:--:--"; return; }
       var remain = Math.max(0, target - epoch);
       var s = Math.floor(remain / 1000);
-      downs[j].textContent = pad(Math.floor(s / 60)) + ":" + pad(s % 60);
+      cd.textContent = pad(Math.floor(s / 3600)) + ":" + pad(Math.floor((s % 3600) / 60)) + ":" + pad(s % 60);
     }
-    var bars = document.querySelectorAll("[data-bar-start]");
-    for (var k = 0; k < bars.length; k++) {
-      var start = new Date(bars[k].getAttribute("data-bar-start")).getTime();
-      var end = new Date(bars[k].getAttribute("data-bar-end")).getTime();
-      var pct = end <= start ? 100 : Math.min(100, Math.max(0, (epoch - start) / (end - start) * 100));
-      bars[k].style.width = pct + "%";
-    }
-    var hms = document.querySelectorAll("[data-cd-target]");
-    for (var m = 0; m < hms.length; m++) {
-      var hmsTarget = new Date(hms[m].getAttribute("data-cd-target")).getTime();
-      var hEls = hms[m].querySelectorAll("[data-cd-h]");
-      var mEls = hms[m].querySelectorAll("[data-cd-m]");
-      var sEls = hms[m].querySelectorAll("[data-cd-s]");
-      if (hmsTarget !== hmsTarget) {
-        setHms(hEls, "--"); setHms(mEls, "--"); setHms(sEls, "--");
-        continue;
-      }
-      var rem2 = Math.max(0, hmsTarget - epoch);
-      var s2 = Math.floor(rem2 / 1000);
-      setHms(hEls, pad(Math.floor(s2 / 3600)));
-      setHms(mEls, pad(Math.floor((s2 % 3600) / 60)));
-      setHms(sEls, pad(s2 % 60));
-    }
-  }
-  function setHms(els, val) {
-    for (var q = 0; q < els.length; q++) els[q].textContent = val;
   }
   setInterval(tick, 1000);
   function sameAsDom(data) {
@@ -141,27 +120,28 @@
     }
     src.onerror = function () { src.close(); startPoll(); };
   } catch (err) { setInterval(poll, 60000); }
-  var dimEl = document.getElementById("dim");
-  if (dimEl) {
+  var dimEl = document.querySelector("[data-dim-until]");
+  if (dimEl && dimEl.getAttribute("data-dim-until")) {
     var skipKey = "muhideen-dim-skip";
+    function undim() { document.body.classList.remove("state-salah_dim"); }
     try {
       if (localStorage.getItem(skipKey) === dimEl.getAttribute("data-dim-until")) {
-        dimEl.style.display = "none";
+        undim();
       }
     } catch (err) { /* storage unavailable: overlay stays */ }
     var pressTimer = null;
     function cancelPress() {
       if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null; }
     }
-    dimEl.addEventListener("pointerdown", function () {
+    document.body.addEventListener("pointerdown", function () {
       cancelPress();
       pressTimer = setTimeout(function () {
         try { localStorage.setItem(skipKey, dimEl.getAttribute("data-dim-until") || ""); } catch (err) { /* fall through to hide */ }
-        window.location.reload();
+        undim();
       }, 3000);
     });
-    dimEl.addEventListener("pointerup", cancelPress);
-    dimEl.addEventListener("pointerleave", cancelPress);
+    document.body.addEventListener("pointerup", cancelPress);
+    document.body.addEventListener("pointerleave", cancelPress);
   }
   var adhanEl = document.getElementById("adhan-audio");
   if (adhanEl) {

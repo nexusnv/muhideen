@@ -43,7 +43,7 @@ _SEEDED_SETTINGS = {
     "theme.palette": "classic-green",
     "theme.font": "outfit",
     "theme.countdown_style": "boxes",
-    "theme.clock_format": "24h-seconds",
+    "theme.clock_format": "12h",
     "theme.hijri_form": "long",
     "theme.boundary_strip": "show",
     "theme.density": "comfortable",
@@ -100,8 +100,8 @@ def test_connect_applies_pragmas(tmp_path: Path) -> None:
 
 def test_migrate_sets_user_version_head(tmp_path: Path) -> None:
     db = Database(tmp_path / "muhideen.db")
-    assert migrate(db) == 3
-    assert current_version(db) == 3
+    assert migrate(db) == 4
+    assert current_version(db) == 4
 
 
 def test_migrate_creates_all_prd_tables_and_index(tmp_path: Path) -> None:
@@ -176,8 +176,8 @@ def test_migrate_is_idempotent(tmp_path: Path) -> None:
     migrate(db)
     kv_before = _settings_kv(db)
     rules_before = _rule_rows(db)
-    assert migrate(db) == 3
-    assert current_version(db) == 3
+    assert migrate(db) == 4
+    assert current_version(db) == 4
     assert _settings_kv(db) == kv_before == _SEEDED_SETTINGS
     assert _rule_rows(db) == rules_before == _FR_1_4_RULES
 
@@ -194,8 +194,8 @@ def test_down_then_up_round_trip_restores_seeds(tmp_path: Path) -> None:
     db = Database(tmp_path / "muhideen.db")
     migrate(db)
     migrate_down(db)
-    assert migrate(db) == 3
-    assert current_version(db) == 3
+    assert migrate(db) == 4
+    assert current_version(db) == 4
     assert _table_names(db) == _TABLES
     assert _settings_kv(db) == _SEEDED_SETTINGS
     assert _rule_rows(db) == _FR_1_4_RULES
@@ -209,8 +209,8 @@ def test_migrate_re_runs_script_when_version_bump_was_lost(tmp_path: Path) -> No
     migrate(db)
     with db.write() as conn:
         conn.execute("PRAGMA user_version = 0")  # simulate the lost bump
-    assert migrate(db) == 3  # re-executes all scripts over present tables
-    assert current_version(db) == 3
+    assert migrate(db) == 4  # re-executes all scripts over present tables
+    assert current_version(db) == 4
     assert _table_names(db) == _TABLES
     assert _settings_kv(db) == _SEEDED_SETTINGS
     assert _rule_rows(db) == _FR_1_4_RULES
@@ -298,7 +298,7 @@ def test_migrate_down_to_one_drops_only_playlist_tables(
     }
     assert _settings_kv(db) == _SEEDED_SETTINGS_V1
     assert _rule_rows(db) == _FR_1_4_RULES
-    assert migrate(db) == 3
+    assert migrate(db) == 4
     assert _table_names(db) == _TABLES
 
 
@@ -327,6 +327,37 @@ def test_migrate_down_to_two_drops_only_display_settings(
     assert _table_names(db) == _TABLES - {"display_settings"}
     kv = _settings_kv(db)
     assert not [key for key in kv if key.startswith("theme.")]
-    assert migrate(db) == 3
+    assert migrate(db) == 4
     assert _table_names(db) == _TABLES
     assert _settings_kv(db) == _SEEDED_SETTINGS
+
+
+def test_migrate_0004_flips_seeded_clock_default_only(tmp_path: Path) -> None:
+    db = Database(tmp_path / "muhideen.db")
+    migrate(db)
+    assert _settings_kv(db)["theme.clock_format"] == "12h"
+    # Upgrade path: a row seeded at the old default flips to the new one.
+    with db.write() as conn:
+        conn.execute(
+            "UPDATE settings SET value = '24h-seconds' WHERE key = 'theme.clock_format'"
+        )
+        conn.execute("PRAGMA user_version = 3")
+    assert migrate(db) == 4
+    assert _settings_kv(db)["theme.clock_format"] == "12h"
+    # An explicit 24h choice is not the seeded default: left untouched.
+    with db.write() as conn:
+        conn.execute(
+            "UPDATE settings SET value = '24h' WHERE key = 'theme.clock_format'"
+        )
+        conn.execute("PRAGMA user_version = 3")
+    assert migrate(db) == 4
+    assert _settings_kv(db)["theme.clock_format"] == "24h"
+
+
+def test_migrate_0004_down_restores_previous_default(tmp_path: Path) -> None:
+    db = Database(tmp_path / "muhideen.db")
+    migrate(db)
+    assert migrate_down(db, 3) == 3
+    assert _settings_kv(db)["theme.clock_format"] == "24h-seconds"
+    assert migrate(db) == 4
+    assert _settings_kv(db)["theme.clock_format"] == "12h"

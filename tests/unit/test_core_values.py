@@ -526,7 +526,7 @@ def test_theme_settings_defaults() -> None:
     assert theme.palette == "classic-green"
     assert theme.font == "outfit"
     assert theme.countdown_style == "boxes"
-    assert theme.clock_format == "24h-seconds"
+    assert theme.clock_format == "12h"
     assert theme.hijri_form == "long"
     assert theme.boundary_strip == "show"
     assert theme.density == "comfortable"
@@ -617,7 +617,7 @@ def test_theme_seam_tables_are_single_source() -> None:
         "palette": "classic-green",
         "font": "outfit",
         "countdown_style": "boxes",
-        "clock_format": "24h-seconds",
+        "clock_format": "12h",
         "hijri_form": "long",
         "boundary_strip": "show",
         "density": "comfortable",
@@ -634,7 +634,7 @@ def test_theme_seam_tables_are_single_source() -> None:
         ("theme.palette", "classic-green"),
         ("theme.font", "outfit"),
         ("theme.countdown_style", "boxes"),
-        ("theme.clock_format", "24h-seconds"),
+        ("theme.clock_format", "12h"),
         ("theme.hijri_form", "long"),
         ("theme.boundary_strip", "show"),
         ("theme.density", "comfortable"),
