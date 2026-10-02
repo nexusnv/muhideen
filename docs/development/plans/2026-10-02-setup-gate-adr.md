@@ -31,7 +31,7 @@ Locked decision (user, this session): no token endpoint in v1.0. The shipped mec
 
 - [ ] Read `PRD.md:120-130` and `:210-220` for exact cell/bullet text; read `docs/adr/0003-sqlite-behind-ports.md` for format; read the setup route gating code to quote behavior accurately.
 - [ ] Edit the two PRD lines (minimal wording, keep table/line structure). Write ADR-0004 (Context: FR-6.3 token ask vs shipped gate + prior flags; Decision: bless gate for v1.0; Rationale: LAN model/single-admin/no-transfer-secret/rate-limits; Consequences: no token endpoint, revisit triggers).
-- [ ] Verify: `grep -rn -i "setup token\|one-time setup" PRD.md ARCHITECTURE.md README.md docs/deployment.md docs/api-contract.md docs/adr/` → 0 hits (excluding `docs/development`, which holds historical working notes and is explicitly non-shipping). Run: `uv run ruff format --check PRD.md docs/adr/0004-first-boot-setup-gate.md` → clean (fix with `ruff format` if needed). Full `uv run pytest -q` → green (docs-only; guards against accidental edits).
+- [ ] Verify: `grep -rn -i "setup token\|one-time setup" PRD.md ARCHITECTURE.md README.md docs/deployment.md docs/api-contract.md` → 0 hits, and the only hit under `docs/adr/` is ADR-0004's own historical Context mention (intentional — it records the ask being decided against). Run: `uv run ruff format --check PRD.md docs/adr/0004-first-boot-setup-gate.md` → clean (ruff formats md code fences). Full `uv run pytest -q` → green (docs-only; guards against accidental edits).
 
 ## Self-review
 
