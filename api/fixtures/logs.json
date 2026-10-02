@@ -1,0 +1,1 @@
+{"available":{"available":true,"lines":["Oct 02 12:20:01 pi muhideen[512]: serving display","Oct 02 12:20:02 pi muhideen[512]: tick ok","Oct 02 12:20:03 pi muhideen[512]: sync skipped (offline)"]},"unavailable":{"available":false,"hint":"journalctl -u muhideen unavailable: no journal"}}

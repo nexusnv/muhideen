@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from muhideen.api.app import (
     ActiveToggleDTO,
     AdhanAudioUploadDTO,
+    BackupRestoreDTO,
     DisplayGroupUpdateDTO,
     DisplayRegisterDTO,
     DisplayUpdateDTO,
@@ -75,6 +76,9 @@ SECTION_DTOS: dict[str, list[type[BaseModel]]] = {
     "POST /api/displays": [DisplayRegisterDTO],
     "PATCH /api/displays/{display_id}": [DisplayUpdateDTO],
     "PATCH /api/display-groups/{name}": [DisplayGroupUpdateDTO],
+    "POST /api/backup/export": [],
+    "POST /api/backup/restore": [BackupRestoreDTO],
+    "GET /api/logs": [],
 }
 SECTION_FIXTURES: dict[str, list[str]] = {
     "GET /api/prayer-day": ["prayer-day.json"],
@@ -111,6 +115,9 @@ SECTION_FIXTURES: dict[str, list[str]] = {
     "POST /api/displays": ["display-register.json"],
     "PATCH /api/displays/{display_id}": ["display-update.json"],
     "PATCH /api/display-groups/{name}": ["display-group-update.json"],
+    "POST /api/backup/export": [],
+    "POST /api/backup/restore": [],
+    "GET /api/logs": [],
 }
 
 

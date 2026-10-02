@@ -184,6 +184,43 @@ sudo ./update.sh         # apply the newest local tag
   sudo systemctl start muhideen
   ```
 
+## Backup and restore (one-click export)
+
+The admin System section (`/admin/settings`) exports the whole installation
+as one zip and restores it onto replacement hardware — no SSH or SQLite
+needed. API: `POST /api/backup/export` (zip download),
+`POST /api/backup/restore` (base64 zip), `GET /api/logs` (see
+`docs/api-contract.md` for shapes and status codes).
+
+**When to export.** Before every `update.sh` run (in addition to its
+automatic pre-update DB backup), before replacing hardware, and after any
+large media change (playlist images, adhan audio). There are no scheduled
+or automatic exports — back up on demand, or add a cron job that POSTs the
+export endpoint and stores the download off-device.
+
+**What the bundle holds.** The `muhideen.db` snapshot at the zip root plus
+the uploads tree under `media/` (playlist images, `adhan.mp3`). Caps are
+defense-in-depth: total archive ≤256MB, per-member ≤64MB, member count
+≤512. A restore payload travels as base64 JSON, so the practical request
+ceiling is ~341MB of base64 (larger is 413); corrupt or traversal-unsafe
+archives are rejected (400).
+
+**Treat the archive as secret.** It contains the `users` password hashes —
+handle it exactly like the live database file: encrypted transport, no
+shared folders or chat uploads, delete working copies after the move.
+
+**Restore onto replacement hardware.** Install the release on the new
+device first (`install.sh`), sign in as admin, then choose the backup file
+in the System section and Restore (or POST the file base64 to
+`/api/backup/restore`). The staged database is migrated before it replaces
+the live one (older versions migrate up; downgrade protection is out of scope), the media tree swaps atomically,
+and no restart is required.
+
+**What is NOT in the bundle.** Scheduler runtime state (in-memory retry
+chains re-arm from the database on boot), admin sessions (in-memory — log
+in again after a restore), and service logs (read live via the Logs panel
+or `journalctl -u muhideen`; never stored in the archive).
+
 ## Time sync (NTP) and `TIME UNSYNCED`
 
 FR-1.6: NTP is required (`systemd-timesyncd` or `chrony`);

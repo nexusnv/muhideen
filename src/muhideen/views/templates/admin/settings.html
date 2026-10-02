@@ -306,6 +306,30 @@
             <div><a id="qr-fallback" href="{{ fallback_url }}">{{ fallback_url }}</a><div class="hint">LAN address — never exposed to the internet.</div></div>
           </div>
         </section>
+        <section id="backup-block">
+          <div class="setting-row">
+            <div class="setting-info"><h4>Backup export</h4><p>Download the whole installation (database + media) as one zip. Treat the file as secret — it holds password hashes.</p></div>
+            <div class="setting-control"><button id="backup-export" class="btn btn-sm" type="button">Export backup</button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><h4>Restore</h4><p>Replace this installation from a backup zip. Validated before applying; corrupt archives are rejected.</p></div>
+            <div class="setting-control">
+              <input id="backup-file" type="file" accept=".zip,application/zip">
+              <button id="backup-restore" class="btn btn-sm" type="button">Restore</button>
+              <p id="backup-status" class="hint" role="status"></p>
+            </div>
+          </div>
+        </section>
+        <section id="logs-block">
+          <div class="setting-row">
+            <div class="setting-info"><h4>Service logs</h4><p>Tail of the device journal. Unavailable on machines without journald.</p></div>
+            <div class="setting-control">
+              <label class="field"><span class="lbl">Lines</span><input id="logs-lines" type="number" min="1" max="1000" value="100"></label>
+              <button id="logs-refresh" class="btn btn-sm" type="button">Refresh</button>
+            </div>
+          </div>
+          <pre id="logs-output" aria-live="polite"></pre>
+        </section>
       </div>
     </section>
 
