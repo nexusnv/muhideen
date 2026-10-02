@@ -387,6 +387,7 @@ class SettingsDTO(ContractDTO):
         Field(default_factory=dict)
     )
     theme: ThemeDTO = Field(default_factory=ThemeDTO)
+    timezone: str = "Asia/Kuala_Lumpur"
 
     @classmethod
     def from_domain(cls, settings: Settings) -> SettingsDTO:
@@ -414,6 +415,7 @@ class SettingsDTO(ContractDTO):
                 settings.countdown_before_adhan_overrides
             ),
             theme=ThemeDTO.from_domain(settings.theme),
+            timezone=settings.timezone,
         )
 
     def to_domain(self) -> Settings:
@@ -439,6 +441,7 @@ class SettingsDTO(ContractDTO):
                 self.countdown_before_adhan_overrides
             ),
             theme=self.theme.to_domain(),
+            timezone=self.timezone,
         )
 
 

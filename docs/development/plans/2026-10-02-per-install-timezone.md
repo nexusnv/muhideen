@@ -66,7 +66,10 @@ In the Settings-guard test file (find via `grep -rn "hijri_offset out of range" 
 def test_timezone_defaults_to_kl_and_rejects_unknown() -> None:
     from muhideen.core.values import Settings
 
-    assert Settings(masjid_name="M", zone="SGR01", hijri_offset=0).timezone == "Asia/Kuala_Lumpur"
+    assert (
+        Settings(masjid_name="M", zone="SGR01", hijri_offset=0).timezone
+        == "Asia/Kuala_Lumpur"
+    )
     import pytest
 
     with pytest.raises(ValueError, match="unknown timezone"):
@@ -187,7 +190,9 @@ Expected: FAIL (no `data-tz="Europe/London"` — clock is hardcoded KL).
 ```python
 def create_production_app(db_path, *, tz=_PROD_TZ, run_background=True):
     database = Database(db_path)
-    migrate(database)  # move migrate BEFORE clock construction (currently inside lifespan — keep lifespan migrate too, idempotent)
+    migrate(
+        database
+    )  # move migrate BEFORE clock construction (currently inside lifespan — keep lifespan migrate too, idempotent)
     try:
         stored_tz = SqliteSettingsRepo(database).load().timezone
         clock_tz = ZoneInfo(stored_tz)

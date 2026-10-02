@@ -38,6 +38,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--db", default="./muhideen.db", help="SQLite database path")
     parser.add_argument("--zone", help="JAKIM zone (required until configured)")
     parser.add_argument("--masjid-name", help="masjid display name (first boot only)")
+    parser.add_argument(
+        "--timezone",
+        default="Asia/Kuala_Lumpur",
+        help="IANA timezone (first boot only)",
+    )
     return parser
 
 
@@ -64,11 +69,16 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        settings = Settings(
-            masjid_name=args.masjid_name or "",
-            zone=args.zone,
-            hijri_offset=0,
-        )
+        try:
+            settings = Settings(
+                masjid_name=args.masjid_name or "",
+                zone=args.zone,
+                hijri_offset=0,
+                timezone=args.timezone,
+            )
+        except ValueError as exc:
+            print(f"error: invalid settings: {exc}", file=sys.stderr)
+            return 2
         settings_repo.save(settings)
     except ConfigError as exc:
         print(f"error: invalid settings: {exc}", file=sys.stderr)
@@ -78,6 +88,12 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"notice: ignoring --zone {args.zone}; "
                 f"this installation is configured for {settings.zone}",
+                file=sys.stderr,
+            )
+        if args.timezone != settings.timezone:
+            print(
+                f"notice: ignoring --timezone {args.timezone}; "
+                f"this installation is configured for {settings.timezone}",
                 file=sys.stderr,
             )
     clock = SystemClock(_PROD_TZ)

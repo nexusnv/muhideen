@@ -25,6 +25,7 @@ from muhideen.core.ports import Clock
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
     THEME_KV_KEYS,
+    TIMEZONE_DEFAULT,
     AsrJuristic,
     IqamahRule,
     MarkerName,
@@ -248,6 +249,7 @@ class SqliteSettingsRepo:
                 masjid_name=kv["masjid_name"],
                 zone=kv["zone_code"],
                 hijri_offset=int(kv["hijri_offset"]),
+                timezone=kv.get("timezone", TIMEZONE_DEFAULT),
                 adhan_duration_s=int(kv.get("adhan_duration_s", "180")),
                 dim_minutes_default=int(kv.get("dim_minutes_default", "20")),
                 dim_minutes_jumuah=int(kv.get("dim_minutes_jumuah", "45")),
@@ -277,6 +279,7 @@ class SqliteSettingsRepo:
         pairs: list[tuple[str, str]] = [
             ("masjid_name", settings.masjid_name),
             ("zone_code", settings.zone),
+            ("timezone", settings.timezone),
             ("hijri_offset", str(settings.hijri_offset)),
             ("adhan_duration_s", str(settings.adhan_duration_s)),
             ("dim_minutes_default", str(settings.dim_minutes_default)),

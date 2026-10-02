@@ -12,6 +12,7 @@
   var DEFAULTS = {
     "masjid_name": "",
     "zone": "",
+    "timezone": "Asia/Kuala_Lumpur",
     "hijri_offset": 0,
     "adhan_duration_s": 180,
     "dim_minutes_default": 20,
@@ -96,6 +97,7 @@
     function valid(n) {
       if (n === 1) return document.getElementById("w-name").value !== "" && document.getElementById("w-zone").value !== "";
       if (n === 2) {
+        if (document.getElementById("w-timezone").value === "") return false;
         var lat = document.getElementById("w-lat").value;
         var lon = document.getElementById("w-lon").value;
         if (lat !== "" && (Number(lat) < -90 || Number(lat) > 90)) return false;
@@ -125,6 +127,7 @@
       var body = settingsBodyFromDefaults({
         masjid_name: document.getElementById("w-name").value,
         zone: document.getElementById("w-zone").value,
+        timezone: document.getElementById("w-timezone").value || "Asia/Kuala_Lumpur",
         calc_only: document.getElementById("w-calc").checked,
         method: document.getElementById("w-method").value,
         lat: num("w-lat"),
@@ -310,6 +313,7 @@
     var body = settingsBodyFromDefaults({
       masjid_name: document.getElementById("s-name").value,
       zone: document.getElementById("s-zone").value,
+      timezone: document.getElementById("s-timezone").value,
       hijri_offset: Number(document.getElementById("s-hijri").value),
       adhan_duration_s: Number(document.getElementById("s-adhan").value),
       dim_minutes_default: Number(document.getElementById("s-dim").value),
