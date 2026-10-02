@@ -44,6 +44,13 @@ def _item_from_row(row: sqlite3.Row) -> PlaylistItem:
 
 def _playlist_from_rows(meta: sqlite3.Row, item_rows: list[sqlite3.Row]) -> Playlist:
     """Map one playlists row plus its ordered items to the value object."""
+    # Pre-pairing rows (written before the indefinite/repeat split) stored
+    # `indefinite` with a set max_cycles, which the old stage honored as a
+    # bound. Coerce them to `repeat` on load so their observable behavior
+    # is unchanged; any later save persists the coerced mode.
+    mode = meta["cycle_mode"]
+    if mode == "indefinite" and meta["max_cycles"] is not None:
+        mode = "repeat"
     try:
         playlist = Playlist(
             id=meta["id"],
@@ -54,7 +61,7 @@ def _playlist_from_rows(meta: sqlite3.Row, item_rows: list[sqlite3.Row]) -> Play
             anchor_marker=_parse_anchor(meta["anchor_marker"]),
             anchor_start_offset_min=meta["anchor_start_offset_min"],
             anchor_stop_offset_min=meta["anchor_stop_offset_min"],
-            cycle_mode=meta["cycle_mode"],
+            cycle_mode=mode,
             max_cycles=meta["max_cycles"],
             items=tuple(_item_from_row(row) for row in item_rows),
         )

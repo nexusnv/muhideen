@@ -275,3 +275,26 @@ def test_corrupt_window_bound_raises_config_error(tmp_path: Path) -> None:
         )
     with pytest.raises(ConfigError, match="bogus"):
         repo.get("p1")
+
+
+def test_legacy_indefinite_with_max_cycles_loads_as_repeat(tmp_path: Path) -> None:
+    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
+
+    # Rows written before the indefinite/repeat split stored `indefinite`
+    # with a set max_cycles (which the old stage honored as a bound).
+    # Loading must coerce them to `repeat` so behavior is unchanged —
+    # never ConfigError (which would poison playlist listing).
+    db = _db(tmp_path)
+    with db.write() as conn:
+        conn.execute(
+            "INSERT INTO playlists (id, title, cycle_mode, max_cycles)"
+            " VALUES ('legacy', 'Legacy', 'indefinite', 3)",
+        )
+        conn.execute(
+            "INSERT INTO playlist_items (playlist_id, image_path, duration_s,"
+            " sort_order) VALUES ('legacy', 'img/a.jpg', 10, 0)",
+        )
+    loaded = SqlitePlaylistRepo(db).get("legacy")
+    assert loaded is not None
+    assert loaded.cycle_mode == "repeat"
+    assert loaded.max_cycles == 3
