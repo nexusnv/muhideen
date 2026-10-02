@@ -196,3 +196,141 @@ def test_restore_cleans_up_tmp_staging(tmp_path: Path) -> None:
         ".new-" in p.name or ".old-" in p.name or "muhideen-restore-" in p.name
         for p in tmp_path.iterdir()
     )
+
+
+def test_validate_rejects_duplicate_members(tmp_path: Path) -> None:
+    from muhideen.adapters.backup import validate_archive
+
+    archive = tmp_path / "dup.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("muhideen.db", b"payload")
+        zf.writestr("muhideen.db", b"payload")
+    with pytest.raises(ValueError, match="duplicate"):
+        validate_archive(archive)
+
+
+def test_restore_rejects_crc_mismatch(tmp_path: Path) -> None:
+    from muhideen.adapters.backup import restore_backup, validate_archive
+    from muhideen.adapters.sqlite_repo import Database
+
+    archive = tmp_path / "crc.zip"
+    content = b"database-bytes-0123456789" * 64
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("muhideen.db", content)
+        zf.writestr("media/a.txt", b"payload")
+    # Metadata-only validation still passes; the CRC fails on read.
+    assert "muhideen.db" in validate_archive(archive)
+    raw = bytearray(archive.read_bytes())
+    idx = raw.find(b"database-bytes-0123456789")
+    assert idx != -1
+    raw[idx] ^= 0xFF
+    archive.write_bytes(bytes(raw))
+
+    live = Database(tmp_path / "live.db")
+    live_media = tmp_path / "live-media"
+    live_media.mkdir()
+    with pytest.raises(ValueError, match="unreadable|valid backup archive"):
+        restore_backup(live, live_media, archive, migrate_fn=lambda staged: 0)
+
+
+def test_restore_rejects_newer_schema_version(tmp_path: Path) -> None:
+    from muhideen.adapters.backup import restore_backup
+    from muhideen.adapters.migrate import migrate
+    from muhideen.adapters.sqlite_repo import Database
+
+    staged_src = Database(tmp_path / "newer.db")
+    migrate(staged_src)
+    with staged_src.write() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?)",
+            ("masjid_name", "New Build"),
+        )
+        conn.execute("PRAGMA user_version = 9999")
+    with staged_src.write() as conn:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    archive = tmp_path / "newer.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.write(tmp_path / "newer.db", "muhideen.db")
+        zf.writestr("media/a.txt", b"payload")
+
+    live = Database(tmp_path / "live.db")
+    migrate(live)
+    with live.write() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?)",
+            ("masjid_name", "Original"),
+        )
+    live_media = tmp_path / "live-media"
+    live_media.mkdir()
+    (live_media / "keep.txt").write_text("keep", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="newer application version"):
+        restore_backup(live, live_media, archive)
+    with live.read() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'masjid_name'"
+        ).fetchone()
+        assert row is not None and row[0] == "Original"
+    assert (live_media / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert not (live_media / "a.txt").exists()
+
+
+def test_restore_media_failure_restores_live_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from muhideen.adapters.backup import build_backup, restore_backup
+    from muhideen.adapters.migrate import migrate
+    from muhideen.adapters.sqlite_repo import Database
+
+    db, media = _source_tree(tmp_path)
+    archive = tmp_path / "bundle.zip"
+    build_backup(db, media, archive)
+
+    live = Database(tmp_path / "live.db")
+    migrate(live)
+    with live.write() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?)",
+            ("masjid_name", "Original"),
+        )
+    live_media = tmp_path / "live-media"
+    live_media.mkdir()
+    (live_media / "keep.txt").write_text("keep", encoding="utf-8")
+
+    real_replace = os.replace
+    calls: list[tuple[str, str]] = []
+
+    def _flaky_replace(src: object, dst: object) -> None:
+        calls.append((str(src), str(dst)))
+        if len(calls) == 1:
+            raise OSError("injected swap failure")
+        real_replace(src, dst)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "replace", _flaky_replace)
+    with pytest.raises(ValueError, match="media swap failed"):
+        restore_backup(live, live_media, archive, migrate_fn=lambda staged: 0)
+    assert calls, "media swap must attempt os.replace"
+    with live.read() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'masjid_name'"
+        ).fetchone()
+        assert row is not None and row[0] == "Original"
+    assert (live_media / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert not (live_media / "a.txt").exists()
+
+
+def test_build_backup_skips_symlinks(tmp_path: Path) -> None:
+    from muhideen.adapters.backup import build_backup
+
+    db, media = _source_tree(tmp_path)
+    secret = tmp_path / "outside-secret.txt"
+    secret.write_text("top-secret-bytes", encoding="utf-8")
+    (media / "leak.txt").symlink_to(secret)
+    dest = tmp_path / "bundle.zip"
+    build_backup(db, media, dest)
+    with zipfile.ZipFile(dest) as zf:
+        assert "media/leak.txt" not in zf.namelist()
+        for name in zf.namelist():
+            assert b"top-secret-bytes" not in zf.read(name)

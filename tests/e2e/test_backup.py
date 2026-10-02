@@ -181,7 +181,9 @@ def test_logs_available_shape(
 
     def _fake(cmd: list[str]) -> str:
         seen["cmd"] = cmd
-        return "line1\nline2\nline3"
+        return "\n".join(
+            json.dumps({"MESSAGE": line}) for line in ("line1", "line2", "line3")
+        )
 
     monkeypatch.setattr(logs_adapter, "_run", _fake)
     response = authed.get("/api/logs")
@@ -200,7 +202,9 @@ def test_logs_lines_param_reaches_runner(
 
     seen: dict[str, list[str]] = {}
     monkeypatch.setattr(
-        logs_adapter, "_run", lambda cmd: seen.update(cmd=cmd) or "only"
+        logs_adapter,
+        "_run",
+        lambda cmd: seen.update(cmd=cmd) or json.dumps({"MESSAGE": "only"}),
     )
     assert authed.get("/api/logs", params={"lines": 5}).json() == {
         "available": True,
@@ -247,7 +251,11 @@ def test_logs_fixture_parity(
     assert isinstance(payload["unavailable"]["hint"], str)
 
     monkeypatch.setattr(
-        logs_adapter, "_run", lambda cmd: "\n".join(payload["available"]["lines"])
+        logs_adapter,
+        "_run",
+        lambda cmd: "\n".join(
+            json.dumps({"MESSAGE": line}) for line in payload["available"]["lines"]
+        ),
     )
     assert authed.get("/api/logs").json() == payload["available"]
 

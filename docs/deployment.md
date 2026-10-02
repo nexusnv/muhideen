@@ -213,7 +213,8 @@ shared folders or chat uploads, delete working copies after the move.
 device first (`install.sh`), sign in as admin, then choose the backup file
 in the System section and Restore (or POST the file base64 to
 `/api/backup/restore`). The staged database is migrated before it replaces
-the live one (older versions migrate up; downgrade protection is out of scope), the media tree swaps atomically,
+the live one (older versions migrate up; backups from a newer application
+version than the installed build are rejected), the media tree swaps atomically,
 and no restart is required.
 
 **What is NOT in the bundle.** Scheduler runtime state (in-memory retry
