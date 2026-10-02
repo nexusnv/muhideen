@@ -80,6 +80,46 @@ def test_validate_rejects_symlink_member(tmp_path: Path) -> None:
         validate_archive(archive)
 
 
+def test_validate_rejects_aliased_paths(tmp_path: Path) -> None:
+    from muhideen.adapters.backup import validate_archive
+
+    # `media/./a.txt` and `media//a.txt` resolve onto `media/a.txt` at
+    # staging time, so they must not pass as distinct members.
+    for bad in ("media/./a.txt", "media//a.txt", "./muhideen.db"):
+        archive = _zip_with_names(tmp_path / "alias.zip", ["muhideen.db", bad])
+        with pytest.raises(ValueError, match="unsafe name"):
+            validate_archive(archive)
+
+
+def test_validate_rejects_encrypted_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from muhideen.adapters.backup import _check_name, validate_archive
+
+    # Direct unit pin: real-world encrypted zips carry bit 0x1 in their
+    # parsed headers (stdlib writestr will not emit the bit, so neither
+    # plain writes nor append-mode mutation can produce one on disk).
+    info = zipfile.ZipInfo("media/secret.txt")
+    info.flag_bits |= 0x1
+    with pytest.raises(ValueError, match="encrypted"):
+        _check_name("media/secret.txt", info)
+
+    # End-to-end through validate_archive with the bit present at parse time.
+    archive = _zip_with_names(tmp_path / "enc.zip", ["muhideen.db", "media/a.txt"])
+    real_infolist = zipfile.ZipFile.infolist
+
+    def _flagged(self: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+        infos = real_infolist(self)
+        for item in infos:
+            if item.filename == "media/a.txt":
+                item.flag_bits |= 0x1
+        return infos
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", _flagged)
+    with pytest.raises(ValueError, match="encrypted"):
+        validate_archive(archive)
+
+
 def test_validate_rejects_oversize_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

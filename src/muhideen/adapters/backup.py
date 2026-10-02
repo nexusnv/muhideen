@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
+import zlib
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
@@ -44,7 +45,13 @@ def _check_name(name: str, info: zipfile.ZipInfo) -> None:
     """Reject one member name/symlink; raise ``ValueError`` when unsafe."""
     if (info.external_attr >> 16) & 0o170000 == 0o120000:
         raise ValueError(f"backup member is a symlink: {name!r}")
-    if "\\" in name:
+    if info.flag_bits & 0x1:
+        raise ValueError(f"backup member is encrypted: {name!r}")
+    # Reject `.` segments and repeated separators outright: `Path` resolves
+    # `media/./a.txt` and `media//a.txt` onto `media/a.txt`, so allowing them
+    # would let aliased names bypass the duplicate check and overwrite each
+    # other during staging (our own builder never emits them).
+    if "\\" in name or "//" in name or "." in name.split("/"):
         raise ValueError(f"backup member has unsafe name: {name!r}")
     parts = PurePosixPath(name).parts
     if not parts or PurePosixPath(name).is_absolute() or ".." in parts:
@@ -196,6 +203,8 @@ def restore_backup(
                         except (
                             zipfile.BadZipFile,
                             zipfile.LargeZipFile,
+                            RuntimeError,
+                            zlib.error,
                         ) as exc:
                             raise ValueError(
                                 f"backup member unreadable: {info.filename!r}: {exc}"
