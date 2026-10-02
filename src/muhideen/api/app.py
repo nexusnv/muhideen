@@ -7,8 +7,10 @@ import base64
 import binascii
 import json
 import logging
+import os
 import queue
 import sqlite3
+import tempfile
 import threading
 import uuid
 from collections.abc import AsyncGenerator
@@ -27,15 +29,19 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import AfterValidator, Field
-from starlette.responses import StreamingResponse
+from starlette.background import BackgroundTask
+from starlette.responses import FileResponse, StreamingResponse
 from starlette.types import Send
 
+from muhideen.adapters import backup as backup_adapter
+from muhideen.adapters import logs as logs_adapter
 from muhideen.adapters.adhan_audio import (
     ADHAN_FILENAME,
     MAX_ADHAN_BYTES,
     delete_adhan_audio,
     store_adhan_audio,
 )
+from muhideen.adapters.backup import MAX_ARCHIVE_BYTES
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
 from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.images import MAX_IMAGE_BYTES, store_image
@@ -278,6 +284,12 @@ class AdhanAudioUploadDTO(ContractDTO):
     """Adhan MP3 upload: base64 bytes (no multipart parser on the offline footprint)."""
 
     audio_base64: Annotated[str, Field(min_length=1)]
+
+
+class BackupRestoreDTO(ContractDTO):
+    """Full-installation restore body: base64 backup zip (no multipart)."""
+
+    archive_base64: Annotated[str, Field(min_length=1)]
 
 
 class DisplayRegisterDTO(ContractDTO):
@@ -1504,6 +1516,76 @@ def create_app(deps: AppDeps) -> FastAPI:
             "carousel_enabled": bool(row["carousel_enabled"]),
             "dim_minutes_override": row["dim_minutes_override"],
         }
+
+    @app.post(
+        "/api/backup/export",
+        dependencies=[Depends(admin)],
+    )
+    def export_backup() -> FileResponse:
+        """Download the whole installation as one zip (DB snapshot + media).
+
+        The archive holds password hashes, so treat the download as secret
+        (same handling as the DB file itself). Temp-file cleanup runs as a
+        background task after the download completes.
+        """
+        db = _registry_or_503()
+        fd, tmp_name = tempfile.mkstemp(suffix=".zip", prefix="muhideen-backup-")
+        os.close(fd)
+        dest = Path(tmp_name)
+        try:
+            backup_adapter.build_backup(db, media_dir, dest)
+        except Exception:
+            dest.unlink(missing_ok=True)
+            raise
+        stamp = deps.clock.now().strftime("%Y%m%d-%H%M%S")
+        cleanup = BackgroundTask(dest.unlink, missing_ok=True)
+        return FileResponse(
+            path=str(dest),
+            media_type="application/zip",
+            filename=f"muhideen-backup-{stamp}.zip",
+            background=cleanup,
+        )
+
+    @app.post(
+        "/api/backup/restore",
+        dependencies=[Depends(admin)],
+    )
+    def restore_backup(payload: BackupRestoreDTO) -> dict[str, Any]:
+        """Replace the installation from a base64 backup zip (validated).
+
+        The archive travels as base64 JSON (no multipart parser on the
+        offline-first footprint); the pre-decode length bound mirrors the
+        adhan upload route. ``ValueError`` from bundle validation is 400.
+        """
+        db = _registry_or_503()
+        if len(payload.archive_base64) > (MAX_ARCHIVE_BYTES + 2) // 3 * 4 + 4:
+            raise HTTPException(status_code=413, detail="backup exceeds 256MB limit")
+        try:
+            data = base64.b64decode(payload.archive_base64, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise HTTPException(status_code=400, detail="invalid base64") from exc
+        fd, tmp_name = tempfile.mkstemp(suffix=".zip", prefix="muhideen-restore-")
+        os.close(fd)
+        staged = Path(tmp_name)
+        try:
+            staged.write_bytes(data)
+            try:
+                backup_adapter.restore_backup(db, media_dir, staged, migrate_fn=migrate)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            staged.unlink(missing_ok=True)
+        return {"ok": True}
+
+    @app.get(
+        "/api/logs",
+        dependencies=[Depends(admin)],
+    )
+    def read_service_logs(
+        lines: Annotated[int, Query(ge=1, le=1000)] = 100,
+    ) -> dict[str, Any]:
+        """Tail the service journal; an absent journal reads available:false."""
+        return logs_adapter.read_logs(lines=lines)
 
     return app
 

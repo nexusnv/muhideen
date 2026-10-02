@@ -811,4 +811,73 @@
     });
     loadManual();
   }
+  /* Backup export/restore + service logs (System section). */
+  var backupExport = document.getElementById("backup-export");
+  if (backupExport) backupExport.addEventListener("click", function () {
+    msg("backup-status", "Preparing backup\u2026");
+    fetch("/api/backup/export", { method: "POST" }).then(function (r) {
+      if (r.status !== 200) {
+        if (r.status === 401) msg("backup-status", "Login required");
+        else msg("backup-status", "Request failed (" + r.status + ")");
+        return null;
+      }
+      return r.blob();
+    }).then(function (blob) {
+      if (!blob) return;
+      var url = URL.createObjectURL(blob);
+      var anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "muhideen-backup.zip";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      msg("backup-status", "Downloaded \u2014 keep the file secret");
+    }).catch(function () { msg("backup-status", "Network error"); });
+  });
+  var backupRestore = document.getElementById("backup-restore");
+  if (backupRestore) backupRestore.addEventListener("click", function () {
+    var picker = document.getElementById("backup-file");
+    if (!picker.files || !picker.files[0]) { msg("backup-status", "Choose a backup zip first"); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var archive_base64 = String(reader.result).split(",", 2)[1] || "";
+      msg("backup-status", "Restoring\u2026");
+      fetch("/api/backup/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archive_base64: archive_base64 }),
+      }).then(function (r) {
+        if (r.status === 200) { msg("backup-status", "Restored \u2014 reload to see the change"); return; }
+        if (r.status === 401) { msg("backup-status", "Login required"); return; }
+        if (r.status === 413) { msg("backup-status", "Backup too large (256MB limit)"); return; }
+        if (r.status === 400) { msg("backup-status", "Invalid backup archive (rejected)"); return; }
+        msg("backup-status", "Request failed (" + r.status + ")");
+      }).catch(function () { msg("backup-status", "Network error"); });
+    };
+    reader.onerror = function () { msg("backup-status", "Could not read file"); };
+    reader.readAsDataURL(picker.files[0]);
+  });
+  var logsRefresh = document.getElementById("logs-refresh");
+  function loadLogs() {
+    var out = document.getElementById("logs-output");
+    var countEl = document.getElementById("logs-lines");
+    if (!out) return;
+    var n = countEl && countEl.value !== "" ? Number(countEl.value) : 100;
+    if (!n || n < 1) n = 1;
+    if (n > 1000) n = 1000;
+    fetch("/api/logs?lines=" + encodeURIComponent(String(n))).then(function (r) {
+      if (r.status === 401) { out.textContent = "Login required"; return null; }
+      if (r.status !== 200) { out.textContent = "Request failed (" + r.status + ")"; return null; }
+      return r.json();
+    }).then(function (data) {
+      if (!data) return;
+      if (data.available === false) {
+        out.textContent = data.hint || "Logs unavailable on this machine";
+        return;
+      }
+      out.textContent = (data.lines || []).join("\n");
+    }).catch(function () { out.textContent = "Network error"; });
+  }
+  if (logsRefresh) logsRefresh.addEventListener("click", loadLogs);
 })();

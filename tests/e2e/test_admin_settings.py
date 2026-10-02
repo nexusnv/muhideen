@@ -281,6 +281,28 @@ def test_settings_page_manual_js_guards_prefill(
     assert 'clearEl.value = ""' in js
 
 
+def test_settings_page_renders_backup_restore_logs_controls(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    assert client.put("/api/settings", json=_settings_payload()).status_code == 200
+    html = client.get("/admin/settings").text
+    for control_id in (
+        "backup-export",
+        "backup-file",
+        "backup-restore",
+        "backup-status",
+        "logs-output",
+        "logs-lines",
+        "logs-refresh",
+    ):
+        assert f'id="{control_id}"' in html
+    js = client.get("/static/admin.js").text
+    assert "/api/backup/export" in js
+    assert "/api/backup/restore" in js
+    assert "/api/logs" in js
+
+
 def test_adhan_audio_settings_round_trip(
     surface: SimpleNamespace, client: TestClient
 ) -> None:

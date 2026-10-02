@@ -413,6 +413,22 @@ Admin session required. Sets group overrides (theme default, dim minutes 5–60,
 {"theme": "midnight", "dim_minutes_override": 30, "carousel_enabled": false}
 ```
 
+## `POST /api/backup/export`
+
+Admin session required. Downloads the whole installation as one zip: the `muhideen.db` snapshot at the zip root plus the uploads tree under `media/`. The response is `application/zip` (not JSON, so no fixture) with an attachment filename of the form `muhideen-backup-<YYYYMMDD-HHMMSS>.zip`. The archive contains password hashes (`users` table) — treat the download as secret, with the same handling as the DB file itself. Defense-in-depth caps: total archive ≤256MB, per-member ≤64MB, member count ≤512 (media uploads are already capped upstream). Symlinks in the media tree are skipped on export (never followed); symlink members in an imported archive are rejected.
+
+## `POST /api/backup/restore`
+
+Admin session required. Replaces the installation from a base64 backup zip (base64 JSON — no multipart parser on the offline-first footprint, mirroring the playlist/adhan uploads). The staged database is migrated before it replaces the live one (older versions migrate up; a backup from a newer application version than the installed build is rejected); the media tree swaps atomically; no restart is required. The pre-decode length bound mirrors the adhan route (payloads over ~341MB of base64 are 413); invalid base64 and bundle-validation failures (non-zip bytes, corrupt or encrypted members, traversal entries, aliased path segments, symlink or duplicate members, missing `muhideen.db`, oversize members) are 400. Success returns an `ok` envelope. Request shape matches `api/fixtures/backup-restore.json` (`request` key; `response` key is the `ok` envelope).
+
+```json
+{"archive_base64":"UEsDBA=="}
+```
+
+## `GET /api/logs`
+
+Admin session required. Tails the `muhideen` systemd unit's journal (`journalctl -u muhideen --quiet --output=json -n <lines>`); `lines` counts journal entries (one JSON object per entry, so an entry with embedded newlines is a single line) and defaults to 100, clamped to 1..1000 by the query validator (out-of-range values are 422). With a journal the response carries the entry messages array (`{"available": true, "lines": [...]}`); without one (dev machines, failing probes, empty journal) it carries `{"available": false, "hint": "journalctl ..."}` — never a 500 for absent logs. Both shapes are pinned in `api/fixtures/logs.json` (`available`/`unavailable` keys).
+
 ## Errors
 
 Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, set a `fixed` rule without `fixed_time`, set `delay_minutes` outside 0–60, or set a theme knob outside its closed enum, leaving the stored settings unchanged. A `fixed` iqamah time at or before its adhan is stored but resolves to 503 (`ConfigError`) on schedule reads until corrected. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.

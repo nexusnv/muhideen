@@ -35,6 +35,7 @@ from muhideen.api.app import (
     ActiveToggleDTO,
     AdhanAudioUploadDTO,
     AppDeps,
+    BackupRestoreDTO,
     DisplayGroupUpdateDTO,
     DisplayRegisterDTO,
     DisplayUpdateDTO,
@@ -139,6 +140,7 @@ JSON_ENDPOINTS: dict[str, tuple[str, type[BaseModel]]] = {
 ALL_DTOS = (
     ActiveToggleDTO,
     AdhanAudioUploadDTO,
+    BackupRestoreDTO,
     DisplayGroupUpdateDTO,
     DisplayRegisterDTO,
     DisplayUpdateDTO,
@@ -216,6 +218,9 @@ def test_openapi_declares_all_five_paths() -> None:
         "/api/displays",
         "/api/displays/{display_id}",
         "/api/display-groups/{name}",
+        "/api/backup/export",
+        "/api/backup/restore",
+        "/api/logs",
         "/display",
         "/admin",
         "/admin/login",
@@ -292,6 +297,10 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "application/json"
     ]["schema"]
     assert adhan_body == {"$ref": "#/components/schemas/AdhanAudioUploadDTO"}
+    restore_body = schema["paths"]["/api/backup/restore"]["post"]["requestBody"][
+        "content"
+    ]["application/json"]["schema"]
+    assert restore_body == {"$ref": "#/components/schemas/BackupRestoreDTO"}
     register_body = schema["paths"]["/api/displays"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]
@@ -311,6 +320,7 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         ActiveToggleDTO,
         PlaylistImageUploadDTO,
         AdhanAudioUploadDTO,
+        BackupRestoreDTO,
         DisplayRegisterDTO,
         DisplayUpdateDTO,
         DisplayGroupUpdateDTO,
@@ -338,6 +348,7 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "ActiveToggleDTO",
         "PlaylistImageUploadDTO",
         "AdhanAudioUploadDTO",
+        "BackupRestoreDTO",
         "DisplayRegisterDTO",
         "DisplayUpdateDTO",
         "DisplayGroupUpdateDTO",

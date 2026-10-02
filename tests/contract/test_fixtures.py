@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from muhideen.api.app import (
     ActiveToggleDTO,
     AdhanAudioUploadDTO,
+    BackupRestoreDTO,
     DisplayGroupUpdateDTO,
     DisplayRegisterDTO,
     DisplayUpdateDTO,
@@ -306,6 +307,27 @@ def test_display_registry_fixtures_round_trip() -> None:
     assert group.model_dump(mode="json") == _load("display-group-update.json")
 
 
+def test_backup_restore_fixture_round_trips() -> None:
+    payload = _load("backup-restore.json")
+    dto = BackupRestoreDTO.model_validate(payload["request"])
+    assert dto.model_dump(mode="json") == payload["request"]
+    assert payload["response"] == {"ok": True}
+
+
+def test_backup_restore_rejects_empty_archive() -> None:
+    with pytest.raises(ValidationError):
+        BackupRestoreDTO.model_validate({"archive_base64": ""})
+
+
+def test_logs_fixture_shapes() -> None:
+    payload = _load("logs.json")
+    assert set(payload) == {"available", "unavailable"}
+    assert payload["available"]["available"] is True
+    assert isinstance(payload["available"]["lines"], list)
+    assert payload["unavailable"]["available"] is False
+    assert isinstance(payload["unavailable"]["hint"], str)
+
+
 def test_all_contract_surfaces_have_fixtures() -> None:
     for name in (
         "prayer-day.json",
@@ -327,6 +349,8 @@ def test_all_contract_surfaces_have_fixtures() -> None:
         "display-update.json",
         "display-group-update.json",
         "manual-day.json",
+        "backup-restore.json",
+        "logs.json",
     ):
         _load(name)
     assert (FIXTURES / "events-stream.txt").read_text().strip()
