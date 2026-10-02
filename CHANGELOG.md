@@ -8,6 +8,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+
 - Calc backend swap (issues #35/#36): `al-falak==1.0.0` replaces `adhanpy==1.0.5` (same adhan port lineage, maintained, typed); per-method reference parameters (`MABIMS` fitted custom angles, `MWL`/`ISNA`/`Egyptian` built-ins with `ISNA` mapped to North America); `asr_juristic` setting (`shafi`/`hanafi`, default `shafi`) end-to-end with wizard method parity.
 
 - Executable contract (slice 1A-3): Pydantic DTOs for `GET /api/prayer-day`,
@@ -102,6 +103,8 @@ versioning follows [Semantic Versioning](https://semver.org/).
 - Playlist `repeat` cycle mode (issue #45): `cycle_mode` ∈ `indefinite|repeat` (`repeat` requires `max_cycles >= 1` and releases the Stage after N full passes; `indefinite` loops forever with `max_cycles: null`); illegal pairings are 422. Playlist items stay image-only and display override scope stays theme+dim-only as intentional v1.0 scope (contract + PRD).
 
 ### Changed
+
+- Debian-only v1.0 retarget (issue #46): Raspberry Pi support deferred to a future version (see ADR-0005); kiosk-mode Chromium launch + power-loss/clock-fault behavior documented; human QA checklist at `docs/qa/v1.0-debian-checklist.md`.
 
 - UI is English-only (BM toggle removed); Arabic prayer names stay invariant; `locales/en.json` seeds file-based translation. Display hero marks tomorrow Fajr.
 - `PrayerName` renamed `MarkerName`; state machine windows are

@@ -6,10 +6,10 @@ in `PRD.md`; the API surface in `docs/api-contract.md`.
 
 ## Prerequisites
 
-* **Hardware:** all-in-one tier = Raspberry Pi 4 2GB+ / Pi 5 / x86
-  (PRD §7.1). Pi 3B+ runs the degraded tier; Pi Zero 2 W (512MB) is
-  unsupported for all-in-one (thin client or headless server only).
-* **OS:** Raspberry Pi OS or Debian with systemd; `git`, `curl`, and
+* **Hardware:** all-in-one tier = any Debian (Bookworm+) machine with
+  2GB+ RAM and a desktop UI for the kiosk browser (PRD §7.1).
+  Below 1GB RAM: thin display client or headless server only.
+* **OS:** Debian with systemd; `git`, `curl`, and
   `uv` (<https://docs.astral.sh/uv/>), plus network for the first
   install's `apt` step.
 * **Vendored wheels:** the device never touches a package index
@@ -17,14 +17,14 @@ in `PRD.md`; the API surface in `docs/api-contract.md`.
   tag, run `tools/build_vendor.sh` and ship the resulting `vendor/`
   directory (requirements + wheels) with the repo. It downloads the
   locked dependency set for the build host and cross wheels for
-  `manylinux_2_28_aarch64` (Pi 4/5) and `manylinux_2_28_x86_64`;
+  `manylinux_2_28_aarch64` (ARM64 Debian) and `manylinux_2_28_x86_64`;
   other architectures need a matching run of its `--platform` loop.
   32-bit `armv7l` offline installs are unsupported: four locked
   compiled dependencies (`argon2-cffi-bindings`, `cffi`, `markupsafe`,
   `pillow`) publish no `armv7l` wheels, and the vendor loop resolves
-  `--only-binary`, so there is nothing to download. On a Pi 3B+ run
-  64-bit Raspberry Pi OS (covered by the `aarch64` wheels) or use the
-  thin-client/headless tiers.
+  `--only-binary`, so there is nothing to download. On 32-bit ARM
+  hardware, install 64-bit Debian (covered by the `aarch64` wheels)
+  or use the thin-client/headless tiers.
 
 ## Install
 
@@ -44,7 +44,7 @@ What each step does, in order:
 
 1. **Preflight** — refuses to install when `MemTotal` < 1048576 kB
    (1GB RAM) and reports root free space; the refusal names the
-   `--force` override (PRD §7.1 — the all-in-one tier needs Pi 4 2GB+).
+   `--force` override (PRD §7.1 — the all-in-one tier needs a 2GB+ Debian box).
    **`--force` warning:** overriding means the machine may not meet the
    backend + kiosk memory budget (PRD §5.1); use it only for headless
    servers or hardware you have measured yourself.
@@ -255,8 +255,12 @@ FR-1.6: NTP is required (`systemd-timesyncd` or `chrony`);
 
 ### Optional DS3231 RTC (fully offline sites)
 
-For sites with no network at all, a DS3231 RTC keeps wall time across
-reboots (FR-1.6: optional, documented):
+For sites with no network at all, an RTC keeps wall time across
+reboots (FR-1.6: optional, documented). On generic Debian hardware,
+use any kernel-supported RTC and manage it with `hwclock`
+(`sudo hwclock -w` to seed, `sudo hwclock -s` to read at boot).
+The GPIO/Debian-overlay wiring below targets Pi-class boards and is
+deferred alongside Pi support (see ADR-0005):
 
 1. Wire the module: `SDA`/`SCL` to the GPIO header, `3V3`, `GND`.
 2. Enable the overlay — add to `/boot/firmware/config.txt` (older
@@ -303,3 +307,17 @@ Units live in `/etc/systemd/system/` (installed from `packaging/`);
 `install.sh` after moving the checkout re-bakes the path. The service
 runs as the unprivileged `muhideen` user; state lives in
 `/var/lib/muhideen/` (database + media).
+
+## Kiosk display
+
+On a machine with a desktop UI, show the display full-screen with
+Chromium in kiosk mode (»
+`chromium --kiosk 'http://muhideen.local:8000/display?id=HALL-01'`).
+Pass `--autoplay-policy=no-user-gesture-required` so the adhan audio
+plays without a click. There is no watchdog and no display-manager
+integration in v1.0: on power loss, the service re-enables at boot
+(`enable --now` at install) but an operator re-opens the kiosk window
+in the desktop session; on clock faults the display keeps
+counting on the monotonic clock while the `TIME UNSYNCED` banner shows
+(see Time sync below). A TV with a browser works as a thin display
+client pointed at the same URL — no software to install on it.
