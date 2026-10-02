@@ -4,9 +4,9 @@ Inspired by paxman-python layering, adapted to a time-driven kiosk system. Singl
 
 This document is the contributor's map: what the system looks like whole, why it looks that way, how the parts relate, and where new work plugs in. Requirements live in `PRD.md`, vocabulary in `CONTEXT.md`, the wire shapes in `docs/api-contract.md` + `api/fixtures/`, lasting decisions in `docs/adr/`, and test organization in `TESTING_STRATEGY.md`.
 
-## System Overview (As Built, Plus Planned)
+## System Overview (As Built)
 
-One device serves two audiences from one backend. The backend is landed (Phase 1A); the frontend is planned (Phase 1B+) and builds against the frozen contract.
+One device serves two audiences from one backend. Backend and frontend are both landed: the backend resolves prayer state (Phases 1A + 1C engine/scheduler/calc work), and the frontend renders it — public display, admin console (setup wizard, settings, playlists, backup/restore, audio), and the themeable display skin — against the frozen contract.
 
 ```
 External world                    The device (one deployable)
@@ -20,7 +20,7 @@ Admin phone/PC ──LAN──▶        └────────────
     (setup, settings, themes,                        │ the contract is the
      media, backup)                                  │ only coupling
                                                      ▼
-                               ┌─ FRONTEND (planned) ────────────────────┐
+                               ┌─ FRONTEND (landed) ─────────────────────┐
 Jama'ah ──reads──▶             │ render resolved state, never compute it │
                                │ display page · admin pages · themes     │
 Chromium kiosk ──pull──▶       └─────────────────────────────────────────┘
@@ -28,15 +28,15 @@ Chromium kiosk ──pull──▶       └────────────
 
 Backend and frontend are separated by exactly one seam: the versioned JSON contract (`docs/api-contract.md`, executable as Pydantic DTOs, exemplified by `api/fixtures/`). The backend resolves *what* the state is (state, countdown targets, freshness); the frontend renders *how* it looks. The display never computes prayer times, never picks the next prayer, never guesses dim windows. Themes receive read-only data through a narrow seam and can never reach admin functions.
 
-Planned-but-not-yet-built pieces all sit above or beside that seam without moving it: the display and admin pages, the carousel manager, the theme pipeline, backup/restore UI, audio upload, display groups, CEC power control, and extra calculation methods beyond the four pinned ones (MABIMS fitted custom angles; MWL/ISNA/Egyptian reference parameters with ISNA mapped to North America). None of them require contract breakage — the contract grows by additive fields.
+Still genuinely future, all sitting above or beside that seam without moving it: community theme upload/preview (issue #39), OTA auto-rollback (issue #42), CEC power control (PRD Phase 2), and pre-parse upload body limits (issue #53). Deliberately out of scope and recorded elsewhere: one-time setup tokens (rejected in ADR-0004), per-display schedule/iqamah forks and non-image playlist items (locked in by issue #45). Landed since this paragraph was written: the display and admin pages, the carousel indicator plus Stage playlists with per-group flag and indefinite/repeat modes, the theme scaffolder/linter/knobs, backup/restore UI, adhan audio upload, display groups with overrides, and the four pinned calculation methods (MABIMS fitted custom angles; MWL/ISNA/Egyptian reference parameters with ISNA mapped to North America). None of them require contract breakage — the contract grows by additive fields.
 
 ## Why This Architecture
 
-Each structural choice answers a constraint of the problem: an offline-first kiosk, maintained by volunteers, running on a Raspberry Pi.
+Each structural choice answers a constraint of the problem: an offline-first kiosk, maintained by volunteers, running on a Debian machine with a kiosk browser.
 
 **Ports-and-adapters (hexagonal) core.** Every external capability — schedule fetching, calculation, storage, time, event fan-out — is consumed through an abstract port defined in `core/`, with the real implementation injected from `adapters/`. This buys two things: testability (the engine is exercised against in-memory fakes with pinned time, no DB or network) and replaceability (a calculation library, an HTTP client, or the whole backend language can be swapped without touching prayer logic). The prayer math never knows what fetched it or what renders it.
 
-**Single repo, single deployable.** The Pi installs one artifact and updates one version. A split frontend/backend repo would buy independent versioning at the cost of version skew on a device with no operator — the wrong trade for an appliance. Parallel work still happens: the contract plus fixtures decouple the contributor tracks instead of repository boundaries.
+**Single repo, single deployable.** The Debian machine installs one artifact and updates one version. A split frontend/backend repo would buy independent versioning at the cost of version skew on a device with no operator — the wrong trade for an appliance. Parallel work still happens: the contract plus fixtures decouple the contributor tracks instead of repository boundaries.
 
 **Contract-first, backend-first.** The backend lands DTOs, fixtures, and OpenAPI before any UI exists, and CI fails on drift between them. Frontend contributors then build against `api/fixtures/` served by a dependency-free mock, with no database, no JAKIM access, and no hardware. Either side is replaceable behind the frozen contract — including the long-term option of a compiled appliance binary.
 
@@ -76,7 +76,7 @@ src/muhideen/
 
 A request walks the layers in one direction. In prose: an HTTP handler parses and validates input, the engine loads settings and resolves the day's schedule through the fallback chain, pure domain functions compute the display state for the pinned instant, and the result is mapped to a DTO and returned. Error mapping happens at the boundary only (unknown schedule → 404, unconfigured installation → 503, invalid input → 422). There is deliberately no business logic in the API layer beyond parsing and status codes, and no framework, SQL, or HTTP types in the inner layers.
 
-Background work follows the same layering. A one-second ticker recomputes the current event and publishes `state` when anything the client renders changed, plus a per-minute `tick`; a daily scheduler refreshes the stored year table with retries. Both are composed at startup (the app lifespan) and both drive the same engine use-cases the request path uses — there is no second code path for background computation.
+Background work follows the same layering. A one-second ticker recomputes the current event and publishes `state` when anything the client renders changed, plus a per-minute `tick` (failures surface as an `error` stage, never a healthy Clock); a daily scheduler refreshes the stored year table with classified retries (unrecoverable 4xx rejections never retry; transient failures chain 5m/15m/1h then a re-arming 6h long-pole). Both are composed at startup (the app lifespan) and both drive the same engine use-cases the request path uses — there is no second code path for background computation.
 
 ### Backend to frontend: one narrow seam
 
@@ -85,7 +85,7 @@ The frontend relates to the backend exclusively as a consumer of resolved data:
 - **Poll the state, stream the changes.** Clients render from `next-event` and stay fresh via the SSE event stream (`state` on transitions, `tick` each minute, `config-update` when settings change), with a 60-second poll as fallback. The client ticks its visible countdown locally between server updates and resyncs on every event.
 - **Identify, don't compute.** Each display is a dumb client with a stable registration ID, heartbeating every 30 seconds. The server records presence in batches; the client never derives anything from it.
 - **Admin is a thin client too.** The setup wizard and later settings screens speak the same settings API — full-replace read/write with live reload fanning out as `config-update`. There is no wizard-only code path to drift from the main one.
-- **Fixtures are the frontend's backend.** Until the frontend lands, and after every contract change, `api/fixtures/` plus the mock server are the build target. If it is not in fixtures and the contract document, the frontend cannot rely on it.
+- **Fixtures are the frontend's backend.** `api/fixtures/` plus the mock server are the build target for any new surface. If it is not in fixtures and the contract document, the frontend cannot rely on it.
 
 ### Internal to external: dependencies and users
 
@@ -107,7 +107,7 @@ And the three users from the domain glossary each touch a different surface: the
 
 Prayer times reach the screen through three stages: acquire candidate schedules, resolve one day, compute the display state. Exactly one zone is configured per installation, and every stage respects that.
 
-**Acquire.** The scheduler fetches the whole calendar year for the configured zone once daily (with short retries on failure), storing each day with its provenance. Independently, the on-device calculator can derive a day's markers from coordinates plus the pinned MABIMS parameters. Each stored day carries its source, and each fetch either fully validates or leaves the cache untouched. At resolve time markers merge per marker with cached (API) markers winning over calc; rows are complete today so a present cached day wins wholesale.
+**Acquire.** The scheduler fetches the whole calendar year for the configured zone once daily (with classified retries on failure), storing each day with its provenance; an admin can pin a manual day that outranks automatic sources and that syncs never overwrite. Independently, the on-device calculator can derive a day's markers from coordinates plus the pinned parameters. Each stored day carries its source, and each fetch either fully validates or leaves the cache untouched. At resolve time markers merge per marker with cached (API) markers winning over calc; rows are complete today so a present cached day wins wholesale.
 
 **Resolve (the fallback chain).** For a requested date, the engine takes the first candidate that matches, in fixed priority:
 
@@ -130,8 +130,8 @@ One SQLite file holds all device state, accessed through exactly one locked conn
 
 - **Single writer.** Every read, write, migration, and backup passes through one connection guarded by one lock, so the multi-threaded request pool cannot interleave writes. Transactions are kept short; a crash between statements cannot leave half a settings write.
 - **Migrations, not an ORM.** Schema versions are numbered SQL files applied in order at boot, tracked by an integer version stamp. Each migration is idempotent, each rolls back, and there is no migration framework to install on the device — a deliberate consequence of the zero-admin constraint.
-- **What lives where.** Installation identity and tuning (settings keys, iqamah rules) in one group; the schedule cache (one row per date and zone, with source and fetch time) in another; presence (display registrations, batched heartbeats) in a third; credentials (one admin row with a salted hash) in a fourth; media and grouping tables stand ready for the content slices. Credential hashing lives with the table it protects.
-- **Batching and backup.** Heartbeats arrive every 30 seconds but persist in minute-sized batches — presence data must survive power cuts without wearing the storage. Backups are atomic whole-file copies taken before any update touches code or data, and they refuse to overwrite an existing backup.
+- **What lives where.** Installation identity and tuning (settings keys, iqamah rules) in one group; the schedule cache (one row per date and zone, with source and fetch time, including admin-pinned manual rows) in another; presence (display registrations, batched heartbeats) in a third; credentials (one admin row with a salted hash) in a fourth; media, grouping, and playlist tables serve the content slices. Credential hashing lives with the table it protects.
+- **Batching and backup.** Heartbeats arrive every 30 seconds but persist in minute-sized batches — presence data must survive power cuts without wearing the storage. Backups are atomic whole-file copies taken before any update touches code or data, and they refuse to overwrite an existing backup; one-click export/restore plus log viewing ride the same plumbing through the admin console.
 - **Failure translation.** Corrupt or impossible stored values surface as one typed configuration error at the load boundary, so callers handle "the database says something impossible" uniformly instead of pattern-matching parse failures.
 
 ## How the System Can Be Extended
