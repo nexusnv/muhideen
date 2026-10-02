@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol, cast
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
@@ -74,7 +74,12 @@ from muhideen.api.dto import (
     TickEventDTO,
     VersionDTO,
 )
-from muhideen.core.errors import ConfigError, MuhideenError, ScheduleError
+from muhideen.core.errors import (
+    ConfigError,
+    MuhideenError,
+    ScheduleError,
+    SettingsNotInitializedError,
+)
 from muhideen.core.ports import (
     Clock,
     DisplayRepo,
@@ -1382,8 +1387,22 @@ def create_production_app(
     run_background: bool = True,
 ) -> FastAPI:
     """Production composition: SystemClock + SQLite + SSEBus + JAKIM client."""
-    clock = SystemClock(tz)
     database = Database(db_path)
+    # Migrate before reading settings: a legacy database may predate the
+    # settings table entirely (lifespan re-migrates, idempotently).
+    migrate(database)
+    try:
+        stored_tz = SqliteSettingsRepo(database).load().timezone
+        clock_tz = ZoneInfo(stored_tz)
+    except (
+        SettingsNotInitializedError,
+        ConfigError,
+        ValueError,
+        ZoneInfoNotFoundError,
+    ) as exc:
+        logger.warning("using fallback timezone %s: %s", tz, exc)
+        clock_tz = tz
+    clock = SystemClock(clock_tz)
     event_bus = SSEBus()
     deps = AppDeps(
         settings_repo=SqliteSettingsRepo(database),

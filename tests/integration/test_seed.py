@@ -155,6 +155,47 @@ def test_configured_db_syncs_configured_zone_and_never_overwrites(
     assert settings.hijri_offset == 2
 
 
+def test_configured_london_install_timezone_notice_only_when_flag_given(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No --timezone on a non-KL install is quiet; an explicit mismatch warns."""
+    db = tmp_path / "muhideen.db"
+    database = Database(db)
+    migrate(database)
+    SqliteSettingsRepo(database).save(
+        Settings(
+            masjid_name="Masjid London",
+            zone="SGR01",
+            hijri_offset=0,
+            timezone="Europe/London",
+        )
+    )
+    fake = _FakeClient()
+    _patch_wiring(monkeypatch, fake)
+
+    assert seed.main(["--db", str(db)]) == 0
+    assert "ignoring --timezone" not in capsys.readouterr().err
+
+    assert seed.main(["--db", str(db), "--timezone", "Asia/Kuala_Lumpur"]) == 0
+    err = capsys.readouterr().err
+    assert "ignoring --timezone" in err and "Europe/London" in err
+
+
+def test_first_boot_without_timezone_stores_kl_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """First boot without --timezone still persists Asia/Kuala_Lumpur."""
+    fake = _FakeClient()
+    _patch_wiring(monkeypatch, fake)
+    db = tmp_path / "muhideen.db"
+
+    assert seed.main(["--db", str(db), "--zone", "SGR01"]) == 0
+    assert SqliteSettingsRepo(Database(db)).load().timezone == "Asia/Kuala_Lumpur"
+
+
 def test_corrupt_settings_exits_2_without_sync(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

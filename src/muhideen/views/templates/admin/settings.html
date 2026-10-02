@@ -101,6 +101,10 @@
           </div>
         </div>
         <div class="setting-row">
+          <div class="setting-info"><h4>Timezone (IANA)</h4><p>Device clock zone, e.g. <code>Asia/Kuala_Lumpur</code>.</p><p class="hint">Changing timezone requires a service restart to take effect.</p></div>
+          <div class="setting-control control-narrow"><input id="s-timezone" type="text" value="{{ current.timezone }}" maxlength="64" autocomplete="off" style="font-family:var(--mono);"></div>
+        </div>
+        <div class="setting-row">
           <div class="setting-info"><h4>Offline calculation only</h4><p>Ignore the JAKIM feed and always compute locally.</p></div>
           <div class="setting-control"><label class="switch"><input id="s-calc" type="checkbox"{% if current.calc_only %} checked{% endif %}><span class="slider"></span><span class="sw-label" data-on="On" data-off="Off"></span></label></div>
         </div>

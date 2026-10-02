@@ -647,3 +647,18 @@ def test_settings_asr_juristic_defaults_to_shafi() -> None:
         masjid_name="M", zone="SGR01", hijri_offset=0, asr_juristic="hanafi"
     )
     assert settings != other
+
+
+@pytest.mark.unit
+def test_timezone_defaults_to_kl_and_rejects_unknown() -> None:
+    assert (
+        Settings(masjid_name="M", zone="SGR01", hijri_offset=0).timezone
+        == "Asia/Kuala_Lumpur"
+    )
+    with pytest.raises(ValueError, match="unknown timezone"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            timezone="Mars/Olympus",
+        )

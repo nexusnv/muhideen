@@ -207,6 +207,17 @@ def test_theme_knob_outside_enum_is_422(
     assert client.get("/api/settings").json()["theme"]["palette"] == "midnight"
 
 
+def test_settings_api_round_trips_timezone(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    _login(client)
+    london = _settings_payload(timezone="Europe/London")
+    assert client.put("/api/settings", json=london).status_code == 200
+    assert client.get("/api/settings").json()["timezone"] == "Europe/London"
+    bad = _settings_payload(timezone="Mars/Olympus")
+    assert client.put("/api/settings", json=bad).status_code == 422
+
+
 def test_asr_juristic_round_trip_and_rejection(
     surface: SimpleNamespace, client: TestClient
 ) -> None:

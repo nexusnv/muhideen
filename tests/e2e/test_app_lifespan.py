@@ -286,6 +286,31 @@ def test_ticker_loops_until_stop() -> None:
     assert engine.calls == 2
 
 
+def test_production_clock_follows_settings_timezone(tmp_path: Path) -> None:
+    from muhideen.adapters.migrate import migrate
+    from muhideen.adapters.sqlite_repo import Database, SqliteSettingsRepo
+    from muhideen.core.values import Settings
+
+    db_path = tmp_path / "tz.db"
+    database = Database(db_path)
+    migrate(database)
+    SqliteSettingsRepo(database).save(
+        Settings(
+            masjid_name="Masjid Test",
+            zone="SGR01",
+            hijri_offset=0,
+            lat=51.5,
+            lon=-0.12,
+            timezone="Europe/London",
+        )
+    )
+    app = create_production_app(db_path, run_background=False)
+    with TestClient(app) as client:
+        response = client.get("/display", params={"id": "HALL-01"})
+    assert response.status_code == 200
+    assert 'data-tz="Europe/London"' in response.text
+
+
 def test_production_app_factory_boots_full_surface(tmp_path: Path) -> None:
     db_path = tmp_path / "prod.db"
     app = create_production_app(db_path, run_background=False)

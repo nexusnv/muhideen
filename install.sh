@@ -11,6 +11,7 @@ source "$ROOT_DIR/packaging/lib.sh"
 
 ZONE=""
 MASJID_NAME=""
+TIMEZONE=""
 NEW_HOSTNAME="muhideen"
 FORCE=0
 MUHIDEEN_DRY_RUN=0
@@ -22,10 +23,11 @@ HEALTH_URL="http://127.0.0.1:8000/api/version"
 
 usage() {
   cat <<'EOF'
-usage: install.sh [--zone ZONE] [--masjid-name NAME] [--hostname NAME]
-                  [--force] [--dry-run]
+usage: install.sh [--zone ZONE] [--masjid-name NAME] [--timezone TZ]
+                   [--hostname NAME] [--force] [--dry-run]
   --zone ZONE        JAKIM zone passed to muhideen-seed (required first boot)
   --masjid-name NAME display name recorded on first boot
+  --timezone TZ      IANA timezone recorded on first boot (default Asia/Kuala_Lumpur)
   --hostname NAME    system hostname to set ('' leaves it unchanged)
   --force            override the 1GB RAM preflight refusal (PRD §7.1)
   --dry-run          print each step's command; execute only preflight reads
@@ -42,6 +44,11 @@ while (( $# )); do
     --masjid-name)
       (( $# >= 2 )) || die "--masjid-name requires a value"
       MASJID_NAME="$2"
+      shift 2
+      ;;
+    --timezone)
+      (( $# >= 2 )) || die "--timezone requires a value"
+      TIMEZONE="$2"
       shift 2
       ;;
     --hostname)
@@ -135,6 +142,9 @@ if [[ -n "$ZONE" ]]; then
 fi
 if [[ -n "$MASJID_NAME" ]]; then
   seed_args+=(--masjid-name "$MASJID_NAME")
+fi
+if [[ -n "$TIMEZONE" ]]; then
+  seed_args+=(--timezone "$TIMEZONE")
 fi
 seed_rc=0
 maybe_run "$SEED_BIN" "${seed_args[@]}" || seed_rc=$?

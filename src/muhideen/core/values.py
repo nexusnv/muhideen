@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from enum import StrEnum
 from typing import Literal, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class MarkerName(StrEnum):
@@ -175,6 +176,10 @@ AsrJuristic = Literal["shafi", "hanafi"]
 """Asr juristic setting: Standard (Shafi, shadow factor 1) or Hanafi (factor 2)."""
 
 
+TIMEZONE_DEFAULT = "Asia/Kuala_Lumpur"
+"""Single owner of the device-clock timezone default (existing installs stay KL)."""
+
+
 THEME_DEFAULTS: dict[str, str] = {
     "palette": "classic-green",
     "font": "outfit",
@@ -310,11 +315,16 @@ class Settings:
         default_factory=dict[str, int], hash=False
     )
     theme: ThemeSettings = field(default_factory=ThemeSettings)
+    timezone: str = TIMEZONE_DEFAULT
 
     def __post_init__(self) -> None:
         """Enforce offset/coordinate guards and non-empty rule coverage."""
         if not -2 <= self.hijri_offset <= 2:
             raise ValueError(f"hijri_offset out of range: {self.hijri_offset}")
+        try:
+            ZoneInfo(self.timezone)
+        except (ValueError, ZoneInfoNotFoundError, KeyError) as exc:
+            raise ValueError(f"unknown timezone: {self.timezone!r}") from exc
         if self.asr_juristic not in ("shafi", "hanafi"):
             raise ValueError(f"unknown asr juristic setting: {self.asr_juristic!r}")
         if (self.lat is None) != (self.lon is None):

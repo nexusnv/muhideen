@@ -523,3 +523,27 @@ def test_asr_juristic_corrupt_raises_config_error(tmp_path: Path) -> None:
         )
     with pytest.raises(ConfigError):
         SqliteSettingsRepo(db).load()
+
+
+def test_settings_timezone_round_trip(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(
+        Settings(
+            masjid_name="Masjid Test",
+            zone="SGR01",
+            hijri_offset=0,
+            timezone="Europe/London",
+        )
+    )
+    assert repo.load().timezone == "Europe/London"
+    assert _settings_kv(db)["timezone"] == "Europe/London"
+
+
+def test_settings_timezone_defaults_for_legacy_rows(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    repo = SqliteSettingsRepo(db)
+    repo.save(Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0))
+    with db.write() as conn:
+        conn.execute("DELETE FROM settings WHERE key = 'timezone'")
+    assert repo.load().timezone == "Asia/Kuala_Lumpur"
