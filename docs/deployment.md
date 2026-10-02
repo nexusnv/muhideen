@@ -22,9 +22,10 @@ in `PRD.md`; the API surface in `docs/api-contract.md`.
   32-bit `armv7l` offline installs are unsupported: four locked
   compiled dependencies (`argon2-cffi-bindings`, `cffi`, `markupsafe`,
   `pillow`) publish no `armv7l` wheels, and the vendor loop resolves
-  `--only-binary`, so there is nothing to download. On 32-bit ARM
-  hardware, install 64-bit Debian (covered by the `aarch64` wheels)
-  or use the thin-client/headless tiers.
+  `--only-binary`, so there is nothing to download. On ARM hardware
+  capable of AArch64, install 64-bit Debian (covered by the `aarch64`
+  wheels); otherwise, classify the device as unsupported or use the
+  thin-client/headless tiers.
 
 ## Install
 
@@ -317,7 +318,8 @@ Pass `--autoplay-policy=no-user-gesture-required` so the adhan audio
 plays without a click. There is no watchdog and no display-manager
 integration in v1.0: on power loss, the service re-enables at boot
 (`enable --now` at install) but an operator re-opens the kiosk window
-in the desktop session; on clock faults the display keeps
-counting on the monotonic clock while the `TIME UNSYNCED` banner shows
+in the desktop session; monotonic ticking only smooths elapsed time between
+server updates, so a clock step can change the displayed time and countdown
+targets; the `TIME UNSYNCED` banner shows
 (see Time sync below). A TV with a browser works as a thin display
 client pointed at the same URL — no software to install on it.
