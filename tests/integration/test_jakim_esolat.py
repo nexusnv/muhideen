@@ -296,8 +296,10 @@ def test_4xx_fails_fast_without_in_client_retry(bad_status: int) -> None:
     assert calls["n"] == 1
 
 
-@pytest.mark.parametrize("bad_status", [404, 429])
-def test_4xx_marks_unrecoverable(bad_status: int) -> None:
+@pytest.mark.parametrize("bad_status", [400, 404, 418])
+def test_non_429_4xx_marks_unrecoverable(bad_status: int) -> None:
+    # Permanent request rejections never heal by waiting: the scheduler
+    # tier must not retry them. Still no in-client retry (one call).
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -309,6 +311,25 @@ def test_4xx_marks_unrecoverable(bad_status: int) -> None:
     with pytest.raises(SyncError) as excinfo:
         _client(handler, sleeps).fetch_year("SGR01")
     assert excinfo.value.transient is False
+    assert sleeps == []
+    assert calls["n"] == 1
+
+
+def test_429_stays_transient_without_in_client_retry() -> None:
+    # 429 fails fast in-client like every 4xx (one call, no 2/4/8s burst
+    # — bursts re-engage the WAF ban) but stays transient: rate limits
+    # heal, so the scheduler's 5m/15m/1h/6h chain keeps retrying it.
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        calls["n"] += 1
+        return httpx.Response(429)
+
+    sleeps: list[float] = []
+    with pytest.raises(SyncError) as excinfo:
+        _client(handler, sleeps).fetch_year("SGR01")
+    assert excinfo.value.transient is True
     assert sleeps == []
     assert calls["n"] == 1
 

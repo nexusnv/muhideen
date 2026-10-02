@@ -36,12 +36,15 @@ FIXTURES = Path(__file__).resolve().parents[2] / "api" / "fixtures"
 class FakeSettingsRepo:
     """In-memory settings with a load counter (FR-6.1: reload per call)."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, error: Exception | None = None) -> None:
         self.settings = settings
+        self.error = error
         self.load_count = 0
 
     def load(self) -> Settings:
         self.load_count += 1
+        if self.error is not None:
+            raise self.error
         return self.settings
 
     def save(self, settings: Settings) -> None:
@@ -486,6 +489,25 @@ def test_boundary_optin_toggle_publishes_state_same_minute() -> None:
     second = harness.engine.tick()
     assert second.next_boundary is MarkerName.IMSAK
     assert harness.bus.events == ["state"]
+
+
+def test_tick_failure_publishes_tick_and_raises() -> None:
+    """An unresolvable tick still wakes the stream, then re-raises.
+
+    Without the bare `tick`, a connected SSE stays silent on a frozen
+    healthy view (the 60s poll only starts after disconnect): the
+    trigger lets the open stream surface the failure instead.
+    """
+    harness = _tick_harness(datetime(2025, 10, 20, 12, 9, tzinfo=TZ))
+    harness.settings.error = ConfigError("setup incomplete")
+    with pytest.raises(ConfigError):
+        harness.engine.tick()
+    assert harness.bus.events == ["tick"]
+    # No fingerprint/minute updates on failure: recovery fans out fully.
+    harness.settings.error = None
+    harness.bus.events.clear()
+    harness.engine.tick()
+    assert harness.bus.events == ["state", "tick"]
 
 
 def test_engine_never_publishes_config_update() -> None:

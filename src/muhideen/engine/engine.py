@@ -115,9 +115,23 @@ class Engine:
         return replace(event, time_synced=self._time_synced())
 
     def tick(self) -> NextEvent:
-        """Recompute on the clock and publish `state`/`tick` when they change."""
+        """Recompute on the clock and publish `state`/`tick` when they change.
+
+        A resolution failure (`MuhideenError` from `next_event` — corrupt
+        settings, unresolvable schedule) still publishes a bare `tick`
+        trigger before re-raising, so an open SSE stream wakes instead of
+        sitting silent on a frozen healthy view: the stream's recompute
+        fails, the connection drops, and the display falls back to its
+        60s poll + reload into the route slate. Fingerprint and minute
+        are untouched on failure, so the next healthy tick fans out as
+        `state` + `tick` normally.
+        """
         now = self._clock.now()
-        event = self.next_event(now)
+        try:
+            event = self.next_event(now)
+        except MuhideenError:
+            self._event_bus.publish(TICK_EVENT)
+            raise
         fingerprint: _Fingerprint = (
             event.state,
             event.next_prayer,

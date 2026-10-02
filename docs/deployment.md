@@ -88,9 +88,9 @@ schedule. First boot must satisfy **one** of:
 
 * **JAKIM reachability** — `muhideen-seed` (install step 7) fetches the
   configured zone's year into the prayer cache; when the fetch fails, the
-  scheduler retries it (transient failures re-arm on a 6h long-pole;
-  unrecoverable 4xx rejections never retry — recheck the zone code
-  instead of waiting).
+  scheduler retries it (transient failures re-arm on a 6h long-pole —
+  429 rate limits stay transient and retry; other, unrecoverable 4xx
+  rejections never retry — recheck the zone code instead of waiting).
 * **Coordinates** — `lat`/`lon` settings let the built-in MABIMS
   calculator resolve each day locally with no network at all.
 

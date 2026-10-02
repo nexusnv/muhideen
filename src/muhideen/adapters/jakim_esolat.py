@@ -2,13 +2,15 @@
 
 Unofficial, publicly accessible endpoint with no service guarantees — the
 client pins UA/timeout, retries transport-level failures with backoff
-(2s/4s/8s), fails fast on any 4xx (incl. 429: request-level rejections
-cannot heal inside one burst — the endpoint's WAF ban re-engages within
-seconds of a burst, so retries happen only at the scheduler tier),
-rejects malformed payloads immediately (**no** retry: reject + keep
-cache), and logs zone + HTTP status on every failed attempt. Parse
-happens fully before anything returns, so a rejected payload performs
-zero writes and the existing cache survives.
+(2s/4s/8s), fails fast on any 4xx (incl. 429: no in-client 2/4/8s burst —
+the endpoint's WAF ban re-engages within seconds of a burst, so retries
+happen only at the scheduler tier), rejects malformed payloads
+immediately (**no** retry: reject + keep cache), and logs zone + HTTP
+status on every failed attempt. 429 stays transient (rate limits heal,
+so the scheduler's 5m/15m/1h/6h chain retries it); every other 4xx is a
+non-transient rejection the scheduler never retries. Parse happens
+fully before anything returns, so a rejected payload performs zero
+writes and the existing cache survives.
 """
 
 from __future__ import annotations
@@ -219,9 +221,10 @@ class HttpJAKIMClient:
 
     Up to 4 attempts (3 backoff sleeps: 2s/4s/8s) around 5xx, transport
     failures, and invalid JSON; any 4xx (incl. 429) fails fast after the
-    first request — request-level rejections cannot heal inside one burst
-    and in-client bursts keep the endpoint's WAF ban re-engaged, so the
-    scheduler tier (5m/15m/1h, FR-1.1) paces those retries instead. A
+    first request — no in-client burst (in-client 2/4/8s bursts keep the
+    endpoint's WAF ban re-engaged, so the scheduler tier paces those
+    retries instead). 429 stays transient (rate limits heal — retried at
+    5m/15m/1h/6h); every other 4xx is non-transient (never retried). A
     ``SyncError`` from ``parse_takwim`` escapes immediately — a rejected
     payload is never retried.
     """
@@ -269,14 +272,16 @@ class HttpJAKIMClient:
                         isinstance(exc, httpx.HTTPStatusError)
                         and 400 <= exc.response.status_code < 500
                     ):
-                        # 4xx (incl. 429): fail fast — one request per sync
-                        # attempt; the scheduler tier's 5m/15m/1h spacing is
-                        # the retry path (in-client 2/4/8s bursts re-engage
-                        # the endpoint's WAF ban).
+                        # All 4xx fail fast — one request per sync attempt;
+                        # the scheduler tier's spacing is the retry path
+                        # (in-client 2/4/8s bursts re-engage the endpoint's
+                        # WAF ban). 429 stays transient (rate limits heal,
+                        # so the 5m/15m/1h/6h chain retries it); every other
+                        # 4xx is a non-transient rejection (never retried).
                         raise SyncError(
                             f"jakim fetch rejected with HTTP {status}",
                             zone=zone,
-                            transient=False,
+                            transient=(exc.response.status_code == 429),
                         ) from exc
                     if attempt < len(RETRY_DELAYS_S):
                         self._sleep(RETRY_DELAYS_S[attempt])

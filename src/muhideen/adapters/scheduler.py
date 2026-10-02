@@ -9,8 +9,9 @@ against the **injected clock**: 5 min, then 15 min, then 1 h — after the
 third failed retry the chain continues on a 6 h long-pole
 (`jakim-sync-retry-long`, re-armed on each further failure) instead of
 going silent until the next 02:00 run. A non-transient `SyncError`
-(`transient=False`, e.g. a 4xx zone rejection that waiting cannot heal)
-never retries: it logs at error level and returns. `ConfigError`
+(`transient=False`, e.g. a non-429 4xx zone rejection that waiting
+cannot heal — 429 rate limits stay transient and keep retrying) never
+retries: it logs at error level and returns. `ConfigError`
 (first-boot setup incomplete) never retries: it logs and waits for the
 next daily run. Every registered job sets `misfire_grace_time=None`
 (+ `coalesce=True`): a late wake (GC pause, NTP step) still syncs —

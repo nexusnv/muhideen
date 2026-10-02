@@ -361,6 +361,47 @@ def test_published_tick_stage_surfaces_error_on_schedule_failure(
     )
 
 
+def test_ticker_tick_failure_drops_open_stream_to_route_slate(
+    surface: SimpleNamespace,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ticker-to-stream failure path: corrupt settings, drive the tick.
+
+    `Engine.tick()` publishes a bare `tick` before re-raising, so the open
+    stream wakes instead of sitting silent on a frozen healthy view (the
+    60s poll only starts after disconnect): its recompute raises, the SSE
+    drops, and the display falls back to poll + reload into the route
+    slate (503 here — settings are gone entirely). Drives
+    `engine.tick()` exactly like the background ticker does, never a
+    manual `bus.publish`.
+    """
+    from muhideen.core.errors import SettingsNotInitializedError
+
+    _seed_settings(surface, lat=3.07, lon=101.69)
+    # Fail fast on regression: without the bare tick the stream would idle
+    # until keep-alive instead of surfacing the failure.
+    monkeypatch.setattr(app_module, "_KEEPALIVE_S", 0.05)
+    gen = _stream(surface)
+    try:
+        assert _parse(next(gen))[0] == "state"
+        with surface.db.write() as conn:
+            conn.execute("DELETE FROM settings")
+        with pytest.raises(SettingsNotInitializedError):
+            _engine(surface).tick()
+        # The bare tick woke the stream: its recompute raises (dropping
+        # the SSE) instead of leaving the display on a healthy frame.
+        with pytest.raises(SettingsNotInitializedError):
+            next(gen)
+    finally:
+        gen.close()
+    display = client.get("/display", params={"id": "HALL-01"})
+    assert display.status_code == 503
+    assert 'id="slate"' in display.text
+    nxt = client.get("/api/next-event", params={"now": "2025-10-20T12:20:00+08:00"})
+    assert nxt.status_code == 503
+
+
 def test_config_update_carries_changed_groups(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
