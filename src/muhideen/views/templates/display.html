@@ -87,7 +87,7 @@
 {% if state == "NORMAL" %}
 <footer id="ftr">
   <div class="brand-block"><span class="brand-name">{{ masjid_name }}</span><span class="brand-zone">{{ zone }}</span></div>
-  <span id="carousel-dot">●</span><span id="qr-hint">Admin: muhideen.local:8000/admin</span>
+  {% if show_carousel %}<span id="carousel-dot">●</span>{% endif %}<span id="qr-hint">Admin: muhideen.local:8000/admin</span>
 </footer>
 {% endif %}
 {% endif %}

@@ -10,6 +10,8 @@ from muhideen.core.values import (
     MarkerKind,
     MarkerName,
     NextEvent,
+    Playlist,
+    PlaylistItem,
     PrayerDay,
     PrayerState,
     ScheduleSource,
@@ -695,3 +697,56 @@ def test_adhan_audio_defaults_silent_and_guards() -> None:
             hijri_offset=0,
             adhan_muted_prayers=["nope"],
         )
+
+
+@pytest.mark.unit
+def test_playlist_repeat_requires_max_cycles() -> None:
+    with pytest.raises(ValueError, match="repeat.*max_cycles|max_cycles.*repeat"):
+        Playlist(
+            id="p1",
+            title="P1",
+            active=True,
+            cycle_mode="repeat",  # type: ignore[arg-type]
+            max_cycles=None,
+            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+        )
+    with pytest.raises(ValueError, match="max_cycles"):
+        Playlist(
+            id="p1",
+            title="P1",
+            active=True,
+            cycle_mode="repeat",  # type: ignore[arg-type]
+            max_cycles=0,
+            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+        )
+    playlist = Playlist(
+        id="p1",
+        title="P1",
+        active=True,
+        cycle_mode="repeat",  # type: ignore[arg-type]
+        max_cycles=2,
+        items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+    )
+    assert (playlist.cycle_mode, playlist.max_cycles) == ("repeat", 2)
+
+
+@pytest.mark.unit
+def test_playlist_indefinite_rejects_max_cycles() -> None:
+    with pytest.raises(ValueError, match="max_cycles"):
+        Playlist(
+            id="p1",
+            title="P1",
+            active=True,
+            cycle_mode="indefinite",
+            max_cycles=3,
+            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+        )
+    playlist = Playlist(
+        id="p1",
+        title="P1",
+        active=True,
+        cycle_mode="indefinite",
+        max_cycles=None,
+        items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
+    )
+    assert (playlist.cycle_mode, playlist.max_cycles) == ("indefinite", None)

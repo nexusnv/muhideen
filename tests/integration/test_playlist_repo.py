@@ -9,7 +9,7 @@ import pytest
 from muhideen.adapters.migrate import migrate
 from muhideen.adapters.sqlite_repo import Database
 from muhideen.core.errors import ConfigError
-from muhideen.core.values import MarkerName, Playlist, PlaylistItem
+from muhideen.core.values import CycleMode, MarkerName, Playlist, PlaylistItem
 
 pytestmark = pytest.mark.integration
 
@@ -32,6 +32,7 @@ def _playlist(
     start: str | None = "09:00",
     end: str | None = "11:00",
     anchor: MarkerName | None = None,
+    cycle_mode: CycleMode = "indefinite",
     max_cycles: int | None = None,
     items: tuple[PlaylistItem, ...] | None = None,
 ) -> Playlist:
@@ -44,7 +45,7 @@ def _playlist(
         anchor_marker=anchor,
         anchor_start_offset_min=0,
         anchor_stop_offset_min=0,
-        cycle_mode="indefinite",
+        cycle_mode=cycle_mode,
         max_cycles=max_cycles,
         items=items if items is not None else (_item(),),
     )
@@ -73,7 +74,7 @@ def test_save_and_get_round_trips_every_field(tmp_path: Path) -> None:
         anchor_marker=None,
         anchor_start_offset_min=5,
         anchor_stop_offset_min=-10,
-        cycle_mode="indefinite",
+        cycle_mode="repeat",
         max_cycles=3,
         items=(
             _item("img/b.jpg", duration=15, order=1),
@@ -93,7 +94,7 @@ def test_save_and_get_round_trips_every_field(tmp_path: Path) -> None:
         anchor_marker=None,
         anchor_start_offset_min=5,
         anchor_stop_offset_min=-10,
-        cycle_mode="indefinite",
+        cycle_mode="repeat",
         max_cycles=3,
         items=(
             _item("img/a.jpg", duration=10, order=0),

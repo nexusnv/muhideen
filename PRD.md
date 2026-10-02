@@ -97,7 +97,7 @@ To create an accessible, lightweight, modern, and open-source digital signage sy
 
 | ID | Feature | Description | Priority |
 | :--- | :--- | :--- | :--- |
-| **FR-3.1** | **Image Slideshow** | Cycle uploaded JPG/PNG/WebP (max 5MB each, max 50 items, auto-downscaled to 1920w). Supports Hadith/event/QR posters. Video out of scope for MVP. | Medium |
+| **FR-3.1** | **Image Slideshow** | Cycle uploaded JPG/PNG/WebP (max 5MB each, max 50 items, auto-downscaled to 1920w). Supports Hadith/event/QR posters. Video out of scope for MVP. Image-only is intentional for v1.0: playlist items carry an image path only — no video/audio items. | Medium |
 | **FR-3.2** | **Toggleable Module** | Global or per-group disable for prayer-time-only aesthetic. | High |
 | **FR-3.3** | **Carousel Pause Rule** | Hidden from `PRE_ADHAN` (-5m) through end of `SALAH_DIM`. Footer indicator hidden likewise. | High |
 
@@ -106,8 +106,8 @@ To create an accessible, lightweight, modern, and open-source digital signage sy
 | ID | Feature | Description | Priority |
 | :--- | :--- | :--- | :--- |
 | **FR-4.1** | **Display Registration (pull model)** | No auto-scan. Displays are dumb Chromium clients loading `/display?id=<DISPLAY_ID>` and heartbeating `POST /api/displays/heartbeat` every 30s (updates `last_seen`, IP, group). Admin pre-registers or approves pending IDs. mDNS advertise `_muhideen._tcp` for discovery. | Medium |
-| **FR-4.2** | **Display Grouping** | Groups (e.g. Main Hall, Lobby, Women's Section) with per-group theme + carousel + dim-duration override. | Low |
-| **FR-4.3** | **Targeted Config + Realtime Push** | Global defaults + per-group override. Updates pushed via SSE (`/api/events`); clients poll every 60s as fallback. | Medium |
+| **FR-4.2** | **Display Grouping** | Groups (e.g. Main Hall, Lobby, Women's Section) with per-group theme + carousel + dim-duration override. Override scope is presentation-only by design: theme, dim minutes, and the carousel flag — schedule and iqamah rules stay global and are never forked per group. | Low |
+| **FR-4.3** | **Targeted Config + Realtime Push** | Global defaults + per-group override. Updates pushed via SSE (`/api/events`); clients poll every 60s as fallback. Per-display rows are likewise theme+dim-only (`theme.*` knobs plus the dim pin). | Medium |
 
 ### 3.5 Theme & Customization Engine
 

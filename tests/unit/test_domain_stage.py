@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from muhideen.core.values import (
+    CycleMode,
     IqamahRule,
     MarkerName,
     NextEvent,
@@ -93,6 +94,7 @@ def _playlist(
     anchor: MarkerName | None = None,
     start_offset: int = 0,
     stop_offset: int = 0,
+    cycle_mode: CycleMode = "indefinite",
     max_cycles: int | None = None,
 ) -> Playlist:
     return Playlist(
@@ -104,7 +106,7 @@ def _playlist(
         anchor_marker=anchor,
         anchor_start_offset_min=start_offset,
         anchor_stop_offset_min=stop_offset,
-        cycle_mode="indefinite",
+        cycle_mode=cycle_mode,
         max_cycles=max_cycles,
         items=items,
     )
@@ -356,7 +358,7 @@ def test_max_cycles_none_loops_indefinitely() -> None:
 def test_max_cycles_one_exhausts_after_one_full_cycle() -> None:
     from muhideen.domain.stage import ClockOccupant, PlaylistOccupant, resolve_stage
 
-    capped = _playlist("a", "09:00", "11:00", max_cycles=1)
+    capped = _playlist("a", "09:00", "11:00", cycle_mode="repeat", max_cycles=1)
     fallback = _playlist("b")
     before = datetime(2025, 10, 22, 9, 0, 5, tzinfo=TZ)
     assert resolve_stage(
@@ -376,7 +378,7 @@ def test_max_cycles_one_exhausts_after_one_full_cycle() -> None:
 def test_max_cycles_two_boundary() -> None:
     from muhideen.domain.stage import ClockOccupant, PlaylistOccupant, resolve_stage
 
-    capped = _playlist("a", "09:00", "11:00", max_cycles=2)
+    capped = _playlist("a", "09:00", "11:00", cycle_mode="repeat", max_cycles=2)
     last_second = datetime(2025, 10, 22, 9, 0, 19, tzinfo=TZ)
     assert resolve_stage(
         last_second, _day(), _settings(), _dhuhr_event(last_second), (capped,)
@@ -395,7 +397,9 @@ def test_max_cycles_empty_items_stays_clock() -> None:
     from muhideen.domain.stage import ClockOccupant, resolve_stage
 
     now = _at(10, 0)
-    alone = _playlist("a", "09:00", "11:00", items=(), max_cycles=1)
+    alone = _playlist(
+        "a", "09:00", "11:00", items=(), cycle_mode="repeat", max_cycles=1
+    )
     assert resolve_stage(now, _day(), _settings(), _dhuhr_event(now), (alone,)) == (
         ClockOccupant()
     )

@@ -221,6 +221,23 @@ def test_playlist_put_validation_and_cap(authed: TestClient) -> None:
     assert authed.delete("/api/playlists/missing/items/0").status_code == 404
 
 
+def test_playlist_repeat_cycle_mode_round_trip(authed: TestClient) -> None:
+    assert authed.post("/api/playlists", json=_playlist_body("p1")).status_code == 201
+    repeating = _playlist_body("p1", cycle_mode="repeat", max_cycles=2)
+    assert authed.put("/api/playlists/p1", json=repeating).status_code == 200
+    fetched = authed.get("/api/playlists/p1")
+    assert fetched.status_code == 200
+    assert (fetched.json()["cycle_mode"], fetched.json()["max_cycles"]) == (
+        "repeat",
+        2,
+    )
+    unbounded = _playlist_body("p1", cycle_mode="repeat", max_cycles=None)
+    unbounded.pop("max_cycles")
+    assert authed.put("/api/playlists/p1", json=unbounded).status_code == 422
+    illegal = _playlist_body("p1", cycle_mode="indefinite", max_cycles=2)
+    assert authed.put("/api/playlists/p1", json=illegal).status_code == 422
+
+
 def test_open_window_playlist_is_always_in_window(authed: TestClient) -> None:
     body = _playlist_body("open", window_start=None, window_end=None)
     assert authed.post("/api/playlists", json=body).status_code == 201

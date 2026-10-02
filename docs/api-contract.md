@@ -219,7 +219,18 @@ Session status plus whether first-boot setup is still required. No auth required
 
 ## `POST /api/playlists`
 
-Admin session required. Create a playlist; the `id` is server-generated when the body omits it (`null`). Windows are `HH:MM` clock bounds (each end optionally a marker name); `anchor_marker` must name a Prayer Time Marker, never a boundary. More than 50 items is 422. The response is the stored playlist.
+Admin session required. Create a playlist; the `id` is server-generated when the body omits it (`null`). Windows are `HH:MM` clock bounds (each end optionally a marker name); `anchor_marker` must name a Prayer Time Marker, never a boundary. More than 50 items is 422.
+
+Cycle modes (`cycle_mode` ∈ `indefinite|repeat`, default `indefinite`):
+
+| `cycle_mode` | `max_cycles` | Behaviour |
+| :--- | :--- | :--- |
+| `indefinite` | must be `null` | Loops forever; the Stage never releases on count. |
+| `repeat` | required, `>= 1` | Releases the Stage after N full passes. |
+
+Illegal pairings (`repeat` without `max_cycles`, `indefinite` with non-`null` `max_cycles`) are 422.
+
+Items are image-only in v1.0: each item carries an `image_path` only — no video/audio items. New images arrive via `POST /api/playlists/{playlist_id}/items` (JPG/PNG/WebP, 5MB cap, EXIF stripped, max 50 items per playlist). The response is the stored playlist.
 
 ```json
 {
@@ -407,7 +418,9 @@ Admin session required. Sets per-display overrides (theme choice, group assignme
 
 ## `PATCH /api/display-groups/{name}`
 
-Admin session required. Sets group overrides (theme default, dim minutes 5–60, carousel flag); unknown groups are 404.
+Admin session required. Sets group overrides (theme default, dim minutes 5–60, carousel flag); unknown groups are 404. `carousel_enabled` (default on) gates the `#carousel-dot` footer indicator on `GET /display?id=` for displays in the group — the footer itself still renders NORMAL-only (FR-3.3 pause rule), so the flag only toggles the dot. Unknown display ids render the global default (carousel on).
+
+Override scope is theme+dim-only by design: groups pin presentation (theme default, dim minutes, carousel flag), and per-display rows allow only the `theme.*` knobs plus `dim_minutes_override` — schedule, iqamah rules, and countdown windows are never forked per group or display.
 
 ```json
 {"theme": "midnight", "dim_minutes_override": 30, "carousel_enabled": false}

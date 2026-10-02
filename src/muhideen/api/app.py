@@ -20,7 +20,7 @@ from dataclasses import replace as _replace
 from datetime import date, datetime, timedelta
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import Annotated, Any, Literal, Protocol, cast
+from typing import Annotated, Any, Protocol, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -104,6 +104,7 @@ from muhideen.core.ports import (
     UserRepo,
 )
 from muhideen.core.values import (
+    CycleMode,
     MarkerName,
     NextEvent,
     Playlist,
@@ -201,7 +202,7 @@ class PlaylistDTO(ContractDTO):
     anchor_marker: str | None = None
     anchor_start_offset_min: int = 0
     anchor_stop_offset_min: int = 0
-    cycle_mode: Literal["indefinite"] = "indefinite"
+    cycle_mode: CycleMode = "indefinite"
     max_cycles: int | None = None
     items: list[PlaylistItemDTO] = Field(default_factory=list[PlaylistItemDTO])
 
@@ -720,6 +721,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         effective_theme = settings.theme
         dim_minutes = settings.dim_minutes_default
         dim_source = "settings"
+        show_carousel = True
         if deps.database is not None:
             display_store = SqliteDisplaySettingsRepo(deps.database)
             overrides = display_store.overrides_for(id)
@@ -734,9 +736,8 @@ def create_app(deps: AppDeps) -> FastAPI:
                 except (ValueError, TypeError):
                     return _invalid_display()
             display_raw = overrides.get("dim_minutes_override")
-            group_raw = (
-                display_store.group_dim_override(id) if display_raw is None else None
-            )
+            group_dim_raw, show_carousel = display_store.group_presentation(id)
+            group_raw = group_dim_raw if display_raw is None else None
             try:
                 dim_minutes, dim_source = effective_dim(
                     display_raw=display_raw,
@@ -825,6 +826,7 @@ def create_app(deps: AppDeps) -> FastAPI:
             iqamah=labels,
             dim_minutes=dim_minutes,
             dim_source=dim_source,
+            show_carousel=show_carousel,
             adhan_audio_url=adhan_url,
             adhan_volume=settings.adhan_volume,
         )

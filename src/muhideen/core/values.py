@@ -442,6 +442,10 @@ class PlaylistItem:
             )
 
 
+CycleMode = Literal["indefinite", "repeat"]
+"""Playlist cycling policy: loop forever or release after ``max_cycles`` passes."""
+
+
 @dataclass(frozen=True, slots=True)
 class Playlist:
     """A named set of image items with a schedule and a cycling policy.
@@ -462,13 +466,25 @@ class Playlist:
     anchor_marker: MarkerName | None = None
     anchor_start_offset_min: int = 0
     anchor_stop_offset_min: int = 0
-    cycle_mode: Literal["indefinite"] = "indefinite"
+    cycle_mode: CycleMode = "indefinite"
     max_cycles: int | None = None
     items: tuple[PlaylistItem, ...] = ()
 
     def __post_init__(self) -> None:
-        """Enforce non-empty identity; window math lives in domain."""
+        """Enforce non-empty identity plus the cycle-mode/max_cycles pairing."""
         if not self.id:
             raise ValueError("playlist needs a non-empty id")
         if not self.title:
             raise ValueError("playlist needs a non-empty title")
+        if self.cycle_mode == "repeat":
+            if self.max_cycles is None or self.max_cycles < 1:
+                raise ValueError(
+                    f"repeat playlists need max_cycles >= 1: {self.max_cycles!r}"
+                )
+        elif self.cycle_mode == "indefinite":
+            if self.max_cycles is not None:
+                raise ValueError(
+                    f"indefinite playlists need max_cycles None: {self.max_cycles!r}"
+                )
+        else:
+            raise ValueError(f"unknown playlist cycle mode: {self.cycle_mode!r}")

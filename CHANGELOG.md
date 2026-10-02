@@ -99,6 +99,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
 - Failure visibility: SSE tick surfaces config/schedule failures as an `error` stage (display reloads into its 503/404 slate instead of a healthy Clock), and a tick that cannot resolve at all publishes a bare `tick` before re-raising so an open stream drops (poll + reload into the slate) instead of freezing on a healthy frame; playlist occupancy preview returns an `error` reason instead of silent null; sync splits `SyncError(transient)` with non-429 4xx request rejections marked non-transient (no retry) while transient failures (incl. 429 rate limits, which heal) continue on a 6h long-pole chain after the 5m/15m/1h retries; offline-first-no-coordinates slate outcome documented; `_tomorrow`-never-from-last-known invariant kept deliberately.
 - Manual day schedule (issue #43): admin-only `PUT /api/manual-day` pins one day's 8-marker `HH:MM` times (no zone in the body — stamped with `settings.zone` server-side; strictly increasing times else 422; repeat PUT replaces) and `DELETE /api/manual-day?date=` releases the pin; pins outrank automatic sources (manual > JAKIM > calc) with `stale: true` plus the MANUAL display banner, and the daily sync skips pinned rows so JAKIM never overwrites them; December/January year-boundary gap bridged by pinning January dates by hand (procedure in `docs/deployment.md`) with automatic recovery at the first January fetch; `/admin/settings` gains a Manual schedule section (date + 8 times + Save/Clear pin).
 - One-click backup export/restore + service log viewing (issue #41): admin-only `POST /api/backup/export` downloads the whole installation as one zip (DB snapshot at the zip root + uploads tree under `media/`, filename `muhideen-backup-<ts>.zip`), `POST /api/backup/restore` replaces it from a base64 zip (staged database migrated before it goes live, media swapped atomically, no restart; corrupt/traversal-unsafe archives are 400, oversize payloads 413), and `GET /api/logs` tails the `muhideen` journal (`lines` 1–1000, `available: false` instead of 500 when there is no journal); the System section of `/admin/settings` wires all three (procedure in `docs/deployment.md`; the archive holds password hashes — handle it as secret).
+- Playlist `repeat` cycle mode (issue #45): `cycle_mode` ∈ `indefinite|repeat` (`repeat` requires `max_cycles >= 1` and releases the Stage after N full passes; `indefinite` loops forever with `max_cycles: null`); illegal pairings are 422. Playlist items stay image-only and display override scope stays theme+dim-only as intentional v1.0 scope (contract + PRD).
 
 ### Changed
 
@@ -144,6 +145,11 @@ versioning follows [Semantic Versioning](https://semver.org/).
 - `delay_minutes` capped at 0–60 (DTO + domain guard, admin input `max=60`);
   existing values ≤60 unaffected; larger stored values now fail loud
   (`ConfigError`/422) instead of stretching countdowns silently.
+- Group `carousel_enabled` now drives the display (issue #45): the display
+  route resolves the display's group carousel flag into `show_carousel`
+  (default on for unknown ids), gating only the `#carousel-dot` footer
+  indicator — the footer still renders NORMAL-only, so the FR-3.3 pause
+  rule holds.
 
 ### Fixed
 
