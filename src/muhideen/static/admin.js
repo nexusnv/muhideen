@@ -423,7 +423,10 @@
       if (!data) return;
       var html = "";
       if (!data.displays.length) {
-        html += '<p class="hint">No screens configured yet — save a display below to create its URL (/display?id=...).</p>';
+        html += '<p class="hint">No screens configured yet — add the first display id to create its URL (/display?id=...).</p>'
+          + '<div class="display-row"><label class="field"><span class="lbl">New display id</span>'
+          + '<input data-provision-id type="text" maxlength="64" placeholder="hall"></label>'
+          + '<button class="btn btn-sm" type="button" data-provision-display>Add display</button></div>';
       }
       for (var i = 0; i < data.displays.length; i++) {
         (function (d) {
@@ -455,6 +458,21 @@
       }
       overridesBox.innerHTML = html;
       overridesBox.addEventListener("click", function (ev) {
+        var provisionEl = ev.target.getAttribute && ev.target.getAttribute("data-provision-display");
+        if (provisionEl !== null && provisionEl !== undefined) {
+          var idEl = overridesBox.querySelector("[data-provision-id]");
+          var newId = idEl && idEl.value ? idEl.value.trim() : "";
+          if (!newId) { msg("s-msg", "Display id required"); return; }
+          fetch("/api/displays/" + encodeURIComponent(newId), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: newId }),
+          }).then(function (r) {
+            if (r.status === 200) window.location.reload();
+            else msg("s-msg", "Invalid display id (1-64 characters)");
+          }).catch(function () { msg("s-msg", "Network error"); });
+          return;
+        }
         var saveId = ev.target.getAttribute && ev.target.getAttribute("data-save-display");
         if (saveId) {
           var groupEl = overridesBox.querySelector('[data-group-for="' + saveId + '"]');
