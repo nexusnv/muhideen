@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Path as PathParam
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -1371,7 +1372,10 @@ def create_app(deps: AppDeps) -> FastAPI:
         "/api/displays/{display_id}",
         dependencies=[Depends(admin)],
     )
-    def update_display(display_id: str, payload: DisplayUpdateDTO) -> dict[str, Any]:
+    def update_display(
+        display_id: Annotated[str, PathParam(min_length=1, max_length=64)],
+        payload: DisplayUpdateDTO,
+    ) -> dict[str, Any]:
         """Set per-display overrides, creating the row when unknown.
 
         Display identity is the URL id itself — no registration step:

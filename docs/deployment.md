@@ -42,7 +42,7 @@ What this does, in order:
    for scripted installs). Without JAKIM reachability the scheduler
    retries; without coordinates the calc fallback stays off.
 4. **Health** — the compose `healthcheck` polls `/api/version`;
-   `docker compose ps` shows it, `docker logs muhideen` is the first
+   `docker compose ps` shows it, `docker compose logs muhideen` is the first
    stop on failure.
 
 Offline install: on a networked machine
@@ -106,7 +106,10 @@ reloads into the route slate (see `docs/api-contract.md`).
   it — no restart required.
 
 ## Update (new image)
-A new release ships as a new image tag:
+A new release ships as a new image tag. Run these commands from the
+source checkout for the release being deployed — the build packages
+the current directory and does not fetch release source, so building
+from a stale checkout tags old code with the new version.
 
 ```bash
 docker build -t muhideen:1.0.1 .
@@ -120,7 +123,10 @@ MUHIDEEN_VERSION=1.0.1 docker compose up -d
    boot; a backup from a newer app version than the running build is
    rejected, so never boot an older image over a migrated volume
    without restoring the matching backup first.
-3. Poll `/api/version` for the new tag; on failure, roll back with
+3. Confirm the release's application version via `/api/version`
+   (the endpoint reports the app version from the release, not the
+   Docker tag — compare against the release notes); on failure, roll
+   back with
    `docker compose down && MUHIDEEN_VERSION=<prev> docker compose up -d`
    (plus `POST /api/backup/restore` if the database itself is suspect).
    **No automatic rollback:** the operator owns the backup-restore step.
@@ -151,7 +157,9 @@ handle it exactly like the live database file: encrypted transport, no
 shared folders or chat uploads, delete working copies after the move.
 
 **Restore onto replacement hardware.** Bring up the release compose
-on the new device first, sign in as admin, then choose the backup file
+on the new device first, complete first-boot setup at `/admin/setup`
+(a fresh volume has no admin yet — sign-in alone cannot proceed),
+then sign in as admin and choose the backup file
 in the System section and Restore (or POST the file base64 to
 `/api/backup/restore`). The staged database is migrated before it replaces
 the live one (older versions migrate up; backups from a newer application

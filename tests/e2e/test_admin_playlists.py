@@ -602,6 +602,15 @@ def test_display_config_upsert_flow(authed: TestClient) -> None:
     assert auto.json()["id"] == "nope"
     assert auto.json()["name"] == "nope"
     assert authed.patch("/api/displays/hall-1", json={}).status_code == 422
+    # Path ids share the 64-char bound of GET /display: longer ids cannot
+    # create rows the screen URL could never open (nor smuggle an
+    # over-long default name past the body limit).
+    assert (
+        authed.patch("/api/displays/" + "d" * 65, json={"name": "X"}).status_code == 422
+    )
+    assert (
+        authed.patch("/api/displays/" + "d" * 64, json={"name": "X"}).status_code == 200
+    )
     reassigned = authed.patch("/api/displays/hall-1", json={"group_name": "Default"})
     assert reassigned.status_code == 200
     assert reassigned.json()["group_name"] == "Default"
