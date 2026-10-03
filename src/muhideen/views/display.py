@@ -190,8 +190,11 @@ def build_display_context(
     iqamah_iso = event.iqamah_at.isoformat() if event.iqamah_at else ""
     # Countdown wording mirrors the ``pre_note`` state precedent: the ticking
     # block is gated on ``countdown_target`` by the template, so a missing
-    # target blanks the label too.
-    if event.state in ("NORMAL", "PRE_ADHAN"):
+    # target blanks the label too. The adhan countdown shows only in
+    # PRE_ADHAN — the state machine enters that state exactly inside the
+    # countdown window (domain owns the rule; views never recompute it) —
+    # so NORMAL renders a blank countdown area by design.
+    if event.state == "PRE_ADHAN":
         countdown_label, countdown_target = f"{labels[0]} call to prayer in", adhan_iso
     elif event.state in ("IQAMAH_COUNTDOWN", "ADHAN"):
         countdown_label, countdown_target = "Iqomah in", iqamah_iso
