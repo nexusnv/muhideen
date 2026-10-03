@@ -156,6 +156,55 @@ class SqlitePlaylistRepo:
                 ],
             )
 
+    def insert(self, playlist: Playlist) -> None:
+        """Insert a new playlist; raises ``KeyError`` when the id exists.
+
+        Plain ``INSERT`` (no ``ON CONFLICT`` upsert) inside one
+        transaction, so concurrent creates with the same id cannot both
+        succeed: the loser gets ``KeyError`` (mapped to 409) instead of
+        silently overwriting the winner.
+        """
+        if len(playlist.items) > MAX_PLAYLIST_ITEMS:
+            raise ValueError(
+                f"playlist {playlist.id!r} exceeds"
+                f" {MAX_PLAYLIST_ITEMS} items: {len(playlist.items)}"
+            )
+        with self._db.write() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO playlists (id, title, active, window_start,"
+                    " window_end, anchor_marker, anchor_start_offset_min,"
+                    " anchor_stop_offset_min, cycle_mode, max_cycles)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        playlist.id,
+                        playlist.title,
+                        1 if playlist.active else 0,
+                        playlist.window_start,
+                        playlist.window_end,
+                        playlist.anchor_marker.value
+                        if playlist.anchor_marker is not None
+                        else None,
+                        playlist.anchor_start_offset_min,
+                        playlist.anchor_stop_offset_min,
+                        playlist.cycle_mode,
+                        playlist.max_cycles,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                raise KeyError(
+                    f"playlist id already exists: {playlist.id!r}"
+                ) from None
+            conn.executemany(
+                "INSERT INTO playlist_items"
+                " (playlist_id, image_path, duration_s, sort_order)"
+                " VALUES (?,?,?,?)",
+                [
+                    (playlist.id, item.image_path, item.duration_s, item.sort_order)
+                    for item in playlist.items
+                ],
+            )
+
     def append_item(self, playlist_id: str, item: PlaylistItem) -> tuple[Playlist, int]:
         """Append one item atomically; read+write in one transaction.
 
@@ -204,7 +253,8 @@ class SqlitePlaylistRepo:
             meta_fresh = conn.execute(
                 "SELECT * FROM playlists WHERE id = ?", (playlist_id,)
             ).fetchone()
-        assert meta_fresh is not None
+        if meta_fresh is None:
+            raise KeyError(f"unknown playlist: {playlist_id!r}")
         return _playlist_from_rows(meta_fresh, list(item_rows)), order
 
     def remove_item(self, playlist_id: str, sort_order: int) -> bool:

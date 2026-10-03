@@ -1179,14 +1179,16 @@ def create_app(deps: AppDeps) -> FastAPI:
         """Create a playlist; the id is generated when the body omits it."""
         store = _playlists_or_503()
         pid = payload.id or uuid.uuid4().hex[:12]
-        if payload.id is not None and store.get(pid) is not None:
-            raise HTTPException(status_code=409, detail="playlist id already exists")
         try:
             playlist = payload.model_copy(update={"id": pid}).to_domain()
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         try:
-            store.save(playlist)
+            store.insert(playlist)
+        except KeyError:
+            raise HTTPException(
+                status_code=409, detail="playlist id already exists"
+            ) from None
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return PlaylistDTO.from_domain(playlist)

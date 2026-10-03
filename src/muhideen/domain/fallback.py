@@ -23,7 +23,11 @@ def is_stale(day: PrayerDay, now: datetime) -> bool:
     """Flag schedules older than 48h or from a degraded source."""
     fetched_at = day.fetched_at
     # Adapters have stored both naive and aware timestamps historically;
-    # normalize naive as UTC rather than raising TypeError on the mix.
+    # normalize naive as the same wall-time in now's zone (local time on
+    # the Pi) rather than raising TypeError on the mix. A naive value is
+    # assumed to be local wall-time, so attaching now's tzinfo preserves
+    # the elapsed duration; the reverse mix strips the offset for the
+    # same reason.
     if (fetched_at.tzinfo is None) != (now.tzinfo is None):
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=now.tzinfo)
