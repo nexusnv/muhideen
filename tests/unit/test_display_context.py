@@ -326,8 +326,8 @@ def test_countdown_label_target_matrix() -> None:
     settings = _settings()
 
     ctx = _ctx(day=day, event=event, settings=settings)
-    assert ctx["countdown_label"] == "Dhuhr call to prayer in"
-    assert ctx["countdown_target"] == event.adhan_at.isoformat()
+    assert ctx["countdown_label"] == ""
+    assert ctx["countdown_target"] == ""
 
     pre = event.model_copy(update={"state": "PRE_ADHAN"})
     pre_ctx = _ctx(day=day, event=pre, settings=settings)

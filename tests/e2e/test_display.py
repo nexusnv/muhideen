@@ -92,10 +92,10 @@ def test_display_renders_mockup_regions(
     assert "1447" in html  # Hijri date present (calc 2026 day + offset 0)
     assert "Masjid Test" in html
     assert "SGR01" in html
-    # Bounds strip + countdown block (NORMAL carries a target).
+    # Bounds strip present; countdown block blank in NORMAL (outside window).
     assert 'id="bounds"' in html
-    assert 'id="countdown-label"' in html
-    assert 'id="countdown" data-target="2025-10-20T' in html
+    assert 'id="countdown-label"' not in html
+    assert 'id="countdown"' not in html
 
 
 def test_display_timetable_english_only(
@@ -264,7 +264,12 @@ def test_state_walkthrough_jumuah_friday(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
     _seed_settings(surface)
-    _advance_to(surface, datetime(2025, 10, 24, 12, 20))
+    prayer = client.get(
+        "/api/prayer-day", params={"date": "2025-10-24", "zone": "SGR01"}
+    ).json()
+    hour, minute = prayer["prayers"]["dhuhr"].split(":")
+    target = datetime(2025, 10, 24, int(hour), int(minute)) - timedelta(minutes=2)
+    _advance_to(surface, target)
     html = client.get("/display", params={"id": "HALL-01"}).text
     assert "Jumuah" in html
     assert "Jumaat" not in html
@@ -301,11 +306,13 @@ def test_display_new_structure_tokens(
         "hijri-date",
         "mosque-name",
         "mosque-block",
-        "countdown-label",
         "additional-times",
         'id="hero-clock"',
     ):
         assert token in html
+    # Countdown block renders only inside its window (walkthroughs pin it);
+    # a fresh NORMAL render leaves the area blank.
+    assert 'id="countdown-label"' not in html
     # Dropped render: boxes, bars, overlays, footer, trilingual extras.
     for token in (
         'id="overlay-adhan"',
