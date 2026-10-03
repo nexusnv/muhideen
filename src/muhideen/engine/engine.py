@@ -213,7 +213,7 @@ class Engine:
                 dhuha_offset_min=settings.dhuha_offset_min,
                 asr_juristic=settings.asr_juristic,
             )
-        except (MuhideenError, ValueError):
+        except (MuhideenError, ValueError, TypeError, AttributeError, ArithmeticError):
             return None  # a broken calculator is a cache miss, not a 500
         if computed.zone != zone:
             # CalcEngine.compute_day has no zone parameter, but the fallback

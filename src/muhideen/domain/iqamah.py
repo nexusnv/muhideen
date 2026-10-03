@@ -68,6 +68,11 @@ def card_iqamah_labels(
         rule = rules.get(prayer)
         if rule is None:
             raise ConfigError(f"missing iqamah rule for prayer: {rule_key}")
-        adhan_at = datetime.combine(day_date, time.fromisoformat(hhmm), tzinfo=tz)
+        try:
+            adhan_at = datetime.combine(day_date, time.fromisoformat(hhmm), tzinfo=tz)
+        except ValueError:
+            raise ConfigError(
+                f"invalid adhan time for prayer {key}: {hhmm!r}"
+            ) from None
         labels[key] = resolve_iqamah(prayer, adhan_at, dict(rules)).strftime("%H:%M")
     return labels

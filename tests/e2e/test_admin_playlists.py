@@ -337,10 +337,10 @@ def test_image_upload_failure_cleans_up_stored_file(
     uploads = tmp_path / "uploads"
     before = set(uploads.iterdir()) if uploads.is_dir() else set()
 
-    def _boom(self: SqlitePlaylistRepo, playlist: object) -> None:
+    def _boom(self: SqlitePlaylistRepo, playlist_id: object, item: object) -> None:
         raise ValueError("boom")
 
-    monkeypatch.setattr(SqlitePlaylistRepo, "save", _boom)
+    monkeypatch.setattr(SqlitePlaylistRepo, "append_item", _boom)
     response = authed.post(
         "/api/playlists/upf/items",
         json={"image_base64": base64.b64encode(_png()).decode(), "duration_s": 5},

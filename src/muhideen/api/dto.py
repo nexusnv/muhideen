@@ -304,7 +304,7 @@ SSE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
 class HeartbeatRequestDTO(ContractDTO):
     """POST /api/displays/heartbeat body: stable pre-registered display ID."""
 
-    id: Annotated[str, Field(min_length=1)]
+    id: Annotated[str, Field(min_length=1, max_length=64)]
 
 
 class HeartbeatResponseDTO(ContractDTO):

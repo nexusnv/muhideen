@@ -9,6 +9,7 @@ goes through :class:`Database`. Transactions stay short (PRD §5.2).
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import threading
 from collections.abc import Generator
@@ -57,6 +58,11 @@ class Database:
         """Open the connection and create the serialising lock."""
         self._conn = connect(path)
         self._lock = threading.Lock()
+
+    def close(self) -> None:
+        """Close the underlying connection (releases FD/WAL state)."""
+        with self._lock:
+            self._conn.close()
 
     @contextmanager
     def read(self) -> Generator[sqlite3.Connection, None, None]:
@@ -579,6 +585,13 @@ def backup_to(db: Database, dest: Path) -> Path:
     return dest
 
 
+_DUMMY_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4"
+    "$SundudGS5Y66aZWv5643OQ$G07ss7WvvC6YnEsrlna8gdXcGwkI87NtyhCzayCiShA"
+)
+"""Synthetic hash for timing-neutral unknown-user verifies."""
+
+
 class SqliteUserRepo:
     """``UserRepo`` over the ``users`` table with Argon2id hashes."""
 
@@ -607,13 +620,19 @@ class SqliteUserRepo:
         return True
 
     def verify(self, username: str, password: str) -> bool:
-        """Verify a password; False for unknown users or bad hashes."""
+        """Verify a password; False for unknown users or bad hashes.
+
+        Unknown users pay a dummy Argon2 verify so response time does not
+        disclose user existence.
+        """
         with self._db.read() as conn:
             row = conn.execute(
                 "SELECT password_hash FROM users WHERE username = ?",
                 (username,),
             ).fetchone()
         if row is None:
+            with contextlib.suppress(VerificationError, InvalidHash):
+                self._hasher.verify(_DUMMY_HASH, password)
             return False
         try:
             return bool(self._hasher.verify(str(row["password_hash"]), password))
