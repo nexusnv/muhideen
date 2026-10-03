@@ -22,7 +22,6 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerificationError
 
 from muhideen.core.errors import ConfigError, SettingsNotInitializedError
-from muhideen.core.ports import Clock
 from muhideen.core.values import (
     DEFAULT_IQAMAH_RULES,
     THEME_KV_KEYS,
@@ -509,69 +508,6 @@ class SqliteDisplaySettingsRepo:
             raise ValueError(
                 f"invalid display dim override {key}={value!r}: out of range 5-60"
             )
-
-
-class SqliteDisplayRepo:
-    """``DisplayRepo``: buffered heartbeats flushed in 60s batches.
-
-    The batch window is driven by the injected ``Clock.monotonic()`` — no
-    timer thread in this slice: the HTTP layer (1A-7) calls ``record_seen``
-    per heartbeat, and ``flush()`` on shutdown. Time reads never touch the
-    wall clock (``TESTING_STRATEGY.md:17``). Only pre-registered display
-    IDs are updated; unknown IDs buffer normally but match no row at flush
-    and are dropped (``docs/api-contract.md:60``).
-    """
-
-    def __init__(
-        self,
-        db: Database,
-        clock: Clock,
-        batch_interval_s: float = 60,
-    ) -> None:
-        """Hold the database, clock, batch window, and heartbeat buffer."""
-        self._db = db
-        self._clock = clock
-        self._batch_interval_s = batch_interval_s
-        self._buffer: list[tuple[str, str | None, datetime]] = []
-        self._last_flush: float = clock.monotonic()
-
-    def record_seen(self, display_id: str, ip: str | None) -> None:
-        """Buffer one heartbeat; flush when the batch window has elapsed."""
-        with self._db.write() as conn:
-            self._buffer.append((display_id, ip, self._clock.now()))
-            if self._clock.monotonic() - self._last_flush >= self._batch_interval_s:
-                self._flush_locked(conn)
-
-    def is_registered(self, display_id: str) -> bool:
-        """Return True when display_id names a pre-registered display."""
-        with self._db.read() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM displays WHERE id = ?", (display_id,)
-            ).fetchone()
-        return row is not None
-
-    def flush(self) -> int:
-        """Write every buffered heartbeat; return rows updated."""
-        with self._db.write() as conn:
-            return self._flush_locked(conn)
-
-    def _flush_locked(self, conn: sqlite3.Connection) -> int:
-        """Apply the buffer in one transaction; caller holds the lock."""
-        # Buffer and window advance only after the writes succeed: a failed
-        # flush (I/O error on the Pi) rolls back the DB, keeps the rows, and
-        # retries on the next heartbeat instead of dropping a batch and
-        # re-arming the full 60s window.
-        rows = self._buffer
-        count = 0
-        if rows:
-            cursor = conn.executemany(
-                "UPDATE displays SET last_seen = ?, ip_address = ? WHERE id = ?",
-                [(stamp.isoformat(), ip, display_id) for display_id, ip, stamp in rows],
-            )
-            count = cursor.rowcount
-            self._buffer = []
-        self._last_flush = self._clock.monotonic()
-        return count
 
 
 def backup_to(db: Database, dest: Path) -> Path:

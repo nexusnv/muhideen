@@ -19,8 +19,6 @@ from muhideen.api import (
     AuthRequestDTO,
     AuthResponseDTO,
     ConfigUpdateEventDTO,
-    HeartbeatRequestDTO,
-    HeartbeatResponseDTO,
     IqamahRuleDTO,
     ManualDayDTO,
     NextEventDTO,
@@ -37,7 +35,6 @@ from muhideen.api.app import (
     AppDeps,
     BackupRestoreDTO,
     DisplayGroupUpdateDTO,
-    DisplayRegisterDTO,
     DisplayUpdateDTO,
     PlaylistCreateDTO,
     PlaylistDTO,
@@ -86,17 +83,6 @@ class _FakePrayerRepo:
         raise NotImplementedError
 
 
-class _FakeDisplayRepo:
-    def record_seen(self, display_id: str, ip: str | None) -> None:
-        raise NotImplementedError
-
-    def is_registered(self, display_id: str) -> bool:
-        return True
-
-    def flush(self) -> int:
-        return 0
-
-
 class _FakeUserRepo:
     def has_users(self) -> bool:
         return False
@@ -112,7 +98,6 @@ def _app() -> Any:
     deps = AppDeps(
         settings_repo=_FakeSettingsRepo(),  # type: ignore[arg-type]
         prayer_repo=_FakePrayerRepo(),  # type: ignore[arg-type]
-        display_repo=_FakeDisplayRepo(),  # type: ignore[arg-type]
         user_repo=_FakeUserRepo(),  # type: ignore[arg-type]
         clock=_FakeClock(),  # type: ignore[arg-type]
         event_bus=SSEBus(),
@@ -123,7 +108,6 @@ def _app() -> Any:
 JSON_ENDPOINTS: dict[str, tuple[str, type[BaseModel]]] = {
     "/api/prayer-day": ("get", PrayerDayDTO),
     "/api/next-event": ("get", NextEventDTO),
-    "/api/displays/heartbeat": ("post", HeartbeatResponseDTO),
     "/api/version": ("get", VersionDTO),
     # PUT /api/settings shares GET's $ref: one entry covers both methods.
     "/api/settings": ("get", SettingsDTO),
@@ -142,13 +126,10 @@ ALL_DTOS = (
     AdhanAudioUploadDTO,
     BackupRestoreDTO,
     DisplayGroupUpdateDTO,
-    DisplayRegisterDTO,
     DisplayUpdateDTO,
     AuthRequestDTO,
     AuthResponseDTO,
     ConfigUpdateEventDTO,
-    HeartbeatRequestDTO,
-    HeartbeatResponseDTO,
     IqamahRuleDTO,
     ManualDayDTO,
     NextEventDTO,
@@ -201,7 +182,6 @@ def test_openapi_declares_all_five_paths() -> None:
         "/api/prayer-day",
         "/api/next-event",
         "/api/events",
-        "/api/displays/heartbeat",
         "/api/version",
         "/api/settings",
         "/api/manual-day",
@@ -248,10 +228,6 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "application/json"
     ]["schema"]
     assert put_schema == {"$ref": "#/components/schemas/SettingsDTO"}
-    heartbeat_body = schema["paths"]["/api/displays/heartbeat"]["post"]["requestBody"][
-        "content"
-    ]["application/json"]["schema"]
-    assert heartbeat_body == {"$ref": "#/components/schemas/HeartbeatRequestDTO"}
     for setup_login in ("/api/auth/setup", "/api/auth/login"):
         body = schema["paths"][setup_login]["post"]["requestBody"]["content"][
             "application/json"
@@ -301,10 +277,7 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "content"
     ]["application/json"]["schema"]
     assert restore_body == {"$ref": "#/components/schemas/BackupRestoreDTO"}
-    register_body = schema["paths"]["/api/displays"]["post"]["requestBody"]["content"][
-        "application/json"
-    ]["schema"]
-    assert register_body == {"$ref": "#/components/schemas/DisplayRegisterDTO"}
+    # Display config upsert: dict envelope, DTO request body.
     update_body = schema["paths"]["/api/displays/{display_id}"]["patch"]["requestBody"][
         "content"
     ]["application/json"]["schema"]
@@ -321,7 +294,6 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         PlaylistImageUploadDTO,
         AdhanAudioUploadDTO,
         BackupRestoreDTO,
-        DisplayRegisterDTO,
         DisplayUpdateDTO,
         DisplayGroupUpdateDTO,
     ):
@@ -333,8 +305,6 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
     for name in (
         "PrayerDayDTO",
         "NextEventDTO",
-        "HeartbeatRequestDTO",
-        "HeartbeatResponseDTO",
         "VersionDTO",
         "SettingsDTO",
         "IqamahRuleDTO",
@@ -349,7 +319,6 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "PlaylistImageUploadDTO",
         "AdhanAudioUploadDTO",
         "BackupRestoreDTO",
-        "DisplayRegisterDTO",
         "DisplayUpdateDTO",
         "DisplayGroupUpdateDTO",
     ):

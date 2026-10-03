@@ -75,15 +75,6 @@
       })
       .catch(function () { /* offline: retry in 60s */ });
   }
-  function heartbeat() {
-    fetch("/api/displays/heartbeat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: displayId }),
-    }).catch(function () { /* offline: next beat retries */ });
-  }
-  heartbeat();
-  setInterval(heartbeat, 30000);
   var firstStateSeen = false;
   var lastStage = null;
   try {

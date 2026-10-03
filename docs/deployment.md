@@ -1,99 +1,61 @@
-# Deployment
+# Deployment (v1.0: Linux + Docker + host-provisioned kiosk)
 
-Operating Muhideen on a device: prerequisites, first install, OTA updates,
-time sync, optional RTC, and network discovery. Requirements are normative
-in `PRD.md`; the API surface in `docs/api-contract.md`.
+Operating Muhideen on a device: install the Dockerized app on generic
+Linux, point admin-provisioned Chromium kiosks at the display URLs, and
+operate updates, time sync, and backups. Requirements are normative
+in `PRD.md`; the API surface in `docs/api-contract.md`. Raspberry Pi
+bare-metal install and device registration are out of v1.0 scope
+(issue #46).
 
 ## Prerequisites
 
-* **Hardware:** all-in-one tier = any Debian (Bookworm+) machine with
-  2GB+ RAM and a desktop UI for the kiosk browser (PRD §7.1).
-  Below 1GB RAM: thin display client or headless server only.
-* **OS:** Debian with systemd; `git`, `curl`, and
-  `uv` (<https://docs.astral.sh/uv/>), plus network for the first
-  install's `apt` step.
-* **Vendored wheels:** the device never touches a package index
-  (PRD §4.2, item 5: offline installer). On a networked machine, from a checkout of the release
-  tag, run `tools/build_vendor.sh` and ship the resulting `vendor/`
-  directory (requirements + wheels) with the repo. It downloads the
-  locked dependency set for the build host and cross wheels for
-  `manylinux_2_28_aarch64` (ARM64 Debian) and `manylinux_2_28_x86_64`;
-  other architectures need a matching run of its `--platform` loop.
-  32-bit `armv7l` offline installs are unsupported: four locked
-  compiled dependencies (`argon2-cffi-bindings`, `cffi`, `markupsafe`,
-  `pillow`) publish no `armv7l` wheels, and the vendor loop resolves
-  `--only-binary`, so there is nothing to download. On ARM hardware
-  capable of AArch64, install 64-bit Debian (covered by the `aarch64`
-  wheels); otherwise, classify the device as unsupported or use the
-  thin-client/headless tiers.
+* **Host:** any 64-bit Linux with Docker Engine and 2GB+ RAM for the
+  all-in-one tier (backend + local kiosk browser, PRD 7.1).
+  Below 1GB RAM: headless server only, with screens as thin browser
+  clients on other machines.
+* **Images:** `Dockerfile` + `compose.yml` at the repo root build the
+  reproducible app image from the locked set (`uv.lock`, `--locked`:
+  a drifted lockfile fails the build instead of shipping untested
+  pins). No vendor-wheels bundle: offline sites ship the exported
+  image tarball (`docker save`, see Install).
+* **Clock:** the container inherits the host wall clock — run NTP on
+  the host (`timedatectl set-ntp true`); the app only reports what the
+  host gives it (see Time sync).
 
 ## Install
 
 ```bash
-sudo ./install.sh --zone SGR01 --masjid-name "Masjid Example"
+docker build -t muhideen:1.0.0 .
+MUHIDEEN_VERSION=1.0.0 MUHIDEEN_PORT=8000 docker compose up -d
 ```
 
-| Flag | Effect |
-| ---- | ------ |
-| `--zone ZONE` | JAKIM zone recorded by `muhideen-seed` on first boot (e.g. `SGR01`). |
-| `--masjid-name NAME` | Display name recorded on first boot. |
-| `--hostname NAME` | System hostname to set; default `muhideen`; pass `''` to leave it unchanged. |
-| `--force` | Continue past the RAM preflight refusal (see below). |
-| `--dry-run` | Print every command without executing it (preflight reads still run). |
+What this does, in order:
 
-What each step does, in order:
+1. **Build** — resolves `uv.lock` (`--locked`) and installs the
+   `muhideen` / `muhideen-seed` entrypoints into the image.
+2. **Run** — starts one container (`restart: unless-stopped`) with
+   port 8000 published and state in the `muhideen-data` volume
+   (SQLite + uploads persist across image swaps — back up the volume,
+   not the image). `TZ` defaults to `Asia/Kuala_Lumpur`.
+3. **Seed** — first boot needs configuration: run the setup wizard at
+   `/admin/setup` (or `muhideen-seed` against the volume-mounted DB
+   for scripted installs). Without JAKIM reachability the scheduler
+   retries; without coordinates the calc fallback stays off.
+4. **Health** — the compose `healthcheck` polls `/api/version`;
+   `docker compose ps` shows it, `docker logs muhideen` is the first
+   stop on failure.
 
-1. **Preflight** — refuses to install when `MemTotal` < 1048576 kB
-   (1GB RAM) and reports root free space; the refusal names the
-   `--force` override (PRD §7.1 — the all-in-one tier needs a 2GB+ Debian box).
-   **`--force` warning:** overriding means the machine may not meet the
-   backend + kiosk memory budget (PRD §5.1); use it only for headless
-   servers or hardware you have measured yourself.
-2. **apt dependencies** — `avahi-daemon`, `avahi-utils`, `git`, `curl`,
-   plus `systemd-timesyncd` when available (best effort — a chrony host
-   simply skips it).
-3. **Offline sync** — refuses to continue if `uv` or `vendor/wheels` is
-   missing (warns instead under `--dry-run`), then runs
-   `uv sync --locked --offline --no-dev --find-links vendor/wheels` into
-   `.venv` (`--no-dev`: the device never needs the dev tools the offline
-   wheels don't carry).
-4. **Service user** — creates the system user `muhideen` with home
-   `/var/lib/muhideen`.
-5. **Units** — copies `packaging/muhideen.service` and
-   `packaging/muhideen-mdns.service` into `/etc/systemd/system`,
-   baking this checkout's `.venv` path into `ExecStart`.
-6. **Hostname** — `hostnamectl set-hostname` (default `muhideen`;
-   skipped for `--hostname ''`).
-7. **Seed** — runs `.venv/bin/muhideen-seed` against
-   `--db /var/lib/muhideen/muhideen.db` with the configured zone and
-   name (configure-or-sync: an already-configured database always
-   re-fetches the configured zone's year and never reconfigures
-   settings). If JAKIM is unreachable, seed
-   warns and exits 3; the install continues, the services still enable,
-   and the scheduler retries the fetch.
-8. **Ownership + NTP** — `chown`s the state directory to `muhideen` and
-   runs `timedatectl set-ntp true` (warn-only).
-9. **Enable** — `systemctl daemon-reload` +
-   `systemctl enable --now muhideen muhideen-mdns`.
-10. **Health** — polls `http://127.0.0.1:8000/api/version` for up to
-    10 s (20 × 0.5 s); on timeout it exits 1 and points you at
-    `journalctl -u muhideen`.
-
-The backend should be ready within 10 s of `network-online.target`
-(PRD §5.1 budget). No step installs Python packages from the network.
-
-**First-boot admin setup.** The installer creates no admin account:
-open `/admin/setup` on the LAN and set the password yourself. Setup is
-open only until the first admin exists (409 after, per-IP rate-limited),
-so complete this step before exposing the box to an untrusted network —
-whoever sets the password first owns the box (see ADR-0004).
+Offline install: on a networked machine
+`docker save muhideen:1.0.0 > muhideen-1.0.0.tar`, carry the tarball
+to the site, `docker load < muhideen-1.0.0.tar`, then
+`docker compose up -d` as above.
 
 ## Offline-first: first boot needs connectivity or coordinates
 
 The display never renders an empty or healthy-looking page without a
 schedule. First boot must satisfy **one** of:
 
-* **JAKIM reachability** — `muhideen-seed` (install step 7) fetches the
+* **JAKIM reachability** — `muhideen-seed` (install step 3) fetches the
   configured zone's year into the prayer cache; when the fetch fails, the
   scheduler retries it (transient failures re-arm on a 6h long-pole —
   429 rate limits stay transient and retry; other, unrecoverable 4xx
@@ -143,53 +105,25 @@ reloads into the route slate (see `docs/api-contract.md`).
   to the automatic chain, and the next sync re-saves the JAKIM row for
   it — no restart required.
 
-## Update (OTA)
+## Update (new image)
+A new release ships as a new image tag:
 
 ```bash
-./update.sh --check      # read-only: what would happen
-sudo ./update.sh         # apply the newest local tag
+docker build -t muhideen:1.0.1 .
+MUHIDEEN_VERSION=1.0.1 docker compose up -d
 ```
 
-* **`--check`** prints the current git tag, the newest local tag, and
-  the running `/api/version` — it fetches nothing and mutates nothing.
-* A normal run, in order:
-  1. refuses to continue if the working tree is dirty (commit or
-     `git stash` first);
-  2. backs up the database **before touching git** —
-     `backups/<current-tag>-<timestamp>.db` via SQLite `VACUUM INTO`
-     (`--db` selects the database, default
-     `/var/lib/muhideen/muhideen.db`);
-  3. `git fetch --tags` + `git checkout <newest tag>`;
-  4. offline venv resync (same `uv sync` as the installer);
-  5. `systemctl restart muhideen` (the mDNS unit follows — it is
-     `PartOf=muhideen.service`);
-  6. the same 10 s health budget as the installer.
-* If git reports a "dubious ownership" error under `sudo`, mark the
-  checkout trusted once:
-  `git config --global --add safe.directory /path/to/checkout`.
-* **Backups** live in `backups/` next to `update.sh` (anchor: the script
-  `cd`s to its own directory, so this holds however you invoke it —
-  override the location with `MUHIDEEN_BACKUP_DIR`, e.g. to keep them on
-  the state volume). Names are timestamped and `VACUUM INTO` refuses to
-  overwrite an existing file, so no backup is ever clobbered. Prune old
-  ones manually.
-* **Failure — no automatic rollback.** If the health check fails after
-  an update, `update.sh` exits 1 with a recovery message naming the
-  backup path, the previous tag, and the `systemctl` commands. Manual
-  recovery:
-
-  ```bash
-  systemctl status muhideen; journalctl -u muhideen -n 100
-  # revert the code:
-  git checkout <previous tag>
-  uv sync --locked --offline --no-dev --find-links vendor/wheels
-  sudo systemctl restart muhideen
-  # only if the database itself is suspect (stop the service first):
-  sudo systemctl stop muhideen
-  cp backups/<tag>-<timestamp>.db /var/lib/muhideen/muhideen.db
-  sudo chown muhideen:muhideen /var/lib/muhideen/muhideen.db
-  sudo systemctl start muhideen
-  ```
+1. Back up first: `POST /api/backup/export` from `/admin/settings`
+   (the zip holds the DB snapshot + media — treat it as secret).
+2. Build the new tag, then recreate the container against the same
+   `muhideen-data` volume — the staged database migrates itself on
+   boot; a backup from a newer app version than the running build is
+   rejected, so never boot an older image over a migrated volume
+   without restoring the matching backup first.
+3. Poll `/api/version` for the new tag; on failure, roll back with
+   `docker compose down && MUHIDEEN_VERSION=<prev> docker compose up -d`
+   (plus `POST /api/backup/restore` if the database itself is suspect).
+   **No automatic rollback:** the operator owns the backup-restore step.
 
 ## Backup and restore (one-click export)
 
@@ -216,8 +150,8 @@ archives are rejected (400).
 handle it exactly like the live database file: encrypted transport, no
 shared folders or chat uploads, delete working copies after the move.
 
-**Restore onto replacement hardware.** Install the release on the new
-device first (`install.sh`), sign in as admin, then choose the backup file
+**Restore onto replacement hardware.** Bring up the release compose
+on the new device first, sign in as admin, then choose the backup file
 in the System section and Restore (or POST the file base64 to
 `/api/backup/restore`). The staged database is migrated before it replaces
 the live one (older versions migrate up; backups from a newer application
@@ -227,12 +161,13 @@ and no restart is required.
 **What is NOT in the bundle.** Scheduler runtime state (in-memory retry
 chains re-arm from the database on boot), admin sessions (in-memory — log
 in again after a restore), and service logs (read live via the Logs panel
-or `journalctl -u muhideen`; never stored in the archive).
+or `docker compose logs muhideen`; never stored in the archive).
 
 ## Time sync (NTP) and `TIME UNSYNCED`
 
-FR-1.6: NTP is required (`systemd-timesyncd` or `chrony`);
-`install.sh` enables it with `timedatectl set-ntp true`.
+FR-1.6: NTP is required (`systemd-timesyncd` or `chrony`) on the
+Docker host (`timedatectl set-ntp true`); the container inherits the
+host clock.
 
 * **What the banner means.** The API reports `time_synced: false`
   (rendered as the `TIME UNSYNCED` banner) when either NTP reported
@@ -280,46 +215,47 @@ deferred alongside Pi support (see ADR-0005):
    `hwclock -s`) and rely on the RTC plus the monotonic countdowns.
 
 ## Network: mDNS and the `.local` URL
-
-The installer sets up Avahi and enables `muhideen-mdns.service`, which
-publishes the system hostname as a `_muhideen._tcp` service on port
-8000:
-
-* Default URL: `http://muhideen.local:8000` (admin:
-  `http://muhideen.local:8000/admin`) — the QR fast-connect target
-  (FR-6.3).
-* **Fallback:** some networks block mDNS or isolate clients. Find the
-  device IP (`hostname -I` or your router's lease list) and use
-  `http://<ip>:8000` directly (FR-6.3 shows mDNS and the IP side by
-  side).
-* `--hostname ''` keeps the OS hostname, so the published name follows
-  it.
+Hostname publication is host provisioning (like the kiosk): if the LAN
+needs `.local` names, run Avahi on the host and point it at the
+compose-published port. The QR fast-connect target (FR-6.3) is whatever
+LAN URL reaches the app (`http://<host>:8000/admin`); on networks that
+block mDNS or isolate clients, use the host IP directly (`hostname -I`
+or the router lease list).
 
 ## Service operations
-
 ```bash
-systemctl status muhideen muhideen-mdns
-journalctl -u muhideen -f
-systemctl restart muhideen
+docker compose ps
+docker compose logs -f muhideen
+docker compose restart muhideen
 ```
 
-Units live in `/etc/systemd/system/` (installed from `packaging/`);
-`ExecStart` points at this checkout's `.venv`, so re-running
-`install.sh` after moving the checkout re-bakes the path. The service
-runs as the unprivileged `muhideen` user; state lives in
-`/var/lib/muhideen/` (database + media).
+State lives in the `muhideen-data` volume (database + media); the image
+itself is stateless. Port and tag come from `MUHIDEEN_PORT` /
+`MUHIDEEN_VERSION`.
 
 ## Kiosk display
+The repo ships no kiosk unit: the admin provisions Chromium on each
+screen machine and points it at that screen's display URL. One install
+serves many screens — `/display?id=hall` and `/display?id=entrance`
+render independently, each with its own saved configuration (palette,
+clock format, language, dim, carousel) from `/admin/settings`.
 
-On a machine with a desktop UI, show the display full-screen with
-Chromium in kiosk mode (»
-`chromium --kiosk 'http://muhideen.local:8000/display?id=HALL-01'`).
-Pass `--autoplay-policy=no-user-gesture-required` so the adhan audio
-plays without a click. There is no watchdog and no display-manager
-integration in v1.0: on power loss, the service re-enables at boot
-(`enable --now` at install) but an operator re-opens the kiosk window
-in the desktop session; monotonic ticking only smooths elapsed time between
-server updates, so a clock step can change the displayed time and countdown
-targets; the `TIME UNSYNCED` banner shows
-(see Time sync below). A TV with a browser works as a thin display
-client pointed at the same URL — no software to install on it.
+Validated kiosk invocation (Chromium/Chrome):
+
+```bash
+chromium --kiosk 'http://<host>:8000/display?id=hall' \
+  --autoplay-policy=no-user-gesture-required
+```
+
+* `--kiosk` gives the full-screen display surface; the id selects the
+  screen config (unknown ids render the global theme — configure the
+  id first via `PATCH /api/displays/{id}` or the admin page).
+* `--autoplay-policy=no-user-gesture-required` lets the adhan audio
+  play without a click.
+* The display reloads itself on state/stage changes over SSE, with a
+  60s `next-event` poll fallback — a kiosk needs no watchdog beyond
+  the browser's own restart-on-crash. On power loss the host reboots,
+  compose restarts the backend (`unless-stopped`), and the provisioned
+  kiosk reopens per host policy.
+* A TV with a browser works as a thin display client pointed at the
+  same URL shape — no software to install on it.

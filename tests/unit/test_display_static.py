@@ -47,10 +47,9 @@ def test_js_realtime_wiring_present() -> None:
     for token in (
         "EventSource",
         "/api/events",
-        "/api/displays/heartbeat",
+        "/api/next-event",
         "performance.now",
         "60000",
-        "30000",
         "data-state",
         "data-now",
         "data-tzoffset",

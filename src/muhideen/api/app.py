@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import queue
-import sqlite3
 import tempfile
 import threading
 import uuid
@@ -52,7 +51,6 @@ from muhideen.adapters.qr_code import qr_data_uri
 from muhideen.adapters.scheduler import build_scheduler
 from muhideen.adapters.sqlite_repo import (
     Database,
-    SqliteDisplayRepo,
     SqliteDisplaySettingsRepo,
     SqlitePrayerRepo,
     SqliteSettingsRepo,
@@ -76,8 +74,6 @@ from muhideen.api.dto import (
     AuthResponseDTO,
     ConfigUpdateEventDTO,
     ContractDTO,
-    HeartbeatRequestDTO,
-    HeartbeatResponseDTO,
     ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
@@ -96,7 +92,6 @@ from muhideen.core.errors import (
 )
 from muhideen.core.ports import (
     Clock,
-    DisplayRepo,
     JAKIMClient,
     PrayerRepo,
     SettingsRepo,
@@ -111,6 +106,7 @@ from muhideen.core.values import (
     PlaylistItem,
     PrayerDay,
     Settings,
+    theme_default,
 )
 from muhideen.domain.dim import effective_dim
 from muhideen.domain.fallback import is_stale
@@ -294,17 +290,15 @@ class BackupRestoreDTO(ContractDTO):
     archive_base64: Annotated[str, Field(min_length=1)]
 
 
-class DisplayRegisterDTO(ContractDTO):
-    """Register one display against an existing group."""
-
-    id: Annotated[str, Field(min_length=1, max_length=64)]
-    name: Annotated[str, Field(min_length=1, max_length=200)]
-    group_name: Annotated[str, Field(min_length=1, max_length=64)] = "Default"
-
-
 class DisplayUpdateDTO(ContractDTO):
-    """Per-display overrides: theme choice and group assignment."""
+    """Per-display overrides: name, theme choice, and group assignment.
 
+    Applied as an upsert: a PATCH against an unknown id creates the
+    display row (name defaults to the id), so no registration handshake
+    is needed before configuring a new screen URL.
+    """
+
+    name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
     current_theme: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     group_name: Annotated[str, Field(min_length=1, max_length=64)] | None = None
 
@@ -323,7 +317,6 @@ class AppDeps:
 
     settings_repo: SettingsRepo
     prayer_repo: PrayerRepo
-    display_repo: DisplayRepo
     user_repo: UserRepo
     clock: Clock
     event_bus: SSEBus
@@ -578,7 +571,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                 if background.scheduler.running:
                     background.scheduler.shutdown(wait=False)
                 background.scheduler_thread.join(2.0)
-            deps.display_repo.flush()
 
     app = FastAPI(
         title="muhideen",
@@ -669,19 +661,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                 engine, deps.clock, deps.event_bus, deps.settings_repo, playlist_store
             )
         )
-
-    @app.post(
-        "/api/displays/heartbeat",
-        response_model=HeartbeatResponseDTO,
-    )
-    def heartbeat(
-        payload: HeartbeatRequestDTO, request: Request
-    ) -> HeartbeatResponseDTO:
-        """Buffer one display heartbeat with its source IP."""
-        ip = request.client.host if request.client else None
-        registered = deps.display_repo.is_registered(payload.id)
-        deps.display_repo.record_seen(payload.id, ip)
-        return HeartbeatResponseDTO(ok=True, registered=registered)
 
     @app.get("/api/version", response_model=VersionDTO)
     def version() -> VersionDTO:
@@ -987,7 +966,7 @@ def create_app(deps: AppDeps) -> FastAPI:
             by_name = {group["name"]: group for group in groups}
             with deps.database.read() as conn:
                 rows = conn.execute(
-                    "SELECT id, name, ip_address, group_name, current_theme"
+                    "SELECT id, name, group_name, current_theme"
                     " FROM displays ORDER BY id"
                 ).fetchall()
             displays: list[dict[str, Any]] = []
@@ -998,7 +977,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                     {
                         "id": row["id"],
                         "name": row["name"],
-                        "ip_address": row["ip_address"],
                         "group_name": row["group_name"],
                         "current_theme": row["current_theme"],
                         "effective_dim_minutes": (
@@ -1089,7 +1067,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         """One display with its effective dim (group override, else default)."""
         with db.read() as conn:
             row = conn.execute(
-                "SELECT d.id, d.name, d.ip_address, d.group_name,"
+                "SELECT d.id, d.name, d.group_name,"
                 " d.current_theme, g.dim_minutes_override"
                 " FROM displays d LEFT JOIN display_groups g"
                 " ON g.name = d.group_name WHERE d.id = ?",
@@ -1101,7 +1079,6 @@ def create_app(deps: AppDeps) -> FastAPI:
         return {
             "id": row["id"],
             "name": row["name"],
-            "ip_address": row["ip_address"],
             "group_name": row["group_name"],
             "current_theme": row["current_theme"],
             "group_dim_override": override,
@@ -1362,15 +1339,14 @@ def create_app(deps: AppDeps) -> FastAPI:
         dependencies=[Depends(admin)],
     )
     def list_displays() -> dict[str, Any]:
-        """List registered displays with effective theme+dim plus groups."""
+        """List configured displays with effective theme+dim plus groups."""
         db = _registry_or_503()
         default_dim = deps.settings_repo.load().dim_minutes_default
         groups = _group_list(db)
         by_name = {group["name"]: group for group in groups}
         with db.read() as conn:
             rows = conn.execute(
-                "SELECT id, name, ip_address, group_name, current_theme"
-                " FROM displays ORDER BY id"
+                "SELECT id, name, group_name, current_theme FROM displays ORDER BY id"
             ).fetchall()
         displays: list[dict[str, Any]] = []
         for row in rows:
@@ -1380,7 +1356,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                 {
                     "id": row["id"],
                     "name": row["name"],
-                    "ip_address": row["ip_address"],
                     "group_name": row["group_name"],
                     "current_theme": row["current_theme"],
                     "group_dim_override": override,
@@ -1392,60 +1367,29 @@ def create_app(deps: AppDeps) -> FastAPI:
             )
         return {"displays": displays, "groups": groups}
 
-    @app.post(
-        "/api/displays",
-        dependencies=[Depends(admin)],
-        status_code=201,
-    )
-    def register_display(payload: DisplayRegisterDTO) -> dict[str, Any]:
-        """Register one display against an existing group."""
-        db = _registry_or_503()
-        default_dim = deps.settings_repo.load().dim_minutes_default
-        with db.read() as conn:
-            group = conn.execute(
-                "SELECT name FROM display_groups WHERE name = ?",
-                (payload.group_name,),
-            ).fetchone()
-        if group is None:
-            raise HTTPException(status_code=422, detail="unknown display group")
-        try:
-            with db.write() as conn:
-                conn.execute(
-                    "INSERT INTO displays (id, name, group_name) VALUES (?, ?, ?)",
-                    (payload.id, payload.name, payload.group_name),
-                )
-        except sqlite3.IntegrityError:
-            raise HTTPException(
-                status_code=409, detail="display id already registered"
-            ) from None
-        entry = _display_entry(db, payload.id, default_dim)
-        return entry
-
     @app.patch(
         "/api/displays/{display_id}",
         dependencies=[Depends(admin)],
     )
     def update_display(display_id: str, payload: DisplayUpdateDTO) -> dict[str, Any]:
-        """Set per-display overrides: theme choice and group assignment.
+        """Set per-display overrides, creating the row when unknown.
 
-        An explicit ``group_name`` null clears the assignment (the row
-        keeps NULL, so the effective dim falls back to settings); an
-        explicit ``current_theme`` null is not an update, so a body with
-        nothing else to change is still 422.
+        Display identity is the URL id itself — no registration step:
+        the first PATCH for an id inserts it (name defaults to the id,
+        group to ``Default`` unless assigned here). An explicit
+        ``group_name`` null clears the assignment (the row keeps NULL,
+        so the effective dim falls back to settings); an explicit
+        ``current_theme`` null is not an update, so a body with nothing
+        else to change is still 422.
         """
         db = _registry_or_503()
         default_dim = deps.settings_repo.load().dim_minutes_default
         provided = payload.model_fields_set
+        has_name = "name" in provided and payload.name is not None
         has_group = "group_name" in provided
         has_theme = "current_theme" in provided and payload.current_theme is not None
-        if not has_group and not has_theme:
+        if not has_name and not has_group and not has_theme:
             raise HTTPException(status_code=422, detail="nothing to update")
-        with db.read() as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM displays WHERE id = ?", (display_id,)
-            ).fetchone()
-        if exists is None:
-            raise HTTPException(status_code=404, detail="unknown display")
         if has_theme:
             from muhideen.core.values import THEME_CHOICES as _THEME_CHOICES
 
@@ -1454,37 +1398,47 @@ def create_app(deps: AppDeps) -> FastAPI:
                     status_code=422,
                     detail=f"unknown display theme: {payload.current_theme!r}",
                 )
+        if has_group and payload.group_name is not None:
+            with db.read() as conn:
+                group = conn.execute(
+                    "SELECT name FROM display_groups WHERE name = ?",
+                    (payload.group_name,),
+                ).fetchone()
+            if group is None:
+                raise HTTPException(status_code=422, detail="unknown display group")
         with db.write() as conn:
+            conn.execute(
+                "INSERT INTO displays (id, name, group_name, current_theme)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(id) DO NOTHING",
+                (
+                    display_id,
+                    payload.name if has_name else display_id,
+                    payload.group_name if has_group else "Default",
+                    payload.current_theme if has_theme else theme_default("palette"),
+                ),
+            )
+            if has_name:
+                conn.execute(
+                    "UPDATE displays SET name = ? WHERE id = ?",
+                    (payload.name, display_id),
+                )
             if has_group:
                 if payload.group_name is None:
-                    cursor = conn.execute(
+                    conn.execute(
                         "UPDATE displays SET group_name = NULL WHERE id = ?",
                         (display_id,),
                     )
-                    if cursor.rowcount == 0:
-                        raise HTTPException(status_code=404, detail="unknown display")
                 else:
-                    group = conn.execute(
-                        "SELECT name FROM display_groups WHERE name = ?",
-                        (payload.group_name,),
-                    ).fetchone()
-                    if group is None:
-                        raise HTTPException(
-                            status_code=422, detail="unknown display group"
-                        )
-                    cursor = conn.execute(
+                    conn.execute(
                         "UPDATE displays SET group_name = ? WHERE id = ?",
                         (payload.group_name, display_id),
                     )
-                    if cursor.rowcount == 0:
-                        raise HTTPException(status_code=404, detail="unknown display")
             if has_theme:
-                cursor = conn.execute(
+                conn.execute(
                     "UPDATE displays SET current_theme = ? WHERE id = ?",
                     (payload.current_theme, display_id),
                 )
-                if cursor.rowcount == 0:
-                    raise HTTPException(status_code=404, detail="unknown display")
         entry = _display_entry(db, display_id, default_dim)
         return entry
 
@@ -1656,7 +1610,6 @@ def create_production_app(
     deps = AppDeps(
         settings_repo=SqliteSettingsRepo(database),
         prayer_repo=SqlitePrayerRepo(database),
-        display_repo=SqliteDisplayRepo(database, clock),
         user_repo=SqliteUserRepo(database),
         clock=clock,
         event_bus=event_bus,

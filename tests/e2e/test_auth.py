@@ -58,7 +58,6 @@ def test_setup_loses_race_with_409(surface: SimpleNamespace) -> None:
     deps = AppDeps(
         settings_repo=surface.settings_repo,
         prayer_repo=surface.prayer_repo,
-        display_repo=surface.display_repo,
         user_repo=_RaceUserRepo(),  # type: ignore[arg-type]
         clock=surface.clock,
         event_bus=surface.bus,

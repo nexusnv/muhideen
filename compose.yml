@@ -1,0 +1,24 @@
+# Muhideen v1.0 compose: single app service. Screens are admin-provisioned
+# Chromium kiosks pointed at the display URLs (see docs/deployment.md for
+# the kiosk contract) — compose owns the backend only.
+services:
+  muhideen:
+    build: .
+    image: muhideen:${MUHIDEEN_VERSION:-1.0.0}
+    ports:
+      - "${MUHIDEEN_PORT:-8000}:8000"
+    volumes:
+      # SQLite + uploads persist across image swaps; back this up, not the image.
+      - muhideen-data:/data
+    environment:
+      TZ: ${TZ:-Asia/Kuala_Lumpur}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/version')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  muhideen-data:

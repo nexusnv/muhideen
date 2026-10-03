@@ -157,24 +157,14 @@ def test_version_reports_package_version(
     assert response.json() == {"version": package_version("muhideen"), "api": "v1"}
 
 
-def test_heartbeat_returns_ok(surface: SimpleNamespace, client: TestClient) -> None:
-    with surface.db.write() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO displays (id, name) VALUES (?, ?)",
-            ("HALL-01", "Main Hall"),
-        )
+def test_heartbeat_route_removed(surface: SimpleNamespace, client: TestClient) -> None:
+    """v1.0 drops device registration: heartbeats are no longer accepted."""
     response = client.post("/api/displays/heartbeat", json={"id": "HALL-01"})
-    assert response.status_code == 200
-    assert response.json() == {"ok": True, "registered": True}
-
-
-def test_heartbeat_ghost_reports_unregistered(
-    surface: SimpleNamespace, client: TestClient
-) -> None:
-    _seed_settings(surface)
-    response = client.post("/api/displays/heartbeat", json={"id": "GHOST-99"})
-    assert response.status_code == 200
-    assert response.json() == {"ok": True, "registered": False}
+    # 405, not 404: the path still matches /api/displays/{display_id}
+    # (PATCH-only), so Starlette reports method-not-allowed. Either way
+    # the old {"ok": True, "registered": ...} envelope is gone.
+    assert response.status_code == 405
+    assert "registered" not in response.json()
 
 
 def _seed_early_fixed_iqamah(surface: SimpleNamespace) -> None:

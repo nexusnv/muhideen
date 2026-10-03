@@ -59,7 +59,6 @@ class NaiveClock(FakeClock):
 def _repo_deps(tmp_path: Path, clock: Any, **overrides: Any) -> tuple[Any, AppDeps]:
     from muhideen.adapters.sqlite_repo import (
         Database,
-        SqliteDisplayRepo,
         SqlitePrayerRepo,
         SqliteSettingsRepo,
         SqliteUserRepo,
@@ -70,7 +69,6 @@ def _repo_deps(tmp_path: Path, clock: Any, **overrides: Any) -> tuple[Any, AppDe
     deps = AppDeps(
         settings_repo=SqliteSettingsRepo(db),
         prayer_repo=SqlitePrayerRepo(db),
-        display_repo=SqliteDisplayRepo(db, clock),
         user_repo=SqliteUserRepo(db),
         clock=clock,
         event_bus=SSEBus(),
@@ -100,7 +98,6 @@ def _day() -> PrayerDay:
 def test_lifespan_runs_migrations_at_boot(tmp_path: Path) -> None:
     from muhideen.adapters.sqlite_repo import (
         Database,
-        SqliteDisplayRepo,
         SqlitePrayerRepo,
         SqliteSettingsRepo,
         SqliteUserRepo,
@@ -112,7 +109,6 @@ def test_lifespan_runs_migrations_at_boot(tmp_path: Path) -> None:
     deps = AppDeps(
         settings_repo=SqliteSettingsRepo(db),
         prayer_repo=SqlitePrayerRepo(db),
-        display_repo=SqliteDisplayRepo(db, clock),
         user_repo=SqliteUserRepo(db),
         clock=clock,
         event_bus=SSEBus(),
@@ -124,10 +120,9 @@ def test_lifespan_runs_migrations_at_boot(tmp_path: Path) -> None:
     assert current_version(db) == 4
 
 
-def test_lifespan_flushes_heartbeats_on_shutdown(tmp_path: Path) -> None:
+def test_lifespan_shutdown_keeps_display_rows(tmp_path: Path) -> None:
     from muhideen.adapters.sqlite_repo import (
         Database,
-        SqliteDisplayRepo,
         SqlitePrayerRepo,
         SqliteSettingsRepo,
         SqliteUserRepo,
@@ -139,7 +134,6 @@ def test_lifespan_flushes_heartbeats_on_shutdown(tmp_path: Path) -> None:
     deps = AppDeps(
         settings_repo=SqliteSettingsRepo(db),
         prayer_repo=SqlitePrayerRepo(db),
-        display_repo=SqliteDisplayRepo(db, clock),
         user_repo=SqliteUserRepo(db),
         clock=clock,
         event_bus=SSEBus(),
@@ -152,15 +146,12 @@ def test_lifespan_flushes_heartbeats_on_shutdown(tmp_path: Path) -> None:
                 "INSERT OR IGNORE INTO displays (id, name) VALUES (?, ?)",
                 ("HALL-01", "Main Hall"),
             )
-        assert (
-            client.post("/api/displays/heartbeat", json={"id": "HALL-01"}).status_code
-            == 200
-        )
+        assert client.get("/api/version").status_code == 200
     with db.read() as conn:
         row = conn.execute(
-            "SELECT last_seen FROM displays WHERE id = ?", ("HALL-01",)
+            "SELECT name FROM displays WHERE id = ?", ("HALL-01",)
         ).fetchone()
-    assert row is not None and row["last_seen"] is not None
+    assert row is not None and row["name"] == "Main Hall"
 
 
 def test_background_lifespan_starts_and_stops_ticker_and_scheduler(
@@ -168,7 +159,6 @@ def test_background_lifespan_starts_and_stops_ticker_and_scheduler(
 ) -> None:
     from muhideen.adapters.sqlite_repo import (
         Database,
-        SqliteDisplayRepo,
         SqlitePrayerRepo,
         SqliteSettingsRepo,
         SqliteUserRepo,
@@ -180,7 +170,6 @@ def test_background_lifespan_starts_and_stops_ticker_and_scheduler(
     deps = AppDeps(
         settings_repo=SqliteSettingsRepo(db),
         prayer_repo=SqlitePrayerRepo(db),
-        display_repo=SqliteDisplayRepo(db, clock),
         user_repo=SqliteUserRepo(db),
         clock=clock,
         event_bus=SSEBus(),

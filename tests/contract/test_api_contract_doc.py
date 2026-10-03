@@ -18,7 +18,6 @@ from muhideen.api.app import (
     AdhanAudioUploadDTO,
     BackupRestoreDTO,
     DisplayGroupUpdateDTO,
-    DisplayRegisterDTO,
     DisplayUpdateDTO,
     PlaylistCreateDTO,
     PlaylistDTO,
@@ -28,8 +27,6 @@ from muhideen.api.app import (
 from muhideen.api.dto import (
     AuthRequestDTO,
     AuthResponseDTO,
-    HeartbeatRequestDTO,
-    HeartbeatResponseDTO,
     ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
@@ -48,7 +45,6 @@ SECTION_DTOS: dict[str, list[type[BaseModel]]] = {
     "GET /api/prayer-day": [PrayerDayDTO],
     "GET /api/next-event": [NextEventDTO],
     "GET /api/events": [],
-    "POST /api/displays/heartbeat": [HeartbeatRequestDTO, HeartbeatResponseDTO],
     "GET /api/version": [VersionDTO],
     "GET /api/settings": [SettingsDTO],
     "PUT /api/settings": [SettingsDTO],
@@ -73,7 +69,6 @@ SECTION_DTOS: dict[str, list[type[BaseModel]]] = {
     "POST /api/adhan-audio": [AdhanAudioUploadDTO],
     "DELETE /api/adhan-audio": [],
     "GET /api/displays": [],
-    "POST /api/displays": [DisplayRegisterDTO],
     "PATCH /api/displays/{display_id}": [DisplayUpdateDTO],
     "PATCH /api/display-groups/{name}": [DisplayGroupUpdateDTO],
     "POST /api/backup/export": [],
@@ -84,10 +79,6 @@ SECTION_FIXTURES: dict[str, list[str]] = {
     "GET /api/prayer-day": ["prayer-day.json"],
     "GET /api/next-event": ["next-event.json"],
     "GET /api/events": [],
-    "POST /api/displays/heartbeat": [
-        "heartbeat-request.json",
-        "heartbeat-response.json",
-    ],
     "GET /api/version": ["version.json"],
     "GET /api/settings": ["settings.json"],
     "PUT /api/settings": ["settings.json"],
@@ -112,7 +103,6 @@ SECTION_FIXTURES: dict[str, list[str]] = {
     "POST /api/adhan-audio": ["adhan-audio-upload.json"],
     "DELETE /api/adhan-audio": [],
     "GET /api/displays": [],
-    "POST /api/displays": ["display-register.json"],
     "PATCH /api/displays/{display_id}": ["display-update.json"],
     "PATCH /api/display-groups/{name}": ["display-group-update.json"],
     "POST /api/backup/export": [],
@@ -152,8 +142,7 @@ def _body_for(key: str) -> str:
             return body
     # Fallback: titles carrying query strings or prose suffixes
     # (`GET /api/prayer-day?date=…`, `GET /api/events (SSE …)`).
-    # Exact titles win first so `POST /api/displays` never resolves to
-    # the earlier `POST /api/displays/heartbeat` section.
+    # Exact titles win first so similarly-prefixed sections resolve correctly.
     return next(body for title, body in sections.items() if title.startswith(key))
 
 

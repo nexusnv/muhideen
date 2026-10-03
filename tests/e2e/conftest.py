@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from muhideen.adapters.migrate import migrate
 from muhideen.adapters.sqlite_repo import (
     Database,
-    SqliteDisplayRepo,
     SqlitePrayerRepo,
     SqliteSettingsRepo,
     SqliteUserRepo,
@@ -56,13 +55,11 @@ def surface(tmp_path: Path) -> SimpleNamespace:
     clock = FakeClock(PINNED_START)
     settings_repo = SqliteSettingsRepo(db)
     prayer_repo = SqlitePrayerRepo(db)
-    display_repo = SqliteDisplayRepo(db, clock)
     user_repo = SqliteUserRepo(db)
     bus = SSEBus()
     deps = AppDeps(
         settings_repo=settings_repo,
         prayer_repo=prayer_repo,
-        display_repo=display_repo,
         user_repo=user_repo,
         clock=clock,
         event_bus=bus,
@@ -77,7 +74,6 @@ def surface(tmp_path: Path) -> SimpleNamespace:
         bus=bus,
         settings_repo=settings_repo,
         prayer_repo=prayer_repo,
-        display_repo=display_repo,
         user_repo=user_repo,
     )
 

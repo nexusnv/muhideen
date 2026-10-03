@@ -45,22 +45,6 @@ Server-computed state per PRD §8. Client never computes. All timestamps ISO8601
 
 Events: `state` (on transition), `tick` (1/min heartbeat with server `now` + Main Stage id `stage`; the display reloads when `stage` changes), `config-update` (settings/theme/playlist changed → refetch). `state` payloads always carry `time_synced` (FR-1.6) and carry `next_boundary`/`boundary_at` when the opt-in is on (see sample). `stage` is one of `clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, `playlist:<id>`, or `error` (config/schedule failure — the display reloads into the route slate instead of rendering a healthy Clock). `60s` poll of `next-event` is the fallback. Sample in `api/fixtures/events-stream.txt`. OpenAPI documents the three payload schemas inline as an `anyOf` (under `type: object`) beneath the `text/event-stream` content.
 
-## `POST /api/displays/heartbeat`
-
-Request body:
-
-```json
-{"id": "HALL-01"}
-```
-
-Response body (`200 OK`):
-
-```json
-{"ok": true, "registered": true}
-```
-
-Server records `last_seen`/IP/group server-side in 60s batches. No auth; LAN-only; IDs pre-registered or pending-approval. `registered` is `false` for pending-approval IDs — the heartbeat is still accepted, then matches no row at flush and is dropped.
-
 ## `GET /api/version`
 
 ```json
@@ -398,22 +382,14 @@ Admin session required. Removes the adhan MP3; idempotent (a missing file is sti
 
 ## `GET /api/displays`
 
-Admin session required. Lists registered displays with effective theme and dim plus groups: each display carries its group dim override (or the settings default) and a `dim_source` of `group` or `settings`.
-
-## `POST /api/displays`
-
-Admin session required. Registers one display against an existing group; duplicate ids are 409, unknown groups are 422.
-
-```json
-{"id": "hall-1", "name": "Main Hall", "group_name": "Default"}
-```
+Admin session required. Lists configured displays with effective theme and dim plus groups: each display carries its group dim override (or the settings default) and a `dim_source` of `group` or `settings`. Display identity is the screen URL id (`GET /display?id=...`) — there is no registration step.
 
 ## `PATCH /api/displays/{display_id}`
 
-Admin session required. Sets per-display overrides (theme choice, group assignment); empty bodies are 422, unknown displays and unknown groups are 404/422. An explicit `group_name` null clears the assignment (the effective dim falls back to settings); an explicit `current_theme` null is not an update, so a null-theme-only body is 422.
+Admin session required. Sets per-display overrides (name, theme choice, group assignment), creating the display row when the id is unknown; empty bodies are 422, unknown groups are 422. An explicit `group_name` null clears the assignment (the effective dim falls back to settings); an explicit `current_theme` null is not an update, so a null-theme-only body is 422.
 
 ```json
-{"current_theme": "midnight", "group_name": null}
+{"name": null, "current_theme": "midnight", "group_name": null}
 ```
 
 ## `PATCH /api/display-groups/{name}`

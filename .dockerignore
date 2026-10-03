@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+tmp/
+dist/
+vendor/
+docs/
+tests/
+tools/mock_api.py
+*.md
+!README.md
+.DS_Store

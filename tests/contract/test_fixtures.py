@@ -19,7 +19,6 @@ from muhideen.api.app import (
     AdhanAudioUploadDTO,
     BackupRestoreDTO,
     DisplayGroupUpdateDTO,
-    DisplayRegisterDTO,
     DisplayUpdateDTO,
     PlaylistCreateDTO,
     PlaylistDTO,
@@ -29,8 +28,6 @@ from muhideen.api.app import (
 from muhideen.api.dto import (
     AuthRequestDTO,
     AuthResponseDTO,
-    HeartbeatRequestDTO,
-    HeartbeatResponseDTO,
     ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
@@ -213,23 +210,6 @@ def test_version_fixture_round_trips() -> None:
     assert dto.model_dump(mode="json") == payload
 
 
-def test_heartbeat_request_fixture_round_trips() -> None:
-    payload = _load("heartbeat-request.json")
-    dto = HeartbeatRequestDTO.model_validate(payload)
-    assert dto.model_dump(mode="json") == payload
-
-
-def test_heartbeat_response_fixture_round_trips() -> None:
-    payload = _load("heartbeat-response.json")
-    dto = HeartbeatResponseDTO.model_validate(payload)
-    assert dto.model_dump(mode="json") == payload
-
-
-def test_heartbeat_rejects_empty_id() -> None:
-    with pytest.raises(ValidationError):
-        HeartbeatRequestDTO.model_validate({"id": ""})
-
-
 def test_version_rejects_unknown_api_value() -> None:
     with pytest.raises(ValidationError):
         VersionDTO.model_validate({"version": "0.1.0", "api": "v2"})
@@ -298,9 +278,7 @@ def test_adhan_audio_upload_fixture_round_trips() -> None:
     assert upload.model_dump(mode="json") == _load("adhan-audio-upload.json")
 
 
-def test_display_registry_fixtures_round_trip() -> None:
-    register = DisplayRegisterDTO.model_validate(_load("display-register.json"))
-    assert register.model_dump(mode="json") == _load("display-register.json")
+def test_display_config_fixture_round_trips() -> None:
     update = DisplayUpdateDTO.model_validate(_load("display-update.json"))
     assert update.model_dump(mode="json") == _load("display-update.json")
     group = DisplayGroupUpdateDTO.model_validate(_load("display-group-update.json"))
@@ -332,8 +310,6 @@ def test_all_contract_surfaces_have_fixtures() -> None:
     for name in (
         "prayer-day.json",
         "next-event.json",
-        "heartbeat-request.json",
-        "heartbeat-response.json",
         "version.json",
         "settings.json",
         "auth-request.json",
@@ -345,7 +321,6 @@ def test_all_contract_surfaces_have_fixtures() -> None:
         "playlist-image-upload.json",
         "playlist-item.json",
         "adhan-audio-upload.json",
-        "display-register.json",
         "display-update.json",
         "display-group-update.json",
         "manual-day.json",

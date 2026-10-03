@@ -102,7 +102,6 @@ def media_client(surface: SimpleNamespace, tmp_path: Path) -> Any:
     deps = AppDeps(
         settings_repo=surface.settings_repo,
         prayer_repo=surface.prayer_repo,
-        display_repo=surface.display_repo,
         user_repo=surface.user_repo,
         clock=surface.clock,
         event_bus=surface.bus,
@@ -451,7 +450,6 @@ def test_playlist_api_503_without_repo() -> None:
     deps = AppDeps(
         settings_repo=_NoSettings(),
         prayer_repo=_NoPrayer(),
-        display_repo=_NoDisplay(),
         user_repo=_NoUser(),
         clock=_PinnedClock(),
         event_bus=SSEBus(),
@@ -481,7 +479,6 @@ def test_no_database_app_serves_admin_with_503_backends() -> None:
     deps = AppDeps(
         settings_repo=_StaticSettings(),  # type: ignore[arg-type]
         prayer_repo=_NoPrayer(),  # type: ignore[arg-type]
-        display_repo=_NoDisplay(),  # type: ignore[arg-type]
         user_repo=_OpenUser(),  # type: ignore[arg-type]
         clock=_PinnedClock(),  # type: ignore[arg-type]
         event_bus=SSEBus(),
@@ -544,11 +541,9 @@ def test_admin_playlists_page_renders_preview_error_on_corrupt_settings(
     )
 
 
-def test_settings_page_shows_registered_displays(authed: TestClient) -> None:
-    registered = authed.post(
-        "/api/displays", json={"id": "hall-9", "name": "Hall Nine"}
-    )
-    assert registered.status_code == 201
+def test_settings_page_shows_configured_displays(authed: TestClient) -> None:
+    created = authed.patch("/api/displays/hall-9", json={"name": "Hall Nine"})
+    assert created.status_code == 200
     html = authed.get("/admin/settings").text
     assert "hall-9" in html
     assert "classic-green" in html
@@ -573,43 +568,39 @@ def test_admin_playlists_page_gating(
     assert 'lang="en"' in html
 
 
-def test_display_registry_flow(authed: TestClient) -> None:
-    registered = authed.post(
-        "/api/displays", json={"id": "hall-1", "name": "Main Hall"}
+def test_display_config_upsert_flow(authed: TestClient) -> None:
+    """PATCH creates the display row when unknown (no registration step)."""
+    created = authed.patch(
+        "/api/displays/hall-1", json={"name": "Main Hall", "current_theme": "midnight"}
     )
-    assert registered.status_code == 201
+    assert created.status_code == 200
+    assert created.json()["name"] == "Main Hall"
+    assert created.json()["current_theme"] == "midnight"
     assert (
-        authed.post("/api/displays", json={"id": "hall-1", "name": "Dup"}).status_code
-        == 409
-    )
-    assert (
-        authed.post(
-            "/api/displays", json={"id": "x", "name": "X", "group_name": "Nope"}
-        ).status_code
-        == 422
+        authed.patch("/api/displays/x", json={"group_name": "Nope"}).status_code == 422
     )
 
     listing = authed.get("/api/displays").json()
     hall = next(d for d in listing["displays"] if d["id"] == "hall-1")
-    assert hall["current_theme"] == "classic-green"
+    assert hall["current_theme"] == "midnight"
     assert hall["effective_dim_minutes"] == 20
     assert hall["dim_source"] == "settings"
 
-    updated = authed.patch("/api/displays/hall-1", json={"current_theme": "midnight"})
+    updated = authed.patch("/api/displays/hall-1", json={"current_theme": "sand"})
     assert updated.status_code == 200
-    assert updated.json()["current_theme"] == "midnight"
+    assert updated.json()["current_theme"] == "sand"
     assert (
         authed.patch("/api/displays/hall-1", json={"group_name": "Nope"}).status_code
         == 422
     )
     assert (
         authed.patch("/api/displays/nope", json={"current_theme": "x"}).status_code
-        == 404
+        == 422
     )
-    assert (
-        authed.patch("/api/displays/nope", json={"group_name": "Default"}).status_code
-        == 404
-    )
+    auto = authed.patch("/api/displays/nope", json={"group_name": "Default"})
+    assert auto.status_code == 200
+    assert auto.json()["id"] == "nope"
+    assert auto.json()["name"] == "nope"
     assert authed.patch("/api/displays/hall-1", json={}).status_code == 422
     reassigned = authed.patch("/api/displays/hall-1", json={"group_name": "Default"})
     assert reassigned.status_code == 200
@@ -654,10 +645,8 @@ def test_display_registry_flow(authed: TestClient) -> None:
 
 
 def test_display_group_null_clears_assignment(authed: TestClient) -> None:
-    registered = authed.post(
-        "/api/displays", json={"id": "hall-2", "name": "Side Hall"}
-    )
-    assert registered.status_code == 201
+    created = authed.patch("/api/displays/hall-2", json={"name": "Side Hall"})
+    assert created.status_code == 200
     assert (
         authed.patch(
             "/api/display-groups/Default", json={"dim_minutes_override": 30}
@@ -684,9 +673,12 @@ def test_display_group_null_clears_assignment(authed: TestClient) -> None:
         authed.patch("/api/displays/hall-2", json={"current_theme": None}).status_code
         == 422
     )
-    assert (
-        authed.patch("/api/displays/nope", json={"group_name": None}).status_code == 404
-    )
+    # Upsert: an explicit null group on an unknown id creates the row
+    # with a cleared assignment (dim falls back to settings).
+    fresh = authed.patch("/api/displays/nope", json={"group_name": None})
+    assert fresh.status_code == 200
+    assert fresh.json()["group_name"] is None
+    assert fresh.json()["dim_source"] == "settings"
 
 
 class _NoSettings:
@@ -706,17 +698,6 @@ class _NoPrayer:
 
     def last_known(self, day, zone):  # type: ignore[no-untyped-def]
         raise NotImplementedError
-
-
-class _NoDisplay:
-    def record_seen(self, display_id, ip):  # type: ignore[no-untyped-def]
-        raise NotImplementedError
-
-    def is_registered(self, display_id):  # type: ignore[no-untyped-def]
-        return False
-
-    def flush(self) -> int:
-        return 0
 
 
 class _NoUser:

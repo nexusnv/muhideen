@@ -423,7 +423,7 @@
       if (!data) return;
       var html = "";
       if (!data.displays.length) {
-        html += '<p class="hint">No screens registered yet — they appear here after their first heartbeat.</p>';
+        html += '<p class="hint">No screens configured yet — save a display below to create its URL (/display?id=...).</p>';
       }
       for (var i = 0; i < data.displays.length; i++) {
         (function (d) {
@@ -479,7 +479,7 @@
           }).catch(function () { msg("s-msg", "Network error"); });
         }
       });
-    }).catch(function () { /* registry renders on next load */ });
+    }).catch(function () { /* display list renders on next load */ });
   }
   var summaryBox = document.getElementById("playlist-summary");
   if (summaryBox) {
