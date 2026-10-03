@@ -150,15 +150,17 @@ def resolve_next_event(
             boundary_at=boundary_at,
         )
 
-    for prayer, adhan_at, dim_minutes in slots:
-        iqamah_at = resolve_iqamah(prayer, adhan_at, rules)
-        dim_until = iqamah_at + timedelta(minutes=dim_minutes)
+    for prayer, adhan_at, _dim_minutes in slots:
         adhan_end = adhan_at + adhan_duration
         # ADHAN wins globally: a live adhan preempts any prior prayer's DIM.
         # Check all ADHAN windows first so a long DIM cannot swallow the next
         # prayer's overlay (slot order is chronological, DIM windows may
-        # overlap the next adhan when dim is large).
+        # overlap the next adhan when dim is large). Resolve iqamah lazily
+        # inside the window so an invalid rule on a non-live slot cannot
+        # block the active overlay.
         if adhan_at <= now < adhan_end:
+            iqamah_at = resolve_iqamah(prayer, adhan_at, rules)
+            dim_until = iqamah_at + timedelta(minutes=_dim_minutes)
             return _event(PrayerState.ADHAN, prayer, adhan_at, iqamah_at, dim_until)
     for prayer, adhan_at, dim_minutes in slots:
         iqamah_at = resolve_iqamah(prayer, adhan_at, rules)

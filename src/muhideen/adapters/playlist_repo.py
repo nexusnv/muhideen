@@ -192,9 +192,7 @@ class SqlitePlaylistRepo:
                     ),
                 )
             except sqlite3.IntegrityError:
-                raise KeyError(
-                    f"playlist id already exists: {playlist.id!r}"
-                ) from None
+                raise KeyError(f"playlist id already exists: {playlist.id!r}") from None
             conn.executemany(
                 "INSERT INTO playlist_items"
                 " (playlist_id, image_path, duration_s, sort_order)"
@@ -253,9 +251,12 @@ class SqlitePlaylistRepo:
             meta_fresh = conn.execute(
                 "SELECT * FROM playlists WHERE id = ?", (playlist_id,)
             ).fetchone()
-        if meta_fresh is None:
-            raise KeyError(f"unknown playlist: {playlist_id!r}")
-        return _playlist_from_rows(meta_fresh, list(item_rows)), order
+            if meta_fresh is None:
+                raise KeyError(f"unknown playlist: {playlist_id!r}")
+            # Map inside the transaction: a ConfigError on corrupt stored
+            # rows rolls back the insert instead of leaving a committed
+            # row whose image the upload handler then deletes.
+            return _playlist_from_rows(meta_fresh, list(item_rows)), order
 
     def remove_item(self, playlist_id: str, sort_order: int) -> bool:
         """Remove the item at one sort position atomically.
