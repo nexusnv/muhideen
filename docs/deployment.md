@@ -139,10 +139,11 @@ needed. API: `POST /api/backup/export` (zip download),
 `POST /api/backup/restore` (base64 zip), `GET /api/logs` (see
 `docs/api-contract.md` for shapes and status codes).
 
-**When to export.** Before every `update.sh` run (in addition to its
-automatic pre-update DB backup), before replacing hardware, and after any
-large media change (playlist images, adhan audio). There are no scheduled
-or automatic exports — back up on demand, or add a cron job that POSTs the
+**When to export.** Before every image update (the Compose flow creates
+no automatic backup — export explicitly first), before replacing
+hardware, and after any large media change (playlist images, adhan
+audio). There are no scheduled or automatic exports — back up on
+demand, or add a cron job that POSTs the
 export endpoint and stores the download off-device.
 
 **What the bundle holds.** The `muhideen.db` snapshot at the zip root plus
