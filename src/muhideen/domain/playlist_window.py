@@ -75,7 +75,9 @@ def parse_window(playlist: Playlist) -> TypedWindow:
     """Parse one playlist's window into its typed form.
 
     Raises ``ValueError`` for boundary anchors and for bounds that are
-    neither ``HH:MM`` nor a marker name.
+    neither ``HH:MM`` nor a marker name. Anchor offsets must satisfy
+    ``stop > start``: same-base inversion can never mean midnight-span,
+    so a swapped pair is a misconfiguration, not a 24h window.
     """
     if (
         playlist.anchor_marker is not None
@@ -84,6 +86,14 @@ def parse_window(playlist: Playlist) -> TypedWindow:
         raise ValueError(
             "boundary marker cannot anchor a playlist: "
             f"{playlist.anchor_marker.value!r}"
+        )
+    if playlist.anchor_marker is not None and (
+        playlist.anchor_stop_offset_min <= playlist.anchor_start_offset_min
+    ):
+        raise ValueError(
+            "anchor stop offset must be after start offset: "
+            f"{playlist.anchor_start_offset_min!r} >= "
+            f"{playlist.anchor_stop_offset_min!r}"
         )
     try:
         start = parse_bound(playlist.window_start)

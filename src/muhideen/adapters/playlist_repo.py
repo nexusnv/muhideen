@@ -156,6 +156,76 @@ class SqlitePlaylistRepo:
                 ],
             )
 
+    def append_item(self, playlist_id: str, item: PlaylistItem) -> tuple[Playlist, int]:
+        """Append one item atomically; read+write in one transaction.
+
+        Returns the refreshed playlist plus the assigned sort order.
+        Raises ``KeyError`` when the playlist is unknown, ``ValueError``
+        when the item cap is reached. The single ``write()`` lock covers
+        the item-count check and the insert, so concurrent uploads cannot
+        both pass the cap or lose each other's rows.
+        """
+        with self._db.write() as conn:
+            meta = conn.execute(
+                "SELECT * FROM playlists WHERE id = ?", (playlist_id,)
+            ).fetchone()
+            if meta is None:
+                raise KeyError(f"unknown playlist: {playlist_id!r}")
+            count_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM playlist_items WHERE playlist_id = ?",
+                (playlist_id,),
+            ).fetchone()
+            count = int(count_row["n"]) if count_row is not None else 0
+            if count >= MAX_PLAYLIST_ITEMS:
+                raise ValueError(
+                    f"playlist {playlist_id!r} exceeds"
+                    f" {MAX_PLAYLIST_ITEMS} items: {count}"
+                )
+            max_row = conn.execute(
+                "SELECT MAX(sort_order) AS m FROM playlist_items WHERE playlist_id = ?",
+                (playlist_id,),
+            ).fetchone()
+            order = (
+                int(max_row["m"]) + 1
+                if max_row is not None and max_row["m"] is not None
+                else 0
+            )
+            conn.execute(
+                "INSERT INTO playlist_items"
+                " (playlist_id, image_path, duration_s, sort_order)"
+                " VALUES (?,?,?,?)",
+                (playlist_id, item.image_path, item.duration_s, order),
+            )
+            item_rows = conn.execute(
+                "SELECT * FROM playlist_items WHERE playlist_id = ?"
+                " ORDER BY sort_order, id",
+                (playlist_id,),
+            ).fetchall()
+            meta_fresh = conn.execute(
+                "SELECT * FROM playlists WHERE id = ?", (playlist_id,)
+            ).fetchone()
+        assert meta_fresh is not None
+        return _playlist_from_rows(meta_fresh, list(item_rows)), order
+
+    def remove_item(self, playlist_id: str, sort_order: int) -> bool:
+        """Remove the item at one sort position atomically.
+
+        Returns False when the playlist or the position is unknown.
+        The delete runs in one transaction, so a concurrent upload
+        cannot resurrect a deleted row or lose an appended one.
+        """
+        with self._db.write() as conn:
+            meta = conn.execute(
+                "SELECT id FROM playlists WHERE id = ?", (playlist_id,)
+            ).fetchone()
+            if meta is None:
+                return False
+            cursor = conn.execute(
+                "DELETE FROM playlist_items WHERE playlist_id = ? AND sort_order = ?",
+                (playlist_id, sort_order),
+            )
+            return cursor.rowcount > 0
+
     def delete(self, playlist_id: str) -> bool:
         """Delete a playlist; its items cascade. False when missing."""
         with self._db.write() as conn:

@@ -21,7 +21,15 @@ class FallbackResult:
 
 def is_stale(day: PrayerDay, now: datetime) -> bool:
     """Flag schedules older than 48h or from a degraded source."""
-    if (now - day.fetched_at) > STALE_AFTER:
+    fetched_at = day.fetched_at
+    # Adapters have stored both naive and aware timestamps historically;
+    # normalize naive as UTC rather than raising TypeError on the mix.
+    if (fetched_at.tzinfo is None) != (now.tzinfo is None):
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=now.tzinfo)
+        else:
+            fetched_at = fetched_at.replace(tzinfo=None)
+    if (now - fetched_at) > STALE_AFTER:
         return True
     return day.source is not ScheduleSource.JAKIM
 

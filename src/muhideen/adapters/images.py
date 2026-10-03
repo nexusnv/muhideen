@@ -12,9 +12,15 @@ from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
+from PIL.Image import DecompressionBombError
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 """Upload cap: inputs larger than 5MB are rejected before decoding."""
+
+MAX_IMAGE_PIXELS = 25_000_000
+"""Decoded pixel cap (~25MP): larger images are rejected before allocation."""
+
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 MAX_DIMENSION = 1920
 """Long-edge cap: larger images are downscaled preserving aspect ratio."""
@@ -54,8 +60,13 @@ def store_image(data: bytes, dest_dir: str | Path, *, name: str | None = None) -
             raw.load()
             image_format = raw.format
             image = raw.copy()
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, DecompressionBombError) as exc:
         raise ValueError(f"undecodable image bytes: {exc}") from exc
+    if image.width * image.height > MAX_IMAGE_PIXELS:
+        raise ValueError(
+            f"image exceeds pixel limit {MAX_IMAGE_PIXELS}: "
+            f"{image.width}x{image.height}"
+        )
     if not isinstance(image_format, str) or image_format not in _FORMAT_SUFFIXES:
         raise ValueError(f"unsupported image format: {image_format}")
     if image_format == "JPEG":

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, tzinfo
 
+from muhideen.core.errors import ConfigError
 from muhideen.core.values import (
     IqamahRule,
     MarkerName,
@@ -153,11 +154,16 @@ def resolve_next_event(
         iqamah_at = resolve_iqamah(prayer, adhan_at, rules)
         dim_until = iqamah_at + timedelta(minutes=dim_minutes)
         adhan_end = adhan_at + adhan_duration
-        # ADHAN is checked first: when adhan_duration_s outlasts the gap to
-        # iqamah (short/fixed rule), the overlay must win over the states it
-        # overlaps, per PRD §8 ordering.
+        # ADHAN wins globally: a live adhan preempts any prior prayer's DIM.
+        # Check all ADHAN windows first so a long DIM cannot swallow the next
+        # prayer's overlay (slot order is chronological, DIM windows may
+        # overlap the next adhan when dim is large).
         if adhan_at <= now < adhan_end:
             return _event(PrayerState.ADHAN, prayer, adhan_at, iqamah_at, dim_until)
+    for prayer, adhan_at, dim_minutes in slots:
+        iqamah_at = resolve_iqamah(prayer, adhan_at, rules)
+        dim_until = iqamah_at + timedelta(minutes=dim_minutes)
+        adhan_end = adhan_at + adhan_duration
         if iqamah_at <= now < dim_until:
             return _event(PrayerState.SALAH_DIM, prayer, adhan_at, iqamah_at, dim_until)
         if adhan_end <= now < iqamah_at:
@@ -175,6 +181,12 @@ def resolve_next_event(
     fajr_time = tomorrow.fajr if tomorrow is not None else today.fajr
     next_date = effective + timedelta(days=1)
     fajr_dt = _adhan_dt(next_date, fajr_time, tz)
-    iqamah_at = resolve_iqamah(MarkerName.FAJR, fajr_dt, rules)
+    try:
+        iqamah_at = resolve_iqamah(MarkerName.FAJR, fajr_dt, rules)
+    except ConfigError:
+        # A fixed Fajr time that was valid today can drift to at-or-before
+        # tomorrow's adhan as prayer times move seasonally. Degrade to an
+        # iqamah-less carry instead of 503ing every read after Isha.
+        return _event(PrayerState.NORMAL, MarkerName.FAJR, fajr_dt, None, None)
     dim_until = iqamah_at + timedelta(minutes=settings.dim_minutes_default)
     return _event(PrayerState.NORMAL, MarkerName.FAJR, fajr_dt, iqamah_at, dim_until)

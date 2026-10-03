@@ -8,6 +8,7 @@ The DB file holds password hashes, so treat every archive as secret.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import sqlite3
@@ -24,6 +25,8 @@ from muhideen.adapters.migrate import (
     migrate,
 )
 from muhideen.adapters.sqlite_repo import Database, backup_to
+
+logger = logging.getLogger(__name__)
 
 MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 """Total archive cap (file size and summed member sizes)."""
@@ -107,22 +110,42 @@ def validate_archive(path: str | Path) -> list[str]:
 
 
 def build_backup(db: Database, media_dir: str | Path, dest_zip: str | Path) -> Path:
-    """Snapshot ``db`` via ``backup_to`` plus the media tree into a zip."""
+    """Snapshot ``db`` via ``backup_to`` plus the media tree into a zip.
+
+    Built to a same-dir temp file then atomically renamed, so a crash
+    mid-build never leaves a partial file at the user-visible path.
+    """
     dest = Path(dest_zip)
     media = Path(media_dir)
-    with tempfile.TemporaryDirectory(prefix="muhideen-backup-") as tmp:
-        snapshot = Path(tmp) / DB_MEMBER
-        backup_to(db, snapshot)  # VACUUM INTO: fails if dest exists; ours is fresh
-        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.write(snapshot, DB_MEMBER)
-            if media.is_dir():
-                for file in sorted(
-                    p for p in media.rglob("*") if p.is_file() and not p.is_symlink()
-                ):
-                    zf.write(file, MEDIA_PREFIX + file.relative_to(media).as_posix())
-    # Self-check: never hand out a bundle the restore path would reject.
-    validate_archive(dest)
-    return dest
+    tmp_dest: Path | None = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="muhideen-backup-") as tmp:
+            snapshot = Path(tmp) / DB_MEMBER
+            backup_to(db, snapshot)  # VACUUM INTO: fails if dest exists; ours is fresh
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=dest.name + ".part-", dir=str(dest.parent)
+            )
+            os.close(fd)
+            tmp_dest = Path(tmp_name)
+            with zipfile.ZipFile(tmp_dest, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(snapshot, DB_MEMBER)
+                if media.is_dir():
+                    for file in sorted(
+                        p
+                        for p in media.rglob("*")
+                        if p.is_file() and not p.is_symlink()
+                    ):
+                        zf.write(
+                            file, MEDIA_PREFIX + file.relative_to(media).as_posix()
+                        )
+        # Self-check: never hand out a bundle the restore path would reject.
+        validate_archive(tmp_dest)
+        os.replace(tmp_dest, dest)
+        tmp_dest = None
+        return dest
+    finally:
+        if tmp_dest is not None:
+            tmp_dest.unlink(missing_ok=True)
 
 
 def _swap_media(staged_media: Path, media_dir: Path) -> None:
@@ -192,7 +215,11 @@ def restore_backup(
                     members = zf.infolist()
                 except (zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
                     raise ValueError(f"not a valid backup archive: {exc}") from exc
+                actual_total = 0
                 for info in members:
+                    # Re-check every member at use time: the staging path may
+                    # have been swapped between validate_archive and extraction.
+                    _check_name(info.filename, info)
                     dest = stage / info.filename
                     if info.is_dir():
                         dest.mkdir(parents=True, exist_ok=True)
@@ -210,36 +237,66 @@ def restore_backup(
                             raise ValueError(
                                 f"backup member unreadable: {info.filename!r}: {exc}"
                             ) from exc
+                        # Enforce caps on actual bytes, not the forgeable header:
+                        # a zip bomb declares small file_size but expands large.
+                        if len(payload) > MAX_MEMBER_BYTES:
+                            raise ValueError(
+                                f"backup member exceeds {MAX_MEMBER_BYTES} bytes:"
+                                f" {info.filename!r}"
+                            )
+                        actual_total += len(payload)
+                        if actual_total > MAX_ARCHIVE_BYTES:
+                            raise ValueError(
+                                "backup contents exceed "
+                                f"{MAX_ARCHIVE_BYTES} bytes total"
+                            )
                         dest.write_bytes(payload)
         except (zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
             raise ValueError(f"not a valid backup archive: {exc}") from exc
         try:
-            staged = Database(stage / DB_MEMBER)
-            migrate_fn(staged)
-            if current_version(staged) > _max_known_version():
-                raise ValueError(
-                    "backup from newer application version: "
-                    "restore on this build is not supported"
-                )
-            snapshot = stage / "live-snapshot.db"
-            backup_to(db, snapshot)
+            staged: Database | None = None
+            rollback_db: Database | None = None
             try:
-                with staged.read() as src, db.write() as live:
-                    src.backup(live)
-            except (sqlite3.Error, OSError) as exc:
-                raise ValueError(f"backup database unreadable: {exc}") from exc
-            staged_media = stage / "media"
-            try:
-                _swap_media(staged_media, target_media)
-            except Exception as exc:
+                staged = Database(stage / DB_MEMBER)
+                with staged.read() as conn:
+                    integrity = conn.execute("PRAGMA integrity_check").fetchone()
+                if integrity is None or str(integrity[0]).lower() != "ok":
+                    raise ValueError(
+                        f"backup database failed integrity check: {integrity}"
+                    )
+                migrate_fn(staged)
+                if current_version(staged) > _max_known_version():
+                    raise ValueError(
+                        "backup from newer application version: "
+                        "restore on this build is not supported"
+                    )
+                snapshot = stage / "live-snapshot.db"
+                backup_to(db, snapshot)
                 try:
-                    rollback = Database(snapshot)
-                    with rollback.read() as src, db.write() as live:
+                    with staged.read() as src, db.write() as live:
                         src.backup(live)
-                except Exception:
-                    pass
-                if isinstance(exc, ValueError):
-                    raise
-                raise ValueError(f"backup media swap failed: {exc}") from exc
+                except (sqlite3.Error, OSError) as exc:
+                    raise ValueError(f"backup database unreadable: {exc}") from exc
+                staged_media = stage / "media"
+                try:
+                    _swap_media(staged_media, target_media)
+                except Exception as exc:
+                    try:
+                        rollback_db = Database(snapshot)
+                        with rollback_db.read() as src, db.write() as live:
+                            src.backup(live)
+                    except Exception:
+                        logger.warning(
+                            "backup rollback failed after media swap error",
+                            exc_info=True,
+                        )
+                    if isinstance(exc, ValueError):
+                        raise
+                    raise ValueError(f"backup media swap failed: {exc}") from exc
+            finally:
+                if staged is not None:
+                    staged.close()
+                if rollback_db is not None:
+                    rollback_db.close()
         except (sqlite3.Error, OSError) as exc:
             raise ValueError(f"backup database unreadable: {exc}") from exc

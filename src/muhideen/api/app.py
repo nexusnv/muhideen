@@ -47,7 +47,7 @@ from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.images import MAX_IMAGE_BYTES, store_image
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
 from muhideen.adapters.migrate import migrate
-from muhideen.adapters.playlist_repo import MAX_PLAYLIST_ITEMS, SqlitePlaylistRepo
+from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
 from muhideen.adapters.qr_code import qr_data_uri
 from muhideen.adapters.scheduler import build_scheduler
 from muhideen.adapters.sqlite_repo import (
@@ -113,6 +113,7 @@ from muhideen.core.values import (
     Settings,
 )
 from muhideen.domain.dim import effective_dim
+from muhideen.domain.fallback import is_stale
 from muhideen.domain.iqamah import card_iqamah_labels
 from muhideen.domain.ordering import ensure_ordered
 from muhideen.domain.playlist_window import parse_window
@@ -819,17 +820,25 @@ def create_app(deps: AppDeps) -> FastAPI:
             and (media_dir / ADHAN_FILENAME).exists()
         ):
             adhan_url = _adhan_audio_url(media_dir)
-        ctx = build_display_context(
-            day=day_dto,
-            event=event_dto,
-            settings=effective_settings,
-            iqamah=labels,
-            dim_minutes=dim_minutes,
-            dim_source=dim_source,
-            show_carousel=show_carousel,
-            adhan_audio_url=adhan_url,
-            adhan_volume=settings.adhan_volume,
-        )
+        try:
+            ctx = build_display_context(
+                day=day_dto,
+                event=event_dto,
+                settings=effective_settings,
+                iqamah=labels,
+                dim_minutes=dim_minutes,
+                dim_source=dim_source,
+                show_carousel=show_carousel,
+                adhan_audio_url=adhan_url,
+                adhan_volume=settings.adhan_volume,
+            )
+        except ConfigError:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "error.html",
+                {"code": 503, "message": "Setup required"},
+                status_code=503,
+            )
         return _TEMPLATES.TemplateResponse(request, "display.html", ctx)
 
     @app.post("/api/auth/setup", response_model=AuthResponseDTO)
@@ -917,15 +926,14 @@ def create_app(deps: AppDeps) -> FastAPI:
     def put_manual_day(payload: ManualDayDTO) -> PrayerDayDTO:
         """Pin one day's manual schedule; it outranks automatic sources."""
         settings = deps.settings_repo.load()
+        now = deps.clock.now()
         try:
-            day = ensure_ordered(
-                payload.to_prayer_day(zone=settings.zone, now=deps.clock.now())
-            )
+            day = ensure_ordered(payload.to_prayer_day(zone=settings.zone, now=now))
         except (ValueError, SyncError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         deps.prayer_repo.save_day(day)
         hijri_date = resolve_hijri(day.date, settings.hijri_offset)
-        return PrayerDayDTO.from_domain(day, True, hijri_date=hijri_date)
+        return PrayerDayDTO.from_domain(day, is_stale(day, now), hijri_date=hijri_date)
 
     @app.delete("/api/manual-day", dependencies=[Depends(admin)])
     def delete_manual_day(date: date) -> dict[str, Any]:
@@ -960,13 +968,16 @@ def create_app(deps: AppDeps) -> FastAPI:
         token = request.cookies.get(SESSION_COOKIE)
         if token is None or not sessions.validate(token):
             return RedirectResponse("/admin/login")
-        dto = SettingsDTO.from_domain(deps.settings_repo.load())
+        try:
+            dto = SettingsDTO.from_domain(deps.settings_repo.load())
+        except ConfigError:
+            return RedirectResponse("/admin/setup")
         rules_json = json.dumps([r.model_dump(mode="json") for r in dto.iqamah_rules])
         host = request.url.netloc or "muhideen.local:8000"
         ctx = settings_context(
             settings=dto,
             rules_json=rules_json,
-            qr_data_uri=qr_data_uri("http://muhideen.local:8000/admin"),
+            qr_data_uri=qr_data_uri(f"http://{host}/admin"),
             fallback_url=f"http://{host}/admin",
         )
         ctx["nav_base"] = ""
@@ -1084,7 +1095,8 @@ def create_app(deps: AppDeps) -> FastAPI:
                 " ON g.name = d.group_name WHERE d.id = ?",
                 (display_id,),
             ).fetchone()
-        assert row is not None  # the caller just inserted or updated this row
+        if row is None:
+            raise HTTPException(status_code=404, detail="unknown display")
         override = row["dim_minutes_override"]
         return {
             "id": row["id"],
@@ -1167,6 +1179,8 @@ def create_app(deps: AppDeps) -> FastAPI:
         """Create a playlist; the id is generated when the body omits it."""
         store = _playlists_or_503()
         pid = payload.id or uuid.uuid4().hex[:12]
+        if payload.id is not None and store.get(pid) is not None:
+            raise HTTPException(status_code=409, detail="playlist id already exists")
         try:
             playlist = payload.model_copy(update={"id": pid}).to_domain()
         except ValueError as exc:
@@ -1253,20 +1267,10 @@ def create_app(deps: AppDeps) -> FastAPI:
 
         The image travels as base64 JSON (no multipart parser on the
         offline-first footprint); bytes flow into the shared image store
-        and the stored filename becomes the new playlist item.
+        and the stored filename becomes the new playlist item. The
+        playlist append is atomic, so concurrent uploads cannot lose rows.
         """
         store = _playlists_or_503()
-        playlist = store.get(playlist_id)
-        if playlist is None:
-            raise HTTPException(status_code=404, detail="unknown playlist")
-        if len(playlist.items) >= MAX_PLAYLIST_ITEMS:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"playlist {playlist_id!r} exceeds"
-                    f" {MAX_PLAYLIST_ITEMS} items: {len(playlist.items)}"
-                ),
-            )
         try:
             data = base64.b64decode(payload.image_base64, validate=True)
         except (ValueError, binascii.Error) as exc:
@@ -1277,27 +1281,27 @@ def create_app(deps: AppDeps) -> FastAPI:
             stored = store_image(data, media_dir)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        order = max((item.sort_order for item in playlist.items), default=-1) + 1
         try:
-            store.save(
-                _replace(
-                    playlist,
-                    items=playlist.items
-                    + (
-                        PlaylistItem(
-                            image_path=stored.name,
-                            duration_s=payload.duration_s,
-                            sort_order=order,
-                        ),
-                    ),
-                )
+            _, order = store.append_item(
+                playlist_id,
+                PlaylistItem(
+                    image_path=stored.name,
+                    duration_s=payload.duration_s,
+                    sort_order=0,
+                ),
             )
+        except KeyError:
+            stored.unlink(missing_ok=True)
+            raise HTTPException(status_code=404, detail="unknown playlist") from None
         except ValueError as exc:
             stored.unlink(missing_ok=True)
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception:
             stored.unlink(missing_ok=True)
             raise
+        # append_item assigns the order inside the transaction; re-read it
+        # from the stored row via the returned playlist is unnecessary here —
+        # order is the second tuple element.
         return {
             "image_path": stored.name,
             "duration_s": payload.duration_s,
@@ -1311,15 +1315,10 @@ def create_app(deps: AppDeps) -> FastAPI:
     def delete_playlist_item(playlist_id: str, sort_order: int) -> dict[str, Any]:
         """Remove the item at one sort position, keeping the rest in place."""
         store = _playlists_or_503()
-        playlist = store.get(playlist_id)
-        if playlist is None:
+        if store.get(playlist_id) is None:
             raise HTTPException(status_code=404, detail="unknown playlist")
-        remaining = tuple(
-            item for item in playlist.items if item.sort_order != sort_order
-        )
-        if len(remaining) == len(playlist.items):
+        if not store.remove_item(playlist_id, sort_order):
             raise HTTPException(status_code=404, detail="unknown playlist item")
-        store.save(_replace(playlist, items=remaining))
         return {"ok": True}
 
     @app.post(
@@ -1439,6 +1438,20 @@ def create_app(deps: AppDeps) -> FastAPI:
         has_theme = "current_theme" in provided and payload.current_theme is not None
         if not has_group and not has_theme:
             raise HTTPException(status_code=422, detail="nothing to update")
+        with db.read() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM displays WHERE id = ?", (display_id,)
+            ).fetchone()
+        if exists is None:
+            raise HTTPException(status_code=404, detail="unknown display")
+        if has_theme:
+            from muhideen.core.values import THEME_CHOICES as _THEME_CHOICES
+
+            if payload.current_theme not in _THEME_CHOICES["palette"]:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"unknown display theme: {payload.current_theme!r}",
+                )
         with db.write() as conn:
             if has_group:
                 if payload.group_name is None:
@@ -1480,21 +1493,40 @@ def create_app(deps: AppDeps) -> FastAPI:
     def update_display_group(
         name: str, payload: DisplayGroupUpdateDTO
     ) -> dict[str, Any]:
-        """Set group overrides: theme default, dim minutes, carousel flag."""
+        """Set group overrides: theme default, dim minutes, carousel flag.
+
+        An explicit ``dim_minutes_override`` null clears the pin (SET NULL,
+        falling back to settings); omission leaves it unchanged.
+        """
+        from muhideen.core.values import THEME_CHOICES
+
         db = _registry_or_503()
+        provided = payload.model_fields_set
         assignments: dict[str, Any] = {}
+        clear_dim = False
         if payload.theme is not None:
+            if payload.theme not in THEME_CHOICES["palette"]:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"unknown group theme: {payload.theme!r}",
+                )
             assignments["theme"] = payload.theme
-        if payload.dim_minutes_override is not None:
-            assignments["dim_minutes_override"] = payload.dim_minutes_override
+        if "dim_minutes_override" in provided:
+            if payload.dim_minutes_override is None:
+                clear_dim = True
+            else:
+                assignments["dim_minutes_override"] = payload.dim_minutes_override
         if payload.carousel_enabled is not None:
             assignments["carousel_enabled"] = 1 if payload.carousel_enabled else 0
         with db.write() as conn:
-            if assignments:
-                setters = ", ".join(f"{key} = ?" for key in assignments)
+            if assignments or clear_dim:
+                setters: list[str] = [f"{key} = ?" for key in assignments]
+                values: list[Any] = list(assignments.values())
+                if clear_dim:
+                    setters.append("dim_minutes_override = NULL")
                 cursor = conn.execute(
-                    f"UPDATE display_groups SET {setters} WHERE name = ?",
-                    (*assignments.values(), name),
+                    f"UPDATE display_groups SET {', '.join(setters)} WHERE name = ?",
+                    (*values, name),
                 )
                 if cursor.rowcount == 0:
                     raise HTTPException(status_code=404, detail="unknown display group")
@@ -1577,6 +1609,9 @@ def create_app(deps: AppDeps) -> FastAPI:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         finally:
             staged.unlink(missing_ok=True)
+        deps.event_bus.publish(
+            "config-update", ("settings", "schedule", "media", "playlists")
+        )
         return {"ok": True}
 
     @app.get(

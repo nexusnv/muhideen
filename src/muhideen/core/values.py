@@ -331,6 +331,18 @@ class Settings:
         """Enforce offset/coordinate guards and non-empty rule coverage."""
         if not -2 <= self.hijri_offset <= 2:
             raise ValueError(f"hijri_offset out of range: {self.hijri_offset}")
+        if not self.adhan_duration_s > 0:
+            raise ValueError(
+                f"adhan_duration_s must be positive: {self.adhan_duration_s}"
+            )
+        if not 5 <= self.dim_minutes_default <= 60:
+            raise ValueError(
+                f"dim_minutes_default out of range 5-60: {self.dim_minutes_default}"
+            )
+        if not 5 <= self.dim_minutes_jumuah <= 60:
+            raise ValueError(
+                f"dim_minutes_jumuah out of range 5-60: {self.dim_minutes_jumuah}"
+            )
         try:
             ZoneInfo(self.timezone)
         except (ValueError, ZoneInfoNotFoundError, KeyError) as exc:
