@@ -1,0 +1,144 @@
+{
+  "$schemaVersion": 1,
+  "masjid": {
+    "name": "Masjid An-Nur",
+    "zone": "SGR01",
+    "timezone": "Asia/Kuala_Lumpur"
+  },
+  "schedule": {
+    "method": "MABIMS",
+    "asr_juristic": "shafi",
+    "lat": null,
+    "lon": null,
+    "calc_only": false,
+    "hijri_offset": 0,
+    "imsak_offset_min": 10,
+    "dhuha_offset_min": 28,
+    "boundary_countdown": false,
+    "manual_days": [
+      {
+        "date": "2026-04-01",
+        "imsak": "05:48",
+        "fajr": "05:58",
+        "syuruq": "07:05",
+        "dhuha": "07:33",
+        "dhuhr": "13:15",
+        "asr": "16:30",
+        "maghrib": "19:15",
+        "isha": "20:30"
+      }
+    ]
+  },
+  "timing": {
+    "adhan_duration_s": 180,
+    "dim_minutes_default": 20,
+    "dim_minutes_jumuah": 45,
+    "countdown_before_adhan_min": 5,
+    "countdown_before_adhan_overrides": {
+      "fajr": 10
+    },
+    "iqamah_rules": [
+      {
+        "prayer": "fajr",
+        "mode": "delay",
+        "delay_minutes": 15,
+        "fixed_time": null
+      },
+      {
+        "prayer": "dhuhr",
+        "mode": "delay",
+        "delay_minutes": 10,
+        "fixed_time": null
+      },
+      {
+        "prayer": "asr",
+        "mode": "delay",
+        "delay_minutes": 10,
+        "fixed_time": null
+      },
+      {
+        "prayer": "maghrib",
+        "mode": "delay",
+        "delay_minutes": 10,
+        "fixed_time": null
+      },
+      {
+        "prayer": "isha",
+        "mode": "delay",
+        "delay_minutes": 15,
+        "fixed_time": null
+      },
+      {
+        "prayer": "jumuah",
+        "mode": "delay",
+        "delay_minutes": 10,
+        "fixed_time": null
+      }
+    ]
+  },
+  "adhan_audio": {
+    "enabled": false,
+    "volume": 70,
+    "quiet_hours_start": null,
+    "quiet_hours_end": null,
+    "muted_prayers": [],
+    "file": "media/adhan.mp3"
+  },
+  "theme": {
+    "palette": "classic-green",
+    "font": "outfit",
+    "countdown_style": "boxes",
+    "clock_format": "12h",
+    "hijri_form": "long",
+    "boundary_strip": "show",
+    "density": "comfortable"
+  },
+  "displays": {
+    "main-hall": {
+      "name": "Main Hall",
+      "language": "en",
+      "theme": {
+        "palette": "classic-green"
+      },
+      "dim_minutes_override": null,
+      "carousel_enabled": true
+    },
+    "entrance": {
+      "name": "Entrance",
+      "language": "ms",
+      "theme": {
+        "palette": "midnight",
+        "clock_format": "24h",
+        "density": "compact"
+      },
+      "dim_minutes_override": 30,
+      "carousel_enabled": false,
+      "custom_colors": {
+        "background": "#0b0f0e",
+        "foreground": "#f2f2f2",
+        "accent": "#c9a227"
+      }
+    }
+  },
+  "playlists": [
+    {
+      "id": "announcements",
+      "title": "Announcements",
+      "active": true,
+      "window_start": null,
+      "window_end": null,
+      "anchor_marker": null,
+      "anchor_start_offset_min": 0,
+      "anchor_stop_offset_min": 0,
+      "cycle_mode": "indefinite",
+      "max_cycles": null,
+      "items": [
+        {
+          "image_path": "media/playlists/welcome.jpg",
+          "duration_s": 15,
+          "sort_order": 0
+        }
+      ]
+    }
+  ]
+}
