@@ -469,7 +469,10 @@
             body: JSON.stringify({ name: newId }),
           }).then(function (r) {
             if (r.status === 200) window.location.reload();
-            else msg("s-msg", "Invalid display id (1-64 characters)");
+            else if (r.status === 401) msg("s-msg", "Session expired — please log in again");
+            else if (r.status === 503) msg("s-msg", "Display storage unavailable");
+            else if (r.status === 422) msg("s-msg", "Invalid display id (1-64 characters)");
+            else msg("s-msg", "Provisioning failed (" + r.status + ")");
           }).catch(function () { msg("s-msg", "Network error"); });
           return;
         }
