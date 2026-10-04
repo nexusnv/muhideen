@@ -177,6 +177,18 @@ def test_last_known_returns_newest_lte_day(tmp_path: Path):
     assert repo.last_known(date(2026, 3, 31), ZONE) is None
 
 
+def test_last_known_manual_pin_wins_tie_over_buffer(tmp_path: Path):
+    repo, _ = _prayer_repo(tmp_path)
+    # Force a buffer row onto the pinned date (save_day bypasses the
+    # save_day_unless_manual guard) to create the tie.
+    repo.save_day(_jakim_day(PINNED))
+    assert repo.get_day(PINNED, ZONE).source is ScheduleSource.MANUAL
+    known = repo.last_known(PINNED, ZONE)
+    assert known is not None
+    assert known.date == PINNED
+    assert known.source is ScheduleSource.MANUAL
+
+
 def test_delete_day_never_removes_config_pins(tmp_path: Path):
     repo, _ = _prayer_repo(tmp_path)
     assert repo.delete_day(PINNED, ZONE) is False

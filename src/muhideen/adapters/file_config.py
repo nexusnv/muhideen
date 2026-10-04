@@ -453,7 +453,7 @@ class FilePrayerRepo:
                     raise _corrupt(self._buffer, key, exc) from exc
                 if candidate.zone != zone:
                     continue
-                if best is None or candidate.date >= best.date:
+                if best is None or candidate.date > best.date:
                     best = candidate
         return best
 
