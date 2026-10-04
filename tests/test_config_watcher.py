@@ -6,7 +6,6 @@ Runtime short: watcher interval 0.05-0.1s, sleeps <= 1s per case.
 
 from __future__ import annotations
 
-import json
 import shutil
 import threading
 import time

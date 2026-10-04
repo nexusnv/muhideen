@@ -549,10 +549,9 @@ def create_app(deps: AppDeps) -> FastAPI:
             except OSError:
                 last_seen = None
 
-            def _on_reload(
-                _cfg_path: Path = cfg_path,
-                _last: list[str | None] = [last_seen],
-            ) -> None:
+            last_holder: list[str | None] = [last_seen]
+
+            def _on_reload() -> None:
                 """Revalidate the config; publish config-update on success.
 
                 Read-through note: ``FileSettingsRepo``/``FilePlaylistRepo``
@@ -567,14 +566,14 @@ def create_app(deps: AppDeps) -> FastAPI:
                 """
                 try:
                     current_digest: str | None = hashlib.sha256(
-                        _cfg_path.read_bytes()
+                        cfg_path.read_bytes()
                     ).hexdigest()
                 except OSError as exc:
                     logger.error(
                         "config reload failed; keeping last-good: %s", exc
                     )
                     return
-                if current_digest == _last[0]:
+                if current_digest == last_holder[0]:
                     if isinstance(deps.prayer_repo, FilePrayerRepo):
                         try:
                             deps.prayer_repo.validate_buffer()
@@ -584,9 +583,9 @@ def create_app(deps: AppDeps) -> FastAPI:
                                 exc,
                             )
                     return
-                _last[0] = current_digest
+                last_holder[0] = current_digest
                 try:
-                    cfg = load_config_file(_cfg_path)
+                    cfg = load_config_file(cfg_path)
                 except ConfigError as exc:
                     logger.error(
                         "config reload failed; keeping last-good: %s", exc
