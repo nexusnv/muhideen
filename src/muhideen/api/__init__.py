@@ -1,14 +1,10 @@
 """API layer: executable contract (Pydantic DTOs)."""
 
 from muhideen.api.dto import (
-    AuthRequestDTO,
-    AuthResponseDTO,
     ConfigUpdateEventDTO,
     IqamahRuleDTO,
-    ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
-    SessionStatusDTO,
     SettingsDTO,
     StateEventDTO,
     ThemeDTO,
@@ -17,14 +13,10 @@ from muhideen.api.dto import (
 )
 
 __all__ = [
-    "AuthRequestDTO",
-    "AuthResponseDTO",
     "ConfigUpdateEventDTO",
     "IqamahRuleDTO",
-    "ManualDayDTO",
     "NextEventDTO",
     "PrayerDayDTO",
-    "SessionStatusDTO",
     "SettingsDTO",
     "StateEventDTO",
     "ThemeDTO",

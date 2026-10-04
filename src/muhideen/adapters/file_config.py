@@ -5,7 +5,8 @@
 :class:`Settings` domain object, :class:`FilePrayerRepo` layers the config
 ``manual_days`` pins over a JSON buffer cache, and :class:`FilePlaylistRepo`
 maps the playlist section. Every ``ValueError`` from domain construction
-becomes :class:`ConfigError` at this boundary, mirroring ``sqlite_repo``.
+becomes :class:`ConfigError` at this boundary, mirroring the former
+database-backed repos (read fresh on every call, validated on load).
 """
 
 from __future__ import annotations

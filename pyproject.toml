@@ -24,7 +24,6 @@ dependencies = [
     "pillow>=10.0",
     "pydantic>=2",
     "httpx>=0.27",
-    "argon2-cffi>=23.1",
     "hijridate==2.6.0",
     "segno==1.6.6",
     "al-falak==1.0.0",
@@ -35,7 +34,6 @@ Homepage = "https://github.com/nexusnv/muhideen"
 
 [project.scripts]
 muhideen = "muhideen.service:main"
-muhideen-seed = "muhideen.seed:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/muhideen"]

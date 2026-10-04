@@ -1,18 +1,18 @@
-"""FastAPI surface: real sync handlers over the engine plus SSE (slice 1A-7)."""
+"""FastAPI surface: read-only file-config routes plus SSE (task 6).
+
+The admin UI and database stack are gone: no sessions, no settings writes,
+no playlist/display-registry/backup/logs routes. What remains is the public
+display surface over the engine — prayer-day, next-event, events, version,
+and the server-rendered display — all served from the JSON config file.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
 import hashlib
-import json
 import logging
-import os
 import queue
-import tempfile
 import threading
-import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -20,29 +20,19 @@ from dataclasses import replace as _replace
 from datetime import date, datetime, timedelta
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import Annotated, Any, Protocol, cast
+from typing import Annotated, Protocol, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.blocking import BlockingScheduler
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi import Path as PathParam
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import AfterValidator, Field
-from starlette.background import BackgroundTask
-from starlette.responses import FileResponse, StreamingResponse
+from pydantic import AfterValidator
+from starlette.responses import StreamingResponse
 from starlette.types import Send
 
-from muhideen.adapters import backup as backup_adapter
-from muhideen.adapters import logs as logs_adapter
-from muhideen.adapters.adhan_audio import (
-    ADHAN_FILENAME,
-    MAX_ADHAN_BYTES,
-    delete_adhan_audio,
-    store_adhan_audio,
-)
-from muhideen.adapters.backup import MAX_ARCHIVE_BYTES
+from muhideen.adapters.adhan_audio import ADHAN_FILENAME
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
 from muhideen.adapters.config_watcher import ConfigWatcher
 from muhideen.adapters.file_config import (
@@ -52,80 +42,31 @@ from muhideen.adapters.file_config import (
     load_config_file,
 )
 from muhideen.adapters.hijri_date import resolve_hijri
-from muhideen.adapters.images import MAX_IMAGE_BYTES, store_image
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
-from muhideen.adapters.migrate import migrate
-from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
-from muhideen.adapters.qr_code import qr_data_uri
 from muhideen.adapters.scheduler import build_scheduler
-from muhideen.adapters.sqlite_repo import (
-    Database,
-    SqliteDisplaySettingsRepo,
-)
 from muhideen.adapters.sse_bus import SSEBus
 from muhideen.adapters.system_clock import SystemClock
 from muhideen.adapters.time_sync import SystemTimeSyncProbe
-from muhideen.api.auth import (
-    ADMIN_USERNAME,
-    AUTH_401_DETAIL,
-    SESSION_COOKIE,
-    SESSION_TTL_S,
-    RateLimiter,
-    SessionStore,
-    is_lan,
-    require_admin,
-)
 from muhideen.api.dto import (
-    AuthRequestDTO,
-    AuthResponseDTO,
     ConfigUpdateEventDTO,
-    ContractDTO,
-    ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
-    SessionStatusDTO,
-    SettingsDTO,
     StateEventDTO,
     TickEventDTO,
     VersionDTO,
 )
-from muhideen.core.errors import (
-    ConfigError,
-    MuhideenError,
-    ScheduleError,
-    SyncError,
-)
+from muhideen.core.errors import ConfigError, MuhideenError, ScheduleError
 from muhideen.core.ports import (
     Clock,
     JAKIMClient,
     PrayerRepo,
     SettingsRepo,
     TimeSyncProbe,
-    UserRepo,
 )
-from muhideen.core.values import (
-    CycleMode,
-    MarkerName,
-    NextEvent,
-    Playlist,
-    PlaylistItem,
-    PrayerDay,
-    Settings,
-    theme_default,
-)
-from muhideen.domain.dim import effective_dim
-from muhideen.domain.fallback import is_stale
+from muhideen.core.values import NextEvent, Playlist, PrayerDay, Settings
 from muhideen.domain.iqamah import card_iqamah_labels
-from muhideen.domain.ordering import ensure_ordered
-from muhideen.domain.playlist_window import parse_window
-from muhideen.domain.stage import (
-    PlaylistOccupant,
-    StageOccupant,
-    resolve_stage,
-    stage_id,
-)
+from muhideen.domain.stage import StageOccupant, resolve_stage, stage_id
 from muhideen.engine import Engine
-from muhideen.views.admin import login_context, settings_context, setup_context
 from muhideen.views.display import build_display_context
 
 logger = logging.getLogger(__name__)
@@ -168,168 +109,18 @@ def _in_quiet_hours(now: str, start: str | None, end: str | None) -> bool:
     return now >= start or now < end
 
 
-class PlaylistItemDTO(ContractDTO):
-    """One playlist image slot: stored filename, on-stage seconds, order."""
-
-    image_path: Annotated[str, Field(min_length=1, max_length=512)]
-    duration_s: Annotated[int, Field(gt=0)]
-    sort_order: Annotated[int, Field(ge=0)]
-
-    @classmethod
-    def from_domain(cls, item: PlaylistItem) -> PlaylistItemDTO:
-        """Map a stored playlist item to its wire shape."""
-        return cls(
-            image_path=item.image_path,
-            duration_s=item.duration_s,
-            sort_order=item.sort_order,
-        )
-
-    def to_domain(self) -> PlaylistItem:
-        """Map the wire item back to the validated value object."""
-        return PlaylistItem(
-            image_path=self.image_path,
-            duration_s=self.duration_s,
-            sort_order=self.sort_order,
-        )
-
-
-class PlaylistDTO(ContractDTO):
-    """Full playlist body: schedule, cycling policy, and ordered items."""
-
-    id: Annotated[str, Field(min_length=1, max_length=64)]
-    title: Annotated[str, Field(min_length=1, max_length=200)]
-    active: bool
-    window_start: str | None = None
-    window_end: str | None = None
-    anchor_marker: str | None = None
-    anchor_start_offset_min: int = 0
-    anchor_stop_offset_min: int = 0
-    cycle_mode: CycleMode = "indefinite"
-    max_cycles: int | None = None
-    items: list[PlaylistItemDTO] = Field(default_factory=list[PlaylistItemDTO])
-
-    @classmethod
-    def from_domain(cls, playlist: Playlist) -> PlaylistDTO:
-        """Map a stored playlist to its wire shape."""
-        return cls(
-            id=playlist.id,
-            title=playlist.title,
-            active=playlist.active,
-            window_start=playlist.window_start,
-            window_end=playlist.window_end,
-            anchor_marker=(
-                playlist.anchor_marker.value
-                if playlist.anchor_marker is not None
-                else None
-            ),
-            anchor_start_offset_min=playlist.anchor_start_offset_min,
-            anchor_stop_offset_min=playlist.anchor_stop_offset_min,
-            cycle_mode=playlist.cycle_mode,
-            max_cycles=playlist.max_cycles,
-            items=[PlaylistItemDTO.from_domain(item) for item in playlist.items],
-        )
-
-    def to_domain(self, playlist_id: str | None = None) -> Playlist:
-        """Map the wire playlist back to the validated value object.
-
-        Raises ``ValueError`` for unknown anchors, boundary anchors, and
-        malformed window bounds (mapped to 422 by the routes).
-        """
-        pid = playlist_id if playlist_id is not None else self.id
-        anchor: MarkerName | None = None
-        if self.anchor_marker is not None:
-            try:
-                anchor = MarkerName(self.anchor_marker.strip().lower())
-            except ValueError:
-                raise ValueError(
-                    f"unknown playlist anchor marker: {self.anchor_marker!r}"
-                ) from None
-        playlist = Playlist(
-            id=pid,
-            title=self.title,
-            active=self.active,
-            window_start=self.window_start,
-            window_end=self.window_end,
-            anchor_marker=anchor,
-            anchor_start_offset_min=self.anchor_start_offset_min,
-            anchor_stop_offset_min=self.anchor_stop_offset_min,
-            cycle_mode=self.cycle_mode,
-            max_cycles=self.max_cycles,
-            items=tuple(item.to_domain() for item in self.items),
-        )
-        try:
-            parse_window(playlist)
-        except ValueError as exc:
-            raise ValueError(str(exc)) from None
-        return playlist
-
-
-class PlaylistCreateDTO(PlaylistDTO):
-    """Playlist creation body: the id is optional (server-generated)."""
-
-    id: Annotated[str, Field(min_length=1, max_length=64)] | None = None  # type: ignore[assignment]
-
-
-class ActiveToggleDTO(ContractDTO):
-    """Playlist active-flag patch body."""
-
-    active: bool
-
-
-class PlaylistImageUploadDTO(ContractDTO):
-    """One playlist image upload: base64 bytes plus on-stage seconds."""
-
-    image_base64: Annotated[str, Field(min_length=1)]
-    duration_s: Annotated[int, Field(gt=0)]
-
-
-class AdhanAudioUploadDTO(ContractDTO):
-    """Adhan MP3 upload: base64 bytes (no multipart parser on the offline footprint)."""
-
-    audio_base64: Annotated[str, Field(min_length=1)]
-
-
-class BackupRestoreDTO(ContractDTO):
-    """Full-installation restore body: base64 backup zip (no multipart)."""
-
-    archive_base64: Annotated[str, Field(min_length=1)]
-
-
-class DisplayUpdateDTO(ContractDTO):
-    """Per-display overrides: name, theme choice, and group assignment.
-
-    Applied as an upsert: a PATCH against an unknown id creates the
-    display row (name defaults to the id), so no registration handshake
-    is needed before configuring a new screen URL.
-    """
-
-    name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
-    current_theme: Annotated[str, Field(min_length=1, max_length=64)] | None = None
-    group_name: Annotated[str, Field(min_length=1, max_length=64)] | None = None
-
-
-class DisplayGroupUpdateDTO(ContractDTO):
-    """Group-level overrides: theme default and dim minutes."""
-
-    theme: Annotated[str, Field(min_length=1, max_length=64)] | None = None
-    dim_minutes_override: Annotated[int, Field(ge=5, le=60)] | None = None
-    carousel_enabled: bool | None = None
-
-
 @dataclass
 class AppDeps:
     """Composition root dependencies for create_app (single entrypoint)."""
 
     settings_repo: SettingsRepo
     prayer_repo: PrayerRepo
-    user_repo: UserRepo | None
     clock: Clock
     event_bus: SSEBus
-    database: Database | None = None
     run_background: bool = False
     jakim_client: JAKIMClient | None = None
     time_sync: TimeSyncProbe | None = None
-    playlist_repo: SqlitePlaylistRepo | FilePlaylistRepo | None = None
+    playlist_repo: FilePlaylistRepo | None = None
     media_dir: Path | None = None
     config_path: Path | None = None
 
@@ -383,7 +174,7 @@ def _tick_stage(
     engine: Engine,
     settings_repo: SettingsRepo,
     event: NextEvent,
-    playlist_repo: SqlitePlaylistRepo | FilePlaylistRepo | None = None,
+    playlist_repo: FilePlaylistRepo | None = None,
 ) -> str:
     """Stage id for one tick, resolved at the event's own pinned now."""
     settings = settings_repo.load()
@@ -427,7 +218,7 @@ async def _event_stream(
     clock: Clock,
     bus: SSEBus,
     settings_repo: SettingsRepo,
-    playlist_repo: SqlitePlaylistRepo | FilePlaylistRepo | None = None,
+    playlist_repo: FilePlaylistRepo | None = None,
 ) -> AsyncGenerator[str]:
     """SSE body: poll the thread-safe subscriber queue without blocking a thread.
 
@@ -519,23 +310,14 @@ def create_app(deps: AppDeps) -> FastAPI:
         calc=calc,
         time_sync=deps.time_sync,
     )
-    sessions = SessionStore(deps.clock)
-    login_limiter = RateLimiter(deps.clock)
-    setup_limiter = RateLimiter(deps.clock)
-    admin = require_admin(sessions)
     playlist_store = deps.playlist_repo
-    if playlist_store is None and deps.database is not None:
-        playlist_store = SqlitePlaylistRepo(deps.database)
     media_dir = (
         deps.media_dir if deps.media_dir is not None else _STATIC_DIR / "uploads"
     )
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        """Migrate at boot, optionally run ticker+scheduler+config watcher."""
-        if deps.database is not None:
-            migrate(deps.database)
-        background: _Background | None = None
+        """Watch the config file, optionally run ticker+scheduler threads."""
         watcher: ConfigWatcher | None = None
         if deps.config_path is not None:
             cfg_path = Path(deps.config_path)
@@ -569,9 +351,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                         cfg_path.read_bytes()
                     ).hexdigest()
                 except OSError as exc:
-                    logger.error(
-                        "config reload failed; keeping last-good: %s", exc
-                    )
+                    logger.error("config reload failed; keeping last-good: %s", exc)
                     return
                 if current_digest == last_holder[0]:
                     if isinstance(deps.prayer_repo, FilePrayerRepo):
@@ -587,9 +367,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                 try:
                     cfg = load_config_file(cfg_path)
                 except ConfigError as exc:
-                    logger.error(
-                        "config reload failed; keeping last-good: %s", exc
-                    )
+                    logger.error("config reload failed; keeping last-good: %s", exc)
                     return
                 try:
                     if isinstance(deps.settings_repo, FileSettingsRepo):
@@ -597,9 +375,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                     if isinstance(deps.playlist_repo, FilePlaylistRepo):
                         deps.playlist_repo.list()
                 except ConfigError as exc:
-                    logger.error(
-                        "config reload failed; keeping last-good: %s", exc
-                    )
+                    logger.error("config reload failed; keeping last-good: %s", exc)
                     return
                 if isinstance(deps.prayer_repo, FilePrayerRepo):
                     deps.prayer_repo.set_manual_days(cfg.schedule.manual_days)
@@ -613,12 +389,11 @@ def create_app(deps: AppDeps) -> FastAPI:
                     )
                 deps.event_bus.publish("config-update", ("settings",))
 
-            watch_paths = (
-                [cfg_path, buf_path] if buf_path is not None else [cfg_path]
-            )
+            watch_paths = [cfg_path, buf_path] if buf_path is not None else [cfg_path]
             watcher = ConfigWatcher(watch_paths, _on_reload)
             _app.state.config_watcher = watcher
             watcher.start()
+        background: _Background | None = None
         if deps.run_background:
             if deps.jakim_client is None:
                 raise ValueError("jakim_client is required for background wiring")
@@ -669,25 +444,6 @@ def create_app(deps: AppDeps) -> FastAPI:
         lifespan=_lifespan,
     )
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-    @app.middleware("http")
-    async def _docs_gate(request: Request, call_next: Any) -> Any:
-        """Allow docs only from LAN hosts presenting a valid admin session."""
-        if request.url.path in (
-            "/docs",
-            "/redoc",
-            "/openapi.json",
-            "/docs/oauth2-redirect",
-        ):
-            host = request.client.host if request.client else ""
-            if not is_lan(host):
-                return JSONResponse(status_code=404, content={"detail": "not found"})
-            token = request.cookies.get(SESSION_COOKIE)
-            if token is None or not sessions.validate(token):
-                return JSONResponse(
-                    status_code=401, content={"detail": AUTH_401_DETAIL}
-                )
-        return await call_next(request)
 
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:
@@ -768,8 +524,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         Applies per-display presentation overrides for this render only:
         file-config ``displays.<id>`` theme overlay over the global knobs,
         then the display dim pin over the salah-dim length. Unknown ids
-        render the global theme with language ``en``; corrupt file rows
-        cannot occur (validated at load) but legacy sqlite rows slate 503.
+        render the global theme with language ``en``.
         """
 
         def _invalid_display() -> HTMLResponse:
@@ -829,30 +584,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                 custom_colors = (
                     dict(entry.custom_colors) if entry.custom_colors else None
                 )
-        elif deps.database is not None:
-            display_store = SqliteDisplaySettingsRepo(deps.database)
-            overrides = display_store.overrides_for(id)
-            theme_rows = {
-                key.removeprefix("theme."): value
-                for key, value in overrides.items()
-                if key.startswith("theme.")
-            }
-            if theme_rows:
-                try:
-                    effective_theme = _replace(settings.theme, **theme_rows)
-                except (ValueError, TypeError):
-                    return _invalid_display()
-            display_raw = overrides.get("dim_minutes_override")
-            group_dim_raw, show_carousel = display_store.group_presentation(id)
-            group_raw = group_dim_raw if display_raw is None else None
-            try:
-                dim_minutes, dim_source = effective_dim(
-                    display_raw=display_raw,
-                    group_raw=group_raw,
-                    default=settings.dim_minutes_default,
-                )
-            except ConfigError:
-                return _invalid_display()
         now = deps.clock.now()
         try:
             result = engine.resolve_day(now.date(), settings.zone, now)
@@ -949,785 +680,6 @@ def create_app(deps: AppDeps) -> FastAPI:
             )
         return _TEMPLATES.TemplateResponse(request, "display.html", ctx)
 
-    def _users_or_503() -> UserRepo:
-        """Return the user store; 503 when the app has none (file mode)."""
-        if deps.user_repo is None:
-            raise HTTPException(status_code=503, detail="user storage unavailable")
-        return deps.user_repo
-
-    @app.post("/api/auth/setup", response_model=AuthResponseDTO)
-    def auth_setup(
-        payload: AuthRequestDTO, request: Request, response: Response
-    ) -> AuthResponseDTO:
-        """Create the initial admin and issue its first session cookie."""
-        ip = request.client.host if request.client else "unknown"
-        if not setup_limiter.allow(ip):
-            raise HTTPException(status_code=429, detail="rate limit exceeded")
-        users = _users_or_503()
-        if users.has_users():
-            raise HTTPException(status_code=409, detail="already set up")
-        if not users.create_user(ADMIN_USERNAME, payload.password):
-            raise HTTPException(status_code=409, detail="already set up")
-        token = sessions.issue()
-        response.set_cookie(
-            SESSION_COOKIE,
-            token,
-            httponly=True,
-            samesite="lax",
-            path="/",
-            max_age=int(SESSION_TTL_S),
-        )
-        return AuthResponseDTO(ok=True)
-
-    @app.post("/api/auth/login", response_model=AuthResponseDTO)
-    def auth_login(
-        payload: AuthRequestDTO, request: Request, response: Response
-    ) -> AuthResponseDTO:
-        """Verify the admin password and issue a session cookie."""
-        ip = request.client.host if request.client else "unknown"
-        if not login_limiter.allow(ip):
-            raise HTTPException(status_code=429, detail="rate limit exceeded")
-        if not _users_or_503().verify(ADMIN_USERNAME, payload.password):
-            raise HTTPException(status_code=401, detail=AUTH_401_DETAIL)
-        token = sessions.issue()
-        response.set_cookie(
-            SESSION_COOKIE,
-            token,
-            httponly=True,
-            samesite="lax",
-            path="/",
-            max_age=int(SESSION_TTL_S),
-        )
-        return AuthResponseDTO(ok=True)
-
-    @app.post("/api/auth/logout", response_model=AuthResponseDTO)
-    def auth_logout(request: Request, response: Response) -> AuthResponseDTO:
-        """Revoke the presented session and clear its cookie."""
-        token = request.cookies.get(SESSION_COOKIE)
-        if token is not None:
-            sessions.revoke(token)
-        response.delete_cookie(SESSION_COOKIE, path="/")
-        return AuthResponseDTO(ok=True)
-
-    @app.get("/api/auth/session", response_model=SessionStatusDTO)
-    def auth_session(request: Request) -> SessionStatusDTO:
-        """Report session validity plus whether first-boot setup is pending."""
-        token = request.cookies.get(SESSION_COOKIE)
-        authenticated = token is not None and sessions.validate(token)
-        return SessionStatusDTO(
-            authenticated=authenticated,
-            setup_required=(
-                False if deps.user_repo is None else not deps.user_repo.has_users()
-            ),
-        )
-
-    @app.get("/api/settings", response_model=SettingsDTO, dependencies=[Depends(admin)])
-    def get_settings() -> SettingsDTO:
-        """Return the full installed settings (admin session required)."""
-        return SettingsDTO.from_domain(deps.settings_repo.load())
-
-    @app.put("/api/settings", response_model=SettingsDTO, dependencies=[Depends(admin)])
-    def put_settings(payload: SettingsDTO) -> SettingsDTO:
-        """Replace settings atomically and fan out a config-update event."""
-        try:
-            settings = payload.to_domain()
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        deps.settings_repo.save(settings)
-        deps.event_bus.publish("config-update", ("settings",))
-        return SettingsDTO.from_domain(settings)
-
-    @app.put(
-        "/api/manual-day", response_model=PrayerDayDTO, dependencies=[Depends(admin)]
-    )
-    def put_manual_day(payload: ManualDayDTO) -> PrayerDayDTO:
-        """Pin one day's manual schedule; it outranks automatic sources."""
-        settings = deps.settings_repo.load()
-        now = deps.clock.now()
-        try:
-            day = ensure_ordered(payload.to_prayer_day(zone=settings.zone, now=now))
-        except (ValueError, SyncError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        deps.prayer_repo.save_day(day)
-        hijri_date = resolve_hijri(day.date, settings.hijri_offset)
-        return PrayerDayDTO.from_domain(day, is_stale(day, now), hijri_date=hijri_date)
-
-    @app.delete("/api/manual-day", dependencies=[Depends(admin)])
-    def delete_manual_day(date: date) -> dict[str, Any]:
-        """Release one day's manual pin; the date falls back to auto."""
-        settings = deps.settings_repo.load()
-        if not deps.prayer_repo.delete_day(date, settings.zone):
-            raise HTTPException(status_code=404, detail="no manual pin for date")
-        return {"ok": True}
-
-    @app.get("/admin/login", response_class=HTMLResponse)
-    def admin_login(request: Request) -> HTMLResponse:
-        """Admin login page (thin fetch client over /api/auth/login)."""
-        return _TEMPLATES.TemplateResponse(request, "admin/login.html", login_context())
-
-    @app.get("/admin", response_class=HTMLResponse)
-    def admin_landing(request: Request) -> RedirectResponse:
-        """Landing: setup on first boot, settings otherwise."""
-        if deps.user_repo is not None and not deps.user_repo.has_users():
-            return RedirectResponse("/admin/setup")
-        return RedirectResponse("/admin/settings")
-
-    @app.get("/admin/setup", response_class=HTMLResponse, response_model=None)
-    def admin_setup(request: Request) -> HTMLResponse | RedirectResponse:
-        """First-boot wizard; redirects once an admin exists."""
-        if deps.user_repo is None or deps.user_repo.has_users():
-            return RedirectResponse("/admin/settings")
-        return _TEMPLATES.TemplateResponse(request, "admin/setup.html", setup_context())
-
-    @app.get("/admin/settings", response_class=HTMLResponse, response_model=None)
-    def admin_settings(request: Request) -> HTMLResponse | RedirectResponse:
-        """Settings page for authed admins; others go to login."""
-        token = request.cookies.get(SESSION_COOKIE)
-        if token is None or not sessions.validate(token):
-            return RedirectResponse("/admin/login")
-        try:
-            dto = SettingsDTO.from_domain(deps.settings_repo.load())
-        except ConfigError:
-            return RedirectResponse("/admin/setup")
-        rules_json = json.dumps([r.model_dump(mode="json") for r in dto.iqamah_rules])
-        host = request.url.netloc or "muhideen.local:8000"
-        ctx = settings_context(
-            settings=dto,
-            rules_json=rules_json,
-            qr_data_uri=qr_data_uri(f"http://{host}/admin"),
-            fallback_url=f"http://{host}/admin",
-        )
-        ctx["nav_base"] = ""
-        ctx["version"] = package_version("muhideen")
-        if deps.database is not None:
-            groups = _group_list(deps.database)
-            by_name = {group["name"]: group for group in groups}
-            with deps.database.read() as conn:
-                rows = conn.execute(
-                    "SELECT id, name, group_name, current_theme"
-                    " FROM displays ORDER BY id"
-                ).fetchall()
-            displays: list[dict[str, Any]] = []
-            for row in rows:
-                group = by_name.get(str(row["group_name"]), {})
-                override = group.get("dim_minutes_override")
-                displays.append(
-                    {
-                        "id": row["id"],
-                        "name": row["name"],
-                        "group_name": row["group_name"],
-                        "current_theme": row["current_theme"],
-                        "effective_dim_minutes": (
-                            override
-                            if override is not None
-                            else dto.dim_minutes_default
-                        ),
-                    }
-                )
-            ctx["displays_json"] = json.dumps(displays)
-            ctx["groups_json"] = json.dumps(groups)
-        else:
-            ctx["displays_json"] = "[]"
-            ctx["groups_json"] = "[]"
-        return _TEMPLATES.TemplateResponse(request, "admin/settings.html", ctx)
-
-    @app.get(
-        "/admin/playlists",
-        response_class=HTMLResponse,
-        response_model=None,
-    )
-    def admin_playlists(request: Request) -> HTMLResponse | RedirectResponse:
-        """Playlist editor for authed admins; others go to login."""
-        token = request.cookies.get(SESSION_COOKIE)
-        if token is None or not sessions.validate(token):
-            return RedirectResponse("/admin/login")
-        stored = playlist_store
-        playlists = stored.list() if stored is not None else []
-        preview_error: str | None = None
-        try:
-            preview: dict[str, Any] | None = (
-                _occupancy_preview() if stored is not None else None
-            )
-        except (ConfigError, ScheduleError) as exc:
-            # Surface the reason instead of silent null: the editor embeds
-            # the message in the preview slot (a JS-safe shape — ``stage``
-            # plus an empty ``playlists`` list — since the page script only
-            # null-guards before reading ``playlists``). The ``None`` slot
-            # stays reserved for "no database".
-            preview_error = str(exc)
-            preview = {"error": preview_error, "stage": "error", "playlists": []}
-        ctx: dict[str, Any] = {
-            "lang": "en",
-            "nav_base": "/admin/settings",
-            "playlists_json": json.dumps(
-                [
-                    PlaylistDTO.from_domain(playlist).model_dump(mode="json")
-                    for playlist in playlists
-                ]
-            ),
-            "preview_json": json.dumps(preview) if preview is not None else "null",
-            "preview_error": preview_error,
-        }
-        return _TEMPLATES.TemplateResponse(request, "admin/playlists.html", ctx)
-
-    def _playlists_or_503() -> SqlitePlaylistRepo | FilePlaylistRepo:
-        """Return the playlist store; 503 when the app has no playlist file."""
-        if playlist_store is None:
-            raise HTTPException(status_code=503, detail="playlist storage unavailable")
-        return playlist_store
-
-    def _writable_playlists_or_503() -> SqlitePlaylistRepo:
-        """Return the playlist store for writes; 503 when file-backed."""
-        store = _playlists_or_503()
-        if not isinstance(store, SqlitePlaylistRepo):
-            raise HTTPException(status_code=503, detail="playlist storage is read-only")
-        return store
-
-    def _registry_or_503() -> Database:
-        """Return the database for display-registry reads; 503 without one."""
-        if deps.database is None:
-            raise HTTPException(status_code=503, detail="display registry unavailable")
-        return deps.database
-
-    def _group_list(db: Database) -> list[dict[str, Any]]:
-        """List every display group with its theme and dim override."""
-        with db.read() as conn:
-            rows = conn.execute(
-                "SELECT name, theme, carousel_enabled, dim_minutes_override"
-                " FROM display_groups ORDER BY name"
-            ).fetchall()
-        return [
-            {
-                "name": row["name"],
-                "theme": row["theme"],
-                "carousel_enabled": bool(row["carousel_enabled"]),
-                "dim_minutes_override": row["dim_minutes_override"],
-            }
-            for row in rows
-        ]
-
-    def _display_entry(
-        db: Database, display_id: str, default_dim: int
-    ) -> dict[str, Any]:
-        """One display with its effective dim (group override, else default)."""
-        with db.read() as conn:
-            row = conn.execute(
-                "SELECT d.id, d.name, d.group_name,"
-                " d.current_theme, g.dim_minutes_override"
-                " FROM displays d LEFT JOIN display_groups g"
-                " ON g.name = d.group_name WHERE d.id = ?",
-                (display_id,),
-            ).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="unknown display")
-        override = row["dim_minutes_override"]
-        return {
-            "id": row["id"],
-            "name": row["name"],
-            "group_name": row["group_name"],
-            "current_theme": row["current_theme"],
-            "group_dim_override": override,
-            "effective_dim_minutes": (
-                override if override is not None else default_dim
-            ),
-            "dim_source": "group" if override is not None else "settings",
-        }
-
-    def _occupancy_preview() -> dict[str, Any]:
-        """Server-side Stage preview: current occupant plus per-playlist next.
-
-        ``on_stage_now`` marks the playlist holding the Stage at this
-        instant; ``next_at`` is the first 5-minute sample in the coming 24h
-        at which the playlist would hold it (None when never in-window).
-        """
-        store = _playlists_or_503()
-        settings = deps.settings_repo.load()
-        now = deps.clock.now()
-        playlists = store.list()
-        days: dict[date, PrayerDay] = {}
-        current = _preview_moment(engine, settings, playlists, now, days)
-        wins: dict[str, str] = {}
-        for step in range(1, 289):
-            moment = now + timedelta(minutes=5 * step)
-            occupant = _preview_moment(engine, settings, playlists, moment, days)
-            if (
-                isinstance(occupant, PlaylistOccupant)
-                and occupant.playlist_id not in wins
-            ):
-                wins[occupant.playlist_id] = moment.isoformat()
-        entries = [
-            {
-                "id": playlist.id,
-                "title": playlist.title,
-                "active": playlist.active,
-                "on_stage_now": (
-                    isinstance(current, PlaylistOccupant)
-                    and current.playlist_id == playlist.id
-                ),
-                "next_at": (
-                    now.isoformat()
-                    if isinstance(current, PlaylistOccupant)
-                    and current.playlist_id == playlist.id
-                    else wins.get(playlist.id)
-                ),
-            }
-            for playlist in playlists
-        ]
-        return {
-            "now": now.isoformat(),
-            "stage": stage_id(current),
-            "playlists": entries,
-        }
-
-    @app.get(
-        "/api/playlists",
-        dependencies=[Depends(admin)],
-    )
-    def list_playlists() -> dict[str, Any]:
-        """List every playlist with ordered items (admin session required)."""
-        store = _playlists_or_503()
-        return {
-            "playlists": [
-                PlaylistDTO.from_domain(playlist) for playlist in store.list()
-            ]
-        }
-
-    @app.post(
-        "/api/playlists",
-        dependencies=[Depends(admin)],
-        status_code=201,
-    )
-    def create_playlist(payload: PlaylistCreateDTO) -> PlaylistDTO:
-        """Create a playlist; the id is generated when the body omits it."""
-        store = _writable_playlists_or_503()
-        pid = payload.id or uuid.uuid4().hex[:12]
-        try:
-            playlist = payload.model_copy(update={"id": pid}).to_domain()
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        try:
-            store.insert(playlist)
-        except KeyError:
-            raise HTTPException(
-                status_code=409, detail="playlist id already exists"
-            ) from None
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return PlaylistDTO.from_domain(playlist)
-
-    @app.get(
-        "/api/playlists/preview",
-        dependencies=[Depends(admin)],
-    )
-    def preview_playlists() -> dict[str, Any]:
-        """Occupancy preview computed server-side over the Stage engine."""
-        return _occupancy_preview()
-
-    @app.get(
-        "/api/playlists/{playlist_id}",
-        dependencies=[Depends(admin)],
-    )
-    def get_playlist(playlist_id: str) -> PlaylistDTO:
-        """Return one playlist with ordered items."""
-        playlist = _playlists_or_503().get(playlist_id)
-        if playlist is None:
-            raise HTTPException(status_code=404, detail="unknown playlist")
-        return PlaylistDTO.from_domain(playlist)
-
-    @app.put(
-        "/api/playlists/{playlist_id}",
-        dependencies=[Depends(admin)],
-    )
-    def replace_playlist(playlist_id: str, payload: PlaylistDTO) -> PlaylistDTO:
-        """Replace a playlist atomically (path id must match the body id)."""
-        store = _writable_playlists_or_503()
-        if payload.id != playlist_id:
-            raise HTTPException(status_code=422, detail="path id and body id differ")
-        try:
-            playlist = payload.to_domain()
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if store.get(playlist_id) is None:
-            raise HTTPException(status_code=404, detail="unknown playlist")
-        try:
-            store.save(playlist)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return PlaylistDTO.from_domain(playlist)
-
-    @app.patch(
-        "/api/playlists/{playlist_id}",
-        dependencies=[Depends(admin)],
-    )
-    def toggle_playlist(playlist_id: str, payload: ActiveToggleDTO) -> PlaylistDTO:
-        """Flip one playlist's active flag without touching its items."""
-        store = _writable_playlists_or_503()
-        if not store.set_active(playlist_id, payload.active):
-            raise HTTPException(status_code=404, detail="unknown playlist")
-        playlist = store.get(playlist_id)
-        if playlist is None:  # pragma: no cover - toggle just succeeded
-            raise HTTPException(status_code=404, detail="unknown playlist")
-        return PlaylistDTO.from_domain(playlist)
-
-    @app.delete(
-        "/api/playlists/{playlist_id}",
-        dependencies=[Depends(admin)],
-    )
-    def delete_playlist(playlist_id: str) -> dict[str, Any]:
-        """Delete a playlist; its items cascade."""
-        if not _writable_playlists_or_503().delete(playlist_id):
-            raise HTTPException(status_code=404, detail="unknown playlist")
-        return {"ok": True}
-
-    @app.post(
-        "/api/playlists/{playlist_id}/items",
-        dependencies=[Depends(admin)],
-        status_code=201,
-    )
-    def upload_playlist_item(
-        playlist_id: str, payload: PlaylistImageUploadDTO
-    ) -> dict[str, Any]:
-        """Store one uploaded image and append it to the playlist items.
-
-        The image travels as base64 JSON (no multipart parser on the
-        offline-first footprint); bytes flow into the shared image store
-        and the stored filename becomes the new playlist item. The
-        playlist append is atomic, so concurrent uploads cannot lose rows.
-        """
-        store = _writable_playlists_or_503()
-        try:
-            data = base64.b64decode(payload.image_base64, validate=True)
-        except (ValueError, binascii.Error) as exc:
-            raise HTTPException(status_code=400, detail="invalid base64") from exc
-        if len(data) > MAX_IMAGE_BYTES:
-            raise HTTPException(status_code=413, detail="image exceeds 5MB limit")
-        try:
-            stored = store_image(data, media_dir)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        try:
-            _, order = store.append_item(
-                playlist_id,
-                PlaylistItem(
-                    image_path=stored.name,
-                    duration_s=payload.duration_s,
-                    sort_order=0,
-                ),
-            )
-        except KeyError:
-            stored.unlink(missing_ok=True)
-            raise HTTPException(status_code=404, detail="unknown playlist") from None
-        except ValueError as exc:
-            stored.unlink(missing_ok=True)
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except Exception:
-            stored.unlink(missing_ok=True)
-            raise
-        # append_item assigns the order inside the transaction; re-read it
-        # from the stored row via the returned playlist is unnecessary here —
-        # order is the second tuple element.
-        return {
-            "image_path": stored.name,
-            "duration_s": payload.duration_s,
-            "sort_order": order,
-        }
-
-    @app.delete(
-        "/api/playlists/{playlist_id}/items/{sort_order}",
-        dependencies=[Depends(admin)],
-    )
-    def delete_playlist_item(playlist_id: str, sort_order: int) -> dict[str, Any]:
-        """Remove the item at one sort position, keeping the rest in place."""
-        store = _writable_playlists_or_503()
-        if store.get(playlist_id) is None:
-            raise HTTPException(status_code=404, detail="unknown playlist")
-        if not store.remove_item(playlist_id, sort_order):
-            raise HTTPException(status_code=404, detail="unknown playlist item")
-        return {"ok": True}
-
-    @app.post(
-        "/api/adhan-audio",
-        dependencies=[Depends(admin)],
-        status_code=201,
-    )
-    def upload_adhan_audio(payload: AdhanAudioUploadDTO) -> dict[str, Any]:
-        """Store the adhan MP3 (base64 JSON, 10MB cap, MP3 magic only).
-
-        Uploads replace each other under the canonical ``adhan.mp3`` name,
-        so the display URL stays stable across swaps.
-        """
-        if len(payload.audio_base64) > (MAX_ADHAN_BYTES + 2) // 3 * 4 + 4:
-            raise HTTPException(status_code=413, detail="audio exceeds 10MB limit")
-        try:
-            data = base64.b64decode(payload.audio_base64, validate=True)
-        except (ValueError, binascii.Error) as exc:
-            raise HTTPException(status_code=400, detail="invalid base64") from exc
-        if len(data) > MAX_ADHAN_BYTES:
-            raise HTTPException(status_code=413, detail="audio exceeds 10MB limit")
-        try:
-            stored = store_adhan_audio(data, media_dir)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"file": stored.name, "size": len(data)}
-
-    @app.delete(
-        "/api/adhan-audio",
-        dependencies=[Depends(admin)],
-    )
-    def delete_adhan_audio_route() -> dict[str, Any]:
-        """Remove the adhan MP3; idempotent when no file was uploaded."""
-        delete_adhan_audio(media_dir)
-        return {"ok": True}
-
-    @app.get(
-        "/api/displays",
-        dependencies=[Depends(admin)],
-    )
-    def list_displays() -> dict[str, Any]:
-        """List configured displays with effective theme+dim plus groups."""
-        db = _registry_or_503()
-        default_dim = deps.settings_repo.load().dim_minutes_default
-        groups = _group_list(db)
-        by_name = {group["name"]: group for group in groups}
-        with db.read() as conn:
-            rows = conn.execute(
-                "SELECT id, name, group_name, current_theme FROM displays ORDER BY id"
-            ).fetchall()
-        displays: list[dict[str, Any]] = []
-        for row in rows:
-            group = by_name.get(str(row["group_name"]), {})
-            override = group.get("dim_minutes_override")
-            displays.append(
-                {
-                    "id": row["id"],
-                    "name": row["name"],
-                    "group_name": row["group_name"],
-                    "current_theme": row["current_theme"],
-                    "group_dim_override": override,
-                    "effective_dim_minutes": (
-                        override if override is not None else default_dim
-                    ),
-                    "dim_source": "group" if override is not None else "settings",
-                }
-            )
-        return {"displays": displays, "groups": groups}
-
-    @app.patch(
-        "/api/displays/{display_id}",
-        dependencies=[Depends(admin)],
-    )
-    def update_display(
-        display_id: Annotated[str, PathParam(min_length=1, max_length=64)],
-        payload: DisplayUpdateDTO,
-    ) -> dict[str, Any]:
-        """Set per-display overrides, creating the row when unknown.
-
-        Display identity is the URL id itself — no registration step:
-        the first PATCH for an id inserts it (name defaults to the id,
-        group to ``Default`` unless assigned here). An explicit
-        ``group_name`` null clears the assignment (the row keeps NULL,
-        so the effective dim falls back to settings); an explicit
-        ``current_theme`` null is not an update, so a body with nothing
-        else to change is still 422.
-        """
-        db = _registry_or_503()
-        default_dim = deps.settings_repo.load().dim_minutes_default
-        provided = payload.model_fields_set
-        has_name = "name" in provided and payload.name is not None
-        has_group = "group_name" in provided
-        has_theme = "current_theme" in provided and payload.current_theme is not None
-        if not has_name and not has_group and not has_theme:
-            raise HTTPException(status_code=422, detail="nothing to update")
-        if has_theme:
-            from muhideen.core.values import THEME_CHOICES as _THEME_CHOICES
-
-            if payload.current_theme not in _THEME_CHOICES["palette"]:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"unknown display theme: {payload.current_theme!r}",
-                )
-        if has_group and payload.group_name is not None:
-            with db.read() as conn:
-                group = conn.execute(
-                    "SELECT name FROM display_groups WHERE name = ?",
-                    (payload.group_name,),
-                ).fetchone()
-            if group is None:
-                raise HTTPException(status_code=422, detail="unknown display group")
-        with db.write() as conn:
-            conn.execute(
-                "INSERT INTO displays (id, name, group_name, current_theme)"
-                " VALUES (?, ?, ?, ?)"
-                " ON CONFLICT(id) DO NOTHING",
-                (
-                    display_id,
-                    payload.name if has_name else display_id,
-                    payload.group_name if has_group else "Default",
-                    payload.current_theme if has_theme else theme_default("palette"),
-                ),
-            )
-            if has_name:
-                conn.execute(
-                    "UPDATE displays SET name = ? WHERE id = ?",
-                    (payload.name, display_id),
-                )
-            if has_group:
-                if payload.group_name is None:
-                    conn.execute(
-                        "UPDATE displays SET group_name = NULL WHERE id = ?",
-                        (display_id,),
-                    )
-                else:
-                    conn.execute(
-                        "UPDATE displays SET group_name = ? WHERE id = ?",
-                        (payload.group_name, display_id),
-                    )
-            if has_theme:
-                conn.execute(
-                    "UPDATE displays SET current_theme = ? WHERE id = ?",
-                    (payload.current_theme, display_id),
-                )
-        entry = _display_entry(db, display_id, default_dim)
-        return entry
-
-    @app.patch(
-        "/api/display-groups/{name}",
-        dependencies=[Depends(admin)],
-    )
-    def update_display_group(
-        name: str, payload: DisplayGroupUpdateDTO
-    ) -> dict[str, Any]:
-        """Set group overrides: theme default, dim minutes, carousel flag.
-
-        An explicit ``dim_minutes_override`` null clears the pin (SET NULL,
-        falling back to settings); omission leaves it unchanged.
-        """
-        from muhideen.core.values import THEME_CHOICES
-
-        db = _registry_or_503()
-        provided = payload.model_fields_set
-        assignments: dict[str, Any] = {}
-        clear_dim = False
-        if payload.theme is not None:
-            if payload.theme not in THEME_CHOICES["palette"]:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"unknown group theme: {payload.theme!r}",
-                )
-            assignments["theme"] = payload.theme
-        if "dim_minutes_override" in provided:
-            if payload.dim_minutes_override is None:
-                clear_dim = True
-            else:
-                assignments["dim_minutes_override"] = payload.dim_minutes_override
-        if payload.carousel_enabled is not None:
-            assignments["carousel_enabled"] = 1 if payload.carousel_enabled else 0
-        with db.write() as conn:
-            if assignments or clear_dim:
-                setters: list[str] = [f"{key} = ?" for key in assignments]
-                values: list[Any] = list(assignments.values())
-                if clear_dim:
-                    setters.append("dim_minutes_override = NULL")
-                cursor = conn.execute(
-                    f"UPDATE display_groups SET {', '.join(setters)} WHERE name = ?",
-                    (*values, name),
-                )
-                if cursor.rowcount == 0:
-                    raise HTTPException(status_code=404, detail="unknown display group")
-            else:
-                exists = conn.execute(
-                    "SELECT name FROM display_groups WHERE name = ?", (name,)
-                ).fetchone()
-                if exists is None:
-                    raise HTTPException(status_code=404, detail="unknown display group")
-        with db.read() as conn:
-            row = conn.execute(
-                "SELECT name, theme, carousel_enabled, dim_minutes_override"
-                " FROM display_groups WHERE name = ?",
-                (name,),
-            ).fetchone()
-        if row is None:  # pragma: no cover - update just succeeded
-            raise HTTPException(status_code=404, detail="unknown display group")
-        return {
-            "name": row["name"],
-            "theme": row["theme"],
-            "carousel_enabled": bool(row["carousel_enabled"]),
-            "dim_minutes_override": row["dim_minutes_override"],
-        }
-
-    @app.post(
-        "/api/backup/export",
-        dependencies=[Depends(admin)],
-    )
-    def export_backup() -> FileResponse:
-        """Download the whole installation as one zip (DB snapshot + media).
-
-        The archive holds password hashes, so treat the download as secret
-        (same handling as the DB file itself). Temp-file cleanup runs as a
-        background task after the download completes.
-        """
-        db = _registry_or_503()
-        fd, tmp_name = tempfile.mkstemp(suffix=".zip", prefix="muhideen-backup-")
-        os.close(fd)
-        dest = Path(tmp_name)
-        try:
-            backup_adapter.build_backup(db, media_dir, dest)
-        except Exception:
-            dest.unlink(missing_ok=True)
-            raise
-        stamp = deps.clock.now().strftime("%Y%m%d-%H%M%S")
-        cleanup = BackgroundTask(dest.unlink, missing_ok=True)
-        return FileResponse(
-            path=str(dest),
-            media_type="application/zip",
-            filename=f"muhideen-backup-{stamp}.zip",
-            background=cleanup,
-        )
-
-    @app.post(
-        "/api/backup/restore",
-        dependencies=[Depends(admin)],
-    )
-    def restore_backup(payload: BackupRestoreDTO) -> dict[str, Any]:
-        """Replace the installation from a base64 backup zip (validated).
-
-        The archive travels as base64 JSON (no multipart parser on the
-        offline-first footprint); the pre-decode length bound mirrors the
-        adhan upload route. ``ValueError`` from bundle validation is 400.
-        """
-        db = _registry_or_503()
-        if len(payload.archive_base64) > (MAX_ARCHIVE_BYTES + 2) // 3 * 4 + 4:
-            raise HTTPException(status_code=413, detail="backup exceeds 256MB limit")
-        try:
-            data = base64.b64decode(payload.archive_base64, validate=True)
-        except (ValueError, binascii.Error) as exc:
-            raise HTTPException(status_code=400, detail="invalid base64") from exc
-        fd, tmp_name = tempfile.mkstemp(suffix=".zip", prefix="muhideen-restore-")
-        os.close(fd)
-        staged = Path(tmp_name)
-        try:
-            staged.write_bytes(data)
-            try:
-                backup_adapter.restore_backup(db, media_dir, staged, migrate_fn=migrate)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-        finally:
-            staged.unlink(missing_ok=True)
-        deps.event_bus.publish(
-            "config-update", ("settings", "schedule", "media", "playlists")
-        )
-        return {"ok": True}
-
-    @app.get(
-        "/api/logs",
-        dependencies=[Depends(admin)],
-    )
-    def read_service_logs(
-        lines: Annotated[int, Query(ge=1, le=1000)] = 100,
-    ) -> dict[str, Any]:
-        """Tail the service journal; an absent journal reads available:false."""
-        return logs_adapter.read_logs(lines=lines)
-
     return app
 
 
@@ -1774,7 +726,6 @@ def create_production_app(
     deps = AppDeps(
         settings_repo=FileSettingsRepo(cfg_path),
         prayer_repo=FilePrayerRepo(buffer_path, manual_days),
-        user_repo=None,
         clock=clock,
         event_bus=event_bus,
         run_background=run_background,
