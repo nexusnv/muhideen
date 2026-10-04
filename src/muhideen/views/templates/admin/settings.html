@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Settings · Muhideen</title>
 <link rel="stylesheet" href="/static/admin.css">
+<script>try{document.documentElement.dataset.adminTheme=localStorage.getItem("muhideen-admin-theme")||"classic-green"}catch(e){document.documentElement.dataset.adminTheme="classic-green"}</script>
 </head>
 <body>
 <div class="admin-shell">
@@ -20,6 +21,11 @@
     </div>
     <div class="command-actions">
       <span class="status-pill live"><span class="status-dot"></span>Live · v{{ version }}</span>
+      <label class="theme-switch"><span class="lbl">Theme</span><select id="admin-theme">
+        <option value="classic-green">Classic green</option>
+        <option value="sand">Sand</option>
+        <option value="midnight">Midnight</option>
+      </select></label>
       <button id="s-save" class="btn btn-primary" type="button">Save changes</button>
     </div>
   </header>
@@ -29,6 +35,15 @@
         <h2>Masjid configuration</h2>
         <p>Every change applies to the live display after save. Blank pre-adhan overrides fall back to the default window.</p>
       </div>
+    </div>
+
+    <div class="tablist" role="tablist" aria-label="Settings sections">
+      <button type="button" role="tab" data-tab="section-profile" aria-selected="true">Profile</button>
+      <button type="button" role="tab" data-tab="section-time" aria-selected="false">Prayer time</button>
+      <button type="button" role="tab" data-tab="section-audio" aria-selected="false">Adhan audio</button>
+      <button type="button" role="tab" data-tab="section-display" aria-selected="false">Display</button>
+      <button type="button" role="tab" data-tab="section-manual" aria-selected="false">Schedule</button>
+      <button type="button" role="tab" data-tab="section-system" aria-selected="false">System</button>
     </div>
 
     <div class="glance-grid" aria-label="Configuration at a glance">
@@ -70,7 +85,7 @@
       </div>
     </section>
 
-    <section id="section-time" class="admin-section">
+    <section id="section-time" class="admin-section" hidden>
       <div class="card-head">
         <h2><span class="ico">🌙</span><span>Prayer Time &amp; iqamah<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Method, geography, offsets and jamaat delays</div></span></h2>
         <span class="pill-note">Offline fallback always on</span>
@@ -109,7 +124,9 @@
           <div class="setting-control"><label class="switch"><input id="s-calc" type="checkbox"{% if current.calc_only %} checked{% endif %}><span class="slider"></span><span class="sw-label" data-on="On" data-off="Off"></span></label></div>
         </div>
 
-        <h3 class="group-title">Marker tuning</h3>
+        <details class="advanced">
+          <summary>Marker tuning</summary>
+          <div class="advanced-body">
         <div class="setting-row">
           <div class="setting-info"><h4>Imsak offset</h4><p>Minutes before Fajr. Range 0–10.</p></div>
           <div class="setting-control control-narrow"><input id="s-imsak" type="number" min="0" max="10" value="{{ current.imsak_offset_min }}"></div>
@@ -138,7 +155,11 @@
           <div class="setting-control"><label class="switch"><input id="s-boundary" type="checkbox"{% if current.boundary_countdown %} checked{% endif %}><span class="slider"></span><span class="sw-label"></span></label></div>
         </div>
 
-        <h3 class="group-title">Pre-adhan windows (minutes, 0–90 · blank = default)</h3>
+          </div>
+        </details>
+        <details class="advanced">
+          <summary>Pre-adhan windows (minutes, 0–90 · blank = default)</summary>
+          <div class="advanced-body">
         <div class="setting-row">
           <div class="setting-info"><h4>Default window</h4><p>Applies to any prayer without its own override.</p></div>
           <div class="setting-control control-narrow"><input id="s-countdown-default" type="number" min="0" max="90" value="{{ current.countdown_before_adhan_min }}"></div>
@@ -154,12 +175,18 @@
           </div>
         </div>
 
-        <h3 class="group-title">Iqamah rules — delay after adhan, or a fixed clock time</h3>
-        <div id="iqamah-rules" data-rules='{{ rules_json }}'></div>
+          </div>
+        </details>
+        <details class="advanced">
+          <summary>Iqamah rules — delay after adhan, or a fixed clock time</summary>
+          <div class="advanced-body">
+            <div id="iqamah-rules" data-rules='{{ rules_json }}'></div>
+          </div>
+        </details>
       </div>
     </section>
 
-    <section id="section-audio" class="admin-section">
+    <section id="section-audio" class="admin-section" hidden>
       <div class="card-head">
         <h2><span class="ico">🔊</span><span>Adhan audio<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Optional MP3 played during the ADHAN overlay</div></span></h2>
       </div>
@@ -181,6 +208,9 @@
           <div class="setting-info"><h4>Volume</h4><p>Master playback volume, 0–100.</p></div>
           <div class="setting-control control-narrow"><input id="s-adhan-volume" type="number" min="0" max="100" value="{{ current.adhan_volume }}"></div>
         </div>
+        <details class="advanced">
+          <summary>Silence rules</summary>
+          <div class="advanced-body">
         <div class="setting-row">
           <div class="setting-info"><h4>Quiet hours</h4><p>No audio between start and end (overnight wrap allowed). Both blank means no quiet hours.</p></div>
           <div class="setting-control">
@@ -199,10 +229,12 @@
             <label class="field"><span class="lbl">Jumuah</span><input id="s-mute-jumuah" type="checkbox"{% if 'jumuah' in current.adhan_muted_prayers %} checked{% endif %}></label>
           </div>
         </div>
+          </div>
+        </details>
       </div>
     </section>
 
-    <section id="section-display" class="admin-section">
+    <section id="section-display" class="admin-section" hidden>
       <div class="card-head">
         <h2><span class="ico">🖥</span><span>Display &amp; theme<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Look of the public screen</div></span></h2>
       </div>
@@ -241,14 +273,19 @@
             </select></label>
           </div>
         </div>
+        <details class="advanced">
+          <summary>Screens &amp; group defaults</summary>
+          <div class="advanced-body">
         <div class="setting-row stack">
           <div class="setting-info"><h4>Screen overrides</h4><p>Each display follows its group dim override when set, otherwise the global salah dim above.</p></div>
           <div id="display-overrides" data-displays='{{ displays_json }}' data-groups='{{ groups_json }}'></div>
         </div>
+          </div>
+        </details>
       </div>
     </section>
 
-    <section id="section-manual" class="admin-section">
+    <section id="section-manual" class="admin-section" hidden>
       <div class="card-head">
         <h2><span class="ico">📌</span><span>Manual schedule<div style="font-size:.8rem;color:var(--muted);font-weight:500;">Pin one day's times by hand — outranks the automatic timetable until cleared</div></span></h2>
       </div>
@@ -290,7 +327,7 @@
       </div>
     </section>
 
-    <section id="section-system" class="admin-section">
+    <section id="section-system" class="admin-section" hidden>
       <div class="card-head">
         <h2><span class="ico">⚙</span><span>System</span></h2>
         <span class="badge">v{{ version }}</span>

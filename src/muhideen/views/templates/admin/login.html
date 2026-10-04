@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Login · Muhideen</title>
 <link rel="stylesheet" href="/static/admin.css">
+<script>try{document.documentElement.dataset.adminTheme=localStorage.getItem("muhideen-admin-theme")||"classic-green"}catch(e){document.documentElement.dataset.adminTheme="classic-green"}</script>
 </head>
 <body>
 <div class="auth-wrap">
@@ -21,6 +22,11 @@
     <label class="field"><span class="lbl">Password</span><input id="password" type="password" autocomplete="current-password" autofocus></label>
     <div id="login-msg" class="alert" role="alert"></div>
     <button id="login-go" class="btn btn-primary" type="button">Login</button>
+    <div class="auth-theme"><label class="theme-switch"><span class="lbl">Theme</span><select id="admin-theme">
+      <option value="classic-green">Classic green</option>
+      <option value="sand">Sand</option>
+      <option value="midnight">Midnight</option>
+    </select></label></div>
     <p class="hint" style="margin-top:1rem;">On a new device, ask your administrator for the LAN address — this console never leaves the masjid network.</p>
   </main>
 </div>
