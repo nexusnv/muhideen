@@ -28,7 +28,6 @@ def media_client(surface: SimpleNamespace, tmp_path: Path) -> Any:
     deps = AppDeps(
         settings_repo=surface.settings_repo,
         prayer_repo=surface.prayer_repo,
-        display_repo=surface.display_repo,
         user_repo=surface.user_repo,
         clock=surface.clock,
         event_bus=surface.bus,

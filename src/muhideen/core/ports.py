@@ -62,34 +62,6 @@ class SettingsRepo(Protocol):
 
 
 @runtime_checkable
-class DisplayRepo(Protocol):
-    """Heartbeat buffer for pre-registered displays (batched flush)."""
-
-    def record_seen(self, display_id: str, ip: str | None) -> None:
-        """Buffer one heartbeat for a display.
-
-        Writes are batched (never per-heartbeat write-through, PRD §5.2
-        power-cut safety); unregistered IDs are dropped at flush.
-        """
-        ...
-
-    def is_registered(self, display_id: str) -> bool:
-        """Return True when display_id names a pre-registered display.
-
-        Ghost IDs are pending-approval: their heartbeats buffer normally
-        but match no row at flush and are dropped.
-        """
-        ...
-
-    def flush(self) -> int:
-        """Write all buffered heartbeats in one short transaction.
-
-        Returns the number of rows updated.
-        """
-        ...
-
-
-@runtime_checkable
 class JAKIMClient(Protocol):
     """Year-table fetcher for one JAKIM zone (network lives in adapters)."""
 

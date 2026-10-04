@@ -29,6 +29,8 @@ def test_admin_js_wiring_present() -> None:
         "next at",
         "dim_minutes_override",
         "duration_s",
+        "data-provision-display",
+        "data-provision-id",
         "Wrong password",
         "Too many attempts, wait a minute",
         "Network error",

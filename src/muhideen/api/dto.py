@@ -60,8 +60,6 @@ __all__ = [
     "BoundaryTimesDTO",
     "ConfigUpdateEventDTO",
     "ContractDTO",
-    "HeartbeatRequestDTO",
-    "HeartbeatResponseDTO",
     "IqamahModeLiteral",
     "IqamahRuleDTO",
     "ManualDayDTO",
@@ -299,23 +297,6 @@ SSE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "tick": TickEventDTO,
     "config-update": ConfigUpdateEventDTO,
 }
-
-
-class HeartbeatRequestDTO(ContractDTO):
-    """POST /api/displays/heartbeat body: stable pre-registered display ID."""
-
-    id: Annotated[str, Field(min_length=1, max_length=64)]
-
-
-class HeartbeatResponseDTO(ContractDTO):
-    """POST /api/displays/heartbeat response: acknowledgement + approval.
-
-    `registered` is False for pending-approval ghost IDs: the heartbeat
-    still buffers, then matches no row at flush and is dropped.
-    """
-
-    ok: bool
-    registered: bool
 
 
 class VersionDTO(ContractDTO):

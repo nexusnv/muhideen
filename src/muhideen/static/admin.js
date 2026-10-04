@@ -423,7 +423,10 @@
       if (!data) return;
       var html = "";
       if (!data.displays.length) {
-        html += '<p class="hint">No screens registered yet — they appear here after their first heartbeat.</p>';
+        html += '<p class="hint">No screens configured yet — add the first display id to create its URL (/display?id=...).</p>'
+          + '<div class="display-row"><label class="field"><span class="lbl">New display id</span>'
+          + '<input data-provision-id type="text" maxlength="64" placeholder="hall"></label>'
+          + '<button class="btn btn-sm" type="button" data-provision-display>Add display</button></div>';
       }
       for (var i = 0; i < data.displays.length; i++) {
         (function (d) {
@@ -455,6 +458,24 @@
       }
       overridesBox.innerHTML = html;
       overridesBox.addEventListener("click", function (ev) {
+        var provisionEl = ev.target.getAttribute && ev.target.getAttribute("data-provision-display");
+        if (provisionEl !== null && provisionEl !== undefined) {
+          var idEl = overridesBox.querySelector("[data-provision-id]");
+          var newId = idEl && idEl.value ? idEl.value.trim() : "";
+          if (!newId) { msg("s-msg", "Display id required"); return; }
+          fetch("/api/displays/" + encodeURIComponent(newId), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: newId }),
+          }).then(function (r) {
+            if (r.status === 200) window.location.reload();
+            else if (r.status === 401) msg("s-msg", "Session expired — please log in again");
+            else if (r.status === 503) msg("s-msg", "Display storage unavailable");
+            else if (r.status === 422) msg("s-msg", "Invalid display id (1-64 characters)");
+            else msg("s-msg", "Provisioning failed (" + r.status + ")");
+          }).catch(function () { msg("s-msg", "Network error"); });
+          return;
+        }
         var saveId = ev.target.getAttribute && ev.target.getAttribute("data-save-display");
         if (saveId) {
           var groupEl = overridesBox.querySelector('[data-group-for="' + saveId + '"]');
@@ -479,7 +500,7 @@
           }).catch(function () { msg("s-msg", "Network error"); });
         }
       });
-    }).catch(function () { /* registry renders on next load */ });
+    }).catch(function () { /* display list renders on next load */ });
   }
   var summaryBox = document.getElementById("playlist-summary");
   if (summaryBox) {
