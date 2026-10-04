@@ -43,6 +43,12 @@ from muhideen.adapters.adhan_audio import (
 )
 from muhideen.adapters.backup import MAX_ARCHIVE_BYTES
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
+from muhideen.adapters.file_config import (
+    FilePlaylistRepo,
+    FilePrayerRepo,
+    FileSettingsRepo,
+    load_config_file,
+)
 from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.images import MAX_IMAGE_BYTES, store_image
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
@@ -53,9 +59,6 @@ from muhideen.adapters.scheduler import build_scheduler
 from muhideen.adapters.sqlite_repo import (
     Database,
     SqliteDisplaySettingsRepo,
-    SqlitePrayerRepo,
-    SqliteSettingsRepo,
-    SqliteUserRepo,
 )
 from muhideen.adapters.sse_bus import SSEBus
 from muhideen.adapters.system_clock import SystemClock
@@ -88,7 +91,6 @@ from muhideen.core.errors import (
     ConfigError,
     MuhideenError,
     ScheduleError,
-    SettingsNotInitializedError,
     SyncError,
 )
 from muhideen.core.ports import (
@@ -318,14 +320,14 @@ class AppDeps:
 
     settings_repo: SettingsRepo
     prayer_repo: PrayerRepo
-    user_repo: UserRepo
+    user_repo: UserRepo | None
     clock: Clock
     event_bus: SSEBus
     database: Database | None = None
     run_background: bool = False
     jakim_client: JAKIMClient | None = None
     time_sync: TimeSyncProbe | None = None
-    playlist_repo: SqlitePlaylistRepo | None = None
+    playlist_repo: SqlitePlaylistRepo | FilePlaylistRepo | None = None
     media_dir: Path | None = None
 
 
@@ -378,7 +380,7 @@ def _tick_stage(
     engine: Engine,
     settings_repo: SettingsRepo,
     event: NextEvent,
-    playlist_repo: SqlitePlaylistRepo | None = None,
+    playlist_repo: SqlitePlaylistRepo | FilePlaylistRepo | None = None,
 ) -> str:
     """Stage id for one tick, resolved at the event's own pinned now."""
     settings = settings_repo.load()
@@ -422,7 +424,7 @@ async def _event_stream(
     clock: Clock,
     bus: SSEBus,
     settings_repo: SettingsRepo,
-    playlist_repo: SqlitePlaylistRepo | None = None,
+    playlist_repo: SqlitePlaylistRepo | FilePlaylistRepo | None = None,
 ) -> AsyncGenerator[str]:
     """SSE body: poll the thread-safe subscriber queue without blocking a thread.
 
@@ -821,6 +823,12 @@ def create_app(deps: AppDeps) -> FastAPI:
             )
         return _TEMPLATES.TemplateResponse(request, "display.html", ctx)
 
+    def _users_or_503() -> UserRepo:
+        """Return the user store; 503 when the app has none (file mode)."""
+        if deps.user_repo is None:
+            raise HTTPException(status_code=503, detail="user storage unavailable")
+        return deps.user_repo
+
     @app.post("/api/auth/setup", response_model=AuthResponseDTO)
     def auth_setup(
         payload: AuthRequestDTO, request: Request, response: Response
@@ -829,9 +837,10 @@ def create_app(deps: AppDeps) -> FastAPI:
         ip = request.client.host if request.client else "unknown"
         if not setup_limiter.allow(ip):
             raise HTTPException(status_code=429, detail="rate limit exceeded")
-        if deps.user_repo.has_users():
+        users = _users_or_503()
+        if users.has_users():
             raise HTTPException(status_code=409, detail="already set up")
-        if not deps.user_repo.create_user(ADMIN_USERNAME, payload.password):
+        if not users.create_user(ADMIN_USERNAME, payload.password):
             raise HTTPException(status_code=409, detail="already set up")
         token = sessions.issue()
         response.set_cookie(
@@ -852,7 +861,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         ip = request.client.host if request.client else "unknown"
         if not login_limiter.allow(ip):
             raise HTTPException(status_code=429, detail="rate limit exceeded")
-        if not deps.user_repo.verify(ADMIN_USERNAME, payload.password):
+        if not _users_or_503().verify(ADMIN_USERNAME, payload.password):
             raise HTTPException(status_code=401, detail=AUTH_401_DETAIL)
         token = sessions.issue()
         response.set_cookie(
@@ -881,7 +890,9 @@ def create_app(deps: AppDeps) -> FastAPI:
         authenticated = token is not None and sessions.validate(token)
         return SessionStatusDTO(
             authenticated=authenticated,
-            setup_required=not deps.user_repo.has_users(),
+            setup_required=(
+                False if deps.user_repo is None else not deps.user_repo.has_users()
+            ),
         )
 
     @app.get("/api/settings", response_model=SettingsDTO, dependencies=[Depends(admin)])
@@ -931,14 +942,14 @@ def create_app(deps: AppDeps) -> FastAPI:
     @app.get("/admin", response_class=HTMLResponse)
     def admin_landing(request: Request) -> RedirectResponse:
         """Landing: setup on first boot, settings otherwise."""
-        if not deps.user_repo.has_users():
+        if deps.user_repo is not None and not deps.user_repo.has_users():
             return RedirectResponse("/admin/setup")
         return RedirectResponse("/admin/settings")
 
     @app.get("/admin/setup", response_class=HTMLResponse, response_model=None)
     def admin_setup(request: Request) -> HTMLResponse | RedirectResponse:
         """First-boot wizard; redirects once an admin exists."""
-        if deps.user_repo.has_users():
+        if deps.user_repo is None or deps.user_repo.has_users():
             return RedirectResponse("/admin/settings")
         return _TEMPLATES.TemplateResponse(request, "admin/setup.html", setup_context())
 
@@ -1033,11 +1044,18 @@ def create_app(deps: AppDeps) -> FastAPI:
         }
         return _TEMPLATES.TemplateResponse(request, "admin/playlists.html", ctx)
 
-    def _playlists_or_503() -> SqlitePlaylistRepo:
-        """Return the playlist store; 503 when the app has no database."""
+    def _playlists_or_503() -> SqlitePlaylistRepo | FilePlaylistRepo:
+        """Return the playlist store; 503 when the app has no playlist file."""
         if playlist_store is None:
             raise HTTPException(status_code=503, detail="playlist storage unavailable")
         return playlist_store
+
+    def _writable_playlists_or_503() -> SqlitePlaylistRepo:
+        """Return the playlist store for writes; 503 when file-backed."""
+        store = _playlists_or_503()
+        if not isinstance(store, SqlitePlaylistRepo):
+            raise HTTPException(status_code=503, detail="playlist storage is read-only")
+        return store
 
     def _registry_or_503() -> Database:
         """Return the database for display-registry reads; 503 without one."""
@@ -1155,7 +1173,7 @@ def create_app(deps: AppDeps) -> FastAPI:
     )
     def create_playlist(payload: PlaylistCreateDTO) -> PlaylistDTO:
         """Create a playlist; the id is generated when the body omits it."""
-        store = _playlists_or_503()
+        store = _writable_playlists_or_503()
         pid = payload.id or uuid.uuid4().hex[:12]
         try:
             playlist = payload.model_copy(update={"id": pid}).to_domain()
@@ -1196,7 +1214,7 @@ def create_app(deps: AppDeps) -> FastAPI:
     )
     def replace_playlist(playlist_id: str, payload: PlaylistDTO) -> PlaylistDTO:
         """Replace a playlist atomically (path id must match the body id)."""
-        store = _playlists_or_503()
+        store = _writable_playlists_or_503()
         if payload.id != playlist_id:
             raise HTTPException(status_code=422, detail="path id and body id differ")
         try:
@@ -1217,7 +1235,7 @@ def create_app(deps: AppDeps) -> FastAPI:
     )
     def toggle_playlist(playlist_id: str, payload: ActiveToggleDTO) -> PlaylistDTO:
         """Flip one playlist's active flag without touching its items."""
-        store = _playlists_or_503()
+        store = _writable_playlists_or_503()
         if not store.set_active(playlist_id, payload.active):
             raise HTTPException(status_code=404, detail="unknown playlist")
         playlist = store.get(playlist_id)
@@ -1231,7 +1249,7 @@ def create_app(deps: AppDeps) -> FastAPI:
     )
     def delete_playlist(playlist_id: str) -> dict[str, Any]:
         """Delete a playlist; its items cascade."""
-        if not _playlists_or_503().delete(playlist_id):
+        if not _writable_playlists_or_503().delete(playlist_id):
             raise HTTPException(status_code=404, detail="unknown playlist")
         return {"ok": True}
 
@@ -1250,7 +1268,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         and the stored filename becomes the new playlist item. The
         playlist append is atomic, so concurrent uploads cannot lose rows.
         """
-        store = _playlists_or_503()
+        store = _writable_playlists_or_503()
         try:
             data = base64.b64decode(payload.image_base64, validate=True)
         except (ValueError, binascii.Error) as exc:
@@ -1294,7 +1312,7 @@ def create_app(deps: AppDeps) -> FastAPI:
     )
     def delete_playlist_item(playlist_id: str, sort_order: int) -> dict[str, Any]:
         """Remove the item at one sort position, keeping the rest in place."""
-        store = _playlists_or_503()
+        store = _writable_playlists_or_503()
         if store.get(playlist_id) is None:
             raise HTTPException(status_code=404, detail="unknown playlist")
         if not store.remove_item(playlist_id, sort_order):
@@ -1588,21 +1606,37 @@ def create_app(deps: AppDeps) -> FastAPI:
 
 
 def create_production_app(
-    db_path: str | Path,
+    config_path: str | Path,
     *,
+    prayer_buffer: str | Path | None = None,
+    media_dir: str | Path | None = None,
     tz: ZoneInfo = _PROD_TZ,
     run_background: bool = True,
 ) -> FastAPI:
-    """Production composition: SystemClock + SQLite + SSEBus + JAKIM client."""
-    database = Database(db_path)
-    # Migrate before reading settings: a legacy database may predate the
-    # settings table entirely (lifespan re-migrates, idempotently).
-    migrate(database)
+    """Production composition: SystemClock + file repos + SSEBus + JAKIM client.
+
+    The config file must exist: a missing file fails fast (the hand-edited
+    file replaces the first-boot wizard, so there is nothing to seed from).
+    A readable file with bad values keeps the previous contract — the clock
+    falls back to ``tz`` with a logged warning and settings-dependent
+    routes serve 503 until the file is fixed.
+    """
+    cfg_path = Path(config_path)
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"config file not found: {cfg_path}")
     try:
-        stored_tz = SqliteSettingsRepo(database).load().timezone
+        manual_days = load_config_file(cfg_path).schedule.manual_days
+    except ConfigError:
+        manual_days = ()
+    buffer_path = (
+        Path(prayer_buffer)
+        if prayer_buffer is not None
+        else cfg_path.parent / "prayer_buffer.json"
+    )
+    try:
+        stored_tz = FileSettingsRepo(cfg_path).load().timezone
         clock_tz = ZoneInfo(stored_tz)
     except (
-        SettingsNotInitializedError,
         ConfigError,
         ValueError,
         ZoneInfoNotFoundError,
@@ -1612,14 +1646,15 @@ def create_production_app(
     clock = SystemClock(clock_tz)
     event_bus = SSEBus()
     deps = AppDeps(
-        settings_repo=SqliteSettingsRepo(database),
-        prayer_repo=SqlitePrayerRepo(database),
-        user_repo=SqliteUserRepo(database),
+        settings_repo=FileSettingsRepo(cfg_path),
+        prayer_repo=FilePrayerRepo(buffer_path, manual_days),
+        user_repo=None,
         clock=clock,
         event_bus=event_bus,
-        database=database,
         run_background=run_background,
         jakim_client=HttpJAKIMClient(clock=clock),
         time_sync=SystemTimeSyncProbe(clock=clock),
+        playlist_repo=FilePlaylistRepo(cfg_path),
+        media_dir=Path(media_dir) if media_dir is not None else None,
     )
     return create_app(deps)

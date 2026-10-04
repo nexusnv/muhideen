@@ -276,24 +276,22 @@ def test_ticker_loops_until_stop() -> None:
 
 
 def test_production_clock_follows_settings_timezone(tmp_path: Path) -> None:
-    from muhideen.adapters.migrate import migrate
-    from muhideen.adapters.sqlite_repo import Database, SqliteSettingsRepo
-    from muhideen.core.values import Settings
+    import json
+    import shutil
 
-    db_path = tmp_path / "tz.db"
-    database = Database(db_path)
-    migrate(database)
-    SqliteSettingsRepo(database).save(
-        Settings(
-            masjid_name="Masjid Test",
-            zone="SGR01",
-            hijri_offset=0,
-            lat=51.5,
-            lon=-0.12,
-            timezone="Europe/London",
-        )
+    config_path = tmp_path / "muhideen.json"
+    shutil.copy(
+        Path(__file__).resolve().parent.parent.parent
+        / "config"
+        / "muhideen.example.json",
+        config_path,
     )
-    app = create_production_app(db_path, run_background=False)
+    raw = json.loads(config_path.read_text())
+    raw["masjid"]["timezone"] = "Europe/London"
+    raw["schedule"]["lat"] = 51.5
+    raw["schedule"]["lon"] = -0.12
+    config_path.write_text(json.dumps(raw, indent=2) + "\n")
+    app = create_production_app(config_path, run_background=False)
     with TestClient(app) as client:
         response = client.get("/display", params={"id": "HALL-01"})
     assert response.status_code == 200
@@ -301,10 +299,18 @@ def test_production_clock_follows_settings_timezone(tmp_path: Path) -> None:
 
 
 def test_production_app_factory_boots_full_surface(tmp_path: Path) -> None:
-    db_path = tmp_path / "prod.db"
-    app = create_production_app(db_path, run_background=False)
+    import shutil
+
+    config_path = tmp_path / "muhideen.json"
+    shutil.copy(
+        Path(__file__).resolve().parent.parent.parent
+        / "config"
+        / "muhideen.example.json",
+        config_path,
+    )
+    app = create_production_app(config_path, run_background=False)
     with TestClient(app) as client:
         assert client.get("/api/version").status_code == 200
-    from muhideen.adapters.sqlite_repo import Database
+    from muhideen.adapters.file_config import FileSettingsRepo
 
-    assert current_version(Database(db_path)) == 4
+    assert FileSettingsRepo(config_path).load().zone == "SGR01"
