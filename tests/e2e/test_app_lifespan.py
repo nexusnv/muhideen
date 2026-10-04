@@ -1,11 +1,16 @@
-"""E2E app lifespan: migrations, flush, background wiring (slice 1A-7)."""
+"""E2E app lifespan: config watcher, background wiring (task 6).
+
+File-config only: no migrations, no database rows. The lifespan starts the
+config watcher whenever a config path is wired and optionally runs the
+background ticker + scheduler threads.
+"""
 
 from __future__ import annotations
 
+import shutil
 import threading
 import time
-from datetime import date, datetime, timedelta, timezone
-from datetime import time as dtime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,14 +19,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 import muhideen.api.app as app_module
-from muhideen.adapters.migrate import current_version
 from muhideen.api.app import AppDeps, create_app, create_production_app
-from muhideen.core.values import PrayerDay, ScheduleSource
 
 pytestmark = pytest.mark.e2e
 
 KL = timezone(timedelta(hours=8))
 PINNED = datetime(2025, 10, 20, 12, 20, tzinfo=KL)
+EXAMPLE = (
+    Path(__file__).resolve().parent.parent.parent / "config" / "muhideen.example.json"
+)
 
 
 class FakeClock:
@@ -44,7 +50,7 @@ class FakeJAKIMClient:
     def __init__(self) -> None:
         self.calls = 0
 
-    def fetch_year(self, zone: str) -> list[PrayerDay]:
+    def fetch_year(self, zone: str) -> list[Any]:
         self.calls += 1
         return []
 
@@ -56,124 +62,61 @@ class NaiveClock(FakeClock):
         return datetime(2025, 10, 20, 12, 20)
 
 
-def _repo_deps(tmp_path: Path, clock: Any, **overrides: Any) -> tuple[Any, AppDeps]:
-    from muhideen.adapters.sqlite_repo import (
-        Database,
-        SqlitePrayerRepo,
-        SqliteSettingsRepo,
-        SqliteUserRepo,
+def _file_deps(tmp_path: Path, clock: Any, **overrides: Any) -> tuple[Path, AppDeps]:
+    """File-backed deps over a copied example config (no database)."""
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
     )
     from muhideen.adapters.sse_bus import SSEBus
 
-    db = Database(tmp_path / "muhideen.db")
+    config_path = tmp_path / "muhideen.json"
+    shutil.copy(EXAMPLE, config_path)
+    cfg = load_config_file(config_path)
+    media_dir = tmp_path / "media"
+    media_dir.mkdir(exist_ok=True)
     deps = AppDeps(
-        settings_repo=SqliteSettingsRepo(db),
-        prayer_repo=SqlitePrayerRepo(db),
-        user_repo=SqliteUserRepo(db),
+        settings_repo=FileSettingsRepo(config_path),
+        prayer_repo=FilePrayerRepo(
+            tmp_path / "prayer_buffer.json", cfg.schedule.manual_days
+        ),
         clock=clock,
         event_bus=SSEBus(),
-        database=db,
+        playlist_repo=FilePlaylistRepo(config_path),
+        media_dir=media_dir,
+        config_path=config_path,
         **overrides,
     )
-    return db, deps
+    return config_path, deps
 
 
-def _day() -> PrayerDay:
-    return PrayerDay(
-        date=date(2025, 10, 20),
-        zone="SGR01",
-        imsak=dtime(5, 35),
-        fajr=dtime(5, 45),
-        syuruq=dtime(6, 55),
-        dhuha=dtime(7, 25),
-        dhuhr=dtime(13, 0),
-        asr=dtime(15, 30),
-        maghrib=dtime(18, 5),
-        isha=dtime(19, 25),
-        source=ScheduleSource.JAKIM,
-        fetched_at=PINNED,
-    )
-
-
-def test_lifespan_runs_migrations_at_boot(tmp_path: Path) -> None:
-    from muhideen.adapters.sqlite_repo import (
-        Database,
-        SqlitePrayerRepo,
-        SqliteSettingsRepo,
-        SqliteUserRepo,
-    )
-    from muhideen.adapters.sse_bus import SSEBus
-
-    db = Database(tmp_path / "muhideen.db")
-    clock = FakeClock()
-    deps = AppDeps(
-        settings_repo=SqliteSettingsRepo(db),
-        prayer_repo=SqlitePrayerRepo(db),
-        user_repo=SqliteUserRepo(db),
-        clock=clock,
-        event_bus=SSEBus(),
-        database=db,
-    )
-    app = create_app(deps)
-    with TestClient(app):
-        pass
-    assert current_version(db) == 4
-
-
-def test_lifespan_shutdown_keeps_display_rows(tmp_path: Path) -> None:
-    from muhideen.adapters.sqlite_repo import (
-        Database,
-        SqlitePrayerRepo,
-        SqliteSettingsRepo,
-        SqliteUserRepo,
-    )
-    from muhideen.adapters.sse_bus import SSEBus
-
-    db = Database(tmp_path / "muhideen.db")
-    clock = FakeClock()
-    deps = AppDeps(
-        settings_repo=SqliteSettingsRepo(db),
-        prayer_repo=SqlitePrayerRepo(db),
-        user_repo=SqliteUserRepo(db),
-        clock=clock,
-        event_bus=SSEBus(),
-        database=db,
-    )
+def test_lifespan_starts_and_stops_config_watcher(tmp_path: Path) -> None:
+    _, deps = _file_deps(tmp_path, FakeClock())
     app = create_app(deps)
     with TestClient(app) as client:
-        with db.write() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO displays (id, name) VALUES (?, ?)",
-                ("HALL-01", "Main Hall"),
-            )
         assert client.get("/api/version").status_code == 200
-    with db.read() as conn:
-        row = conn.execute(
-            "SELECT name FROM displays WHERE id = ?", ("HALL-01",)
-        ).fetchone()
-    assert row is not None and row["name"] == "Main Hall"
+        watcher = app.state.config_watcher
+        assert watcher._thread.is_alive()
+    assert watcher._thread.is_alive() is False
+
+
+def test_lifespan_without_config_path_skips_watcher(tmp_path: Path) -> None:
+    _, deps = _file_deps(tmp_path, FakeClock())
+    deps.config_path = None
+    app = create_app(deps)
+    with TestClient(app) as client:
+        assert client.get("/api/version").status_code == 200
+        assert getattr(app.state, "config_watcher", None) is None
 
 
 def test_background_lifespan_starts_and_stops_ticker_and_scheduler(
     tmp_path: Path,
 ) -> None:
-    from muhideen.adapters.sqlite_repo import (
-        Database,
-        SqlitePrayerRepo,
-        SqliteSettingsRepo,
-        SqliteUserRepo,
-    )
-    from muhideen.adapters.sse_bus import SSEBus
-
-    db = Database(tmp_path / "muhideen.db")
-    clock = FakeClock()
-    deps = AppDeps(
-        settings_repo=SqliteSettingsRepo(db),
-        prayer_repo=SqlitePrayerRepo(db),
-        user_repo=SqliteUserRepo(db),
-        clock=clock,
-        event_bus=SSEBus(),
-        database=db,
+    _, deps = _file_deps(
+        tmp_path,
+        FakeClock(),
         run_background=True,
         jakim_client=FakeJAKIMClient(),  # type: ignore[arg-type]
     )
@@ -192,22 +135,13 @@ def test_background_lifespan_starts_and_stops_ticker_and_scheduler(
 
 
 def test_create_app_rejects_naive_clock(tmp_path: Path) -> None:
-    _, deps = _repo_deps(tmp_path, NaiveClock())
+    _, deps = _file_deps(tmp_path, NaiveClock())
     with pytest.raises(ValueError, match="tz-aware"):
         create_app(deps)
 
 
-def test_lifespan_without_database_serves_and_skips_migrate(
-    tmp_path: Path,
-) -> None:
-    _, deps = _repo_deps(tmp_path, FakeClock())
-    deps.database = None
-    with TestClient(create_app(deps)) as client:
-        assert client.get("/api/version").status_code == 200
-
-
 def test_background_without_jakim_client_fails_fast(tmp_path: Path) -> None:
-    _, deps = _repo_deps(tmp_path, FakeClock(), run_background=True)
+    _, deps = _file_deps(tmp_path, FakeClock(), run_background=True)
     client = TestClient(create_app(deps))
     with pytest.raises(ValueError, match="jakim_client"):
         client.__enter__()
@@ -228,7 +162,7 @@ def test_background_shutdown_skips_stop_when_scheduler_never_started(
     monkeypatch.setattr(
         app_module, "build_scheduler", lambda **kwargs: _DeadScheduler()
     )
-    _, deps = _repo_deps(
+    _, deps = _file_deps(
         tmp_path, FakeClock(), run_background=True, jakim_client=FakeJAKIMClient()
     )
     with TestClient(create_app(deps)) as client:
@@ -277,15 +211,9 @@ def test_ticker_loops_until_stop() -> None:
 
 def test_production_clock_follows_settings_timezone(tmp_path: Path) -> None:
     import json
-    import shutil
 
     config_path = tmp_path / "muhideen.json"
-    shutil.copy(
-        Path(__file__).resolve().parent.parent.parent
-        / "config"
-        / "muhideen.example.json",
-        config_path,
-    )
+    shutil.copy(EXAMPLE, config_path)
     raw = json.loads(config_path.read_text())
     raw["masjid"]["timezone"] = "Europe/London"
     raw["schedule"]["lat"] = 51.5
@@ -299,15 +227,8 @@ def test_production_clock_follows_settings_timezone(tmp_path: Path) -> None:
 
 
 def test_production_app_factory_boots_full_surface(tmp_path: Path) -> None:
-    import shutil
-
     config_path = tmp_path / "muhideen.json"
-    shutil.copy(
-        Path(__file__).resolve().parent.parent.parent
-        / "config"
-        / "muhideen.example.json",
-        config_path,
-    )
+    shutil.copy(EXAMPLE, config_path)
     app = create_production_app(config_path, run_background=False)
     with TestClient(app) as client:
         assert client.get("/api/version").status_code == 200

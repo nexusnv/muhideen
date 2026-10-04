@@ -1,9 +1,9 @@
-"""Doc parity: docs/api-contract.md examples vs DTOs and fixtures (slice 1A-3).
+"""Doc parity: docs/api-contract.md examples vs DTOs and fixtures (task 6).
 
-Every fenced ```json example in the contract doc must validate against its
-endpoint's DTO and equal the corresponding checked-in fixture — enforcing
-"fixtures win on conflict" (`docs/api-contract.md:3`) and that doc +
-fixtures update together.
+Only the kept public surface is mapped. The contract doc retains its
+historical admin/database sections (intentionally unmapped now): they are
+documentation history, not the served surface, so the unmapped-sections
+guard is gone with the routes it protected.
 """
 
 import json
@@ -13,25 +13,9 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from muhideen.api.app import (
-    ActiveToggleDTO,
-    AdhanAudioUploadDTO,
-    BackupRestoreDTO,
-    DisplayGroupUpdateDTO,
-    DisplayUpdateDTO,
-    PlaylistCreateDTO,
-    PlaylistDTO,
-    PlaylistImageUploadDTO,
-    PlaylistItemDTO,
-)
 from muhideen.api.dto import (
-    AuthRequestDTO,
-    AuthResponseDTO,
-    ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
-    SessionStatusDTO,
-    SettingsDTO,
     VersionDTO,
 )
 
@@ -46,68 +30,12 @@ SECTION_DTOS: dict[str, list[type[BaseModel]]] = {
     "GET /api/next-event": [NextEventDTO],
     "GET /api/events": [],
     "GET /api/version": [VersionDTO],
-    "GET /api/settings": [SettingsDTO],
-    "PUT /api/settings": [SettingsDTO],
-    "PUT /api/manual-day": [ManualDayDTO],
-    "DELETE /api/manual-day": [],
-    "POST /api/auth/setup": [AuthRequestDTO, AuthResponseDTO],
-    "POST /api/auth/login": [AuthRequestDTO, AuthResponseDTO],
-    "POST /api/auth/logout": [AuthResponseDTO],
-    "GET /api/auth/session": [SessionStatusDTO],
-    "POST /api/playlists": [PlaylistCreateDTO, PlaylistDTO],
-    "GET /api/playlists": [],
-    "GET /api/playlists/preview": [],
-    "GET /api/playlists/{playlist_id}": [PlaylistDTO],
-    "PUT /api/playlists/{playlist_id}": [PlaylistDTO, PlaylistDTO],
-    "PATCH /api/playlists/{playlist_id}": [ActiveToggleDTO, PlaylistDTO],
-    "DELETE /api/playlists/{playlist_id}": [],
-    "POST /api/playlists/{playlist_id}/items": [
-        PlaylistImageUploadDTO,
-        PlaylistItemDTO,
-    ],
-    "DELETE /api/playlists/{playlist_id}/items/{sort_order}": [],
-    "POST /api/adhan-audio": [AdhanAudioUploadDTO],
-    "DELETE /api/adhan-audio": [],
-    "GET /api/displays": [],
-    "PATCH /api/displays/{display_id}": [DisplayUpdateDTO],
-    "PATCH /api/display-groups/{name}": [DisplayGroupUpdateDTO],
-    "POST /api/backup/export": [],
-    "POST /api/backup/restore": [BackupRestoreDTO],
-    "GET /api/logs": [],
 }
 SECTION_FIXTURES: dict[str, list[str]] = {
     "GET /api/prayer-day": ["prayer-day.json"],
     "GET /api/next-event": ["next-event.json"],
     "GET /api/events": [],
     "GET /api/version": ["version.json"],
-    "GET /api/settings": ["settings.json"],
-    "PUT /api/settings": ["settings.json"],
-    "PUT /api/manual-day": ["manual-day.json"],
-    "DELETE /api/manual-day": [],
-    "POST /api/auth/setup": ["auth-request.json", "auth-response.json"],
-    "POST /api/auth/login": ["auth-request.json", "auth-response.json"],
-    "POST /api/auth/logout": ["auth-response.json"],
-    "GET /api/auth/session": ["session.json"],
-    "POST /api/playlists": ["playlist-create.json", "playlist.json"],
-    "GET /api/playlists": [],
-    "GET /api/playlists/preview": [],
-    "GET /api/playlists/{playlist_id}": ["playlist.json"],
-    "PUT /api/playlists/{playlist_id}": ["playlist.json", "playlist.json"],
-    "PATCH /api/playlists/{playlist_id}": ["active-toggle.json", "playlist.json"],
-    "DELETE /api/playlists/{playlist_id}": [],
-    "POST /api/playlists/{playlist_id}/items": [
-        "playlist-image-upload.json",
-        "playlist-item.json",
-    ],
-    "DELETE /api/playlists/{playlist_id}/items/{sort_order}": [],
-    "POST /api/adhan-audio": ["adhan-audio-upload.json"],
-    "DELETE /api/adhan-audio": [],
-    "GET /api/displays": [],
-    "PATCH /api/displays/{display_id}": ["display-update.json"],
-    "PATCH /api/display-groups/{name}": ["display-group-update.json"],
-    "POST /api/backup/export": [],
-    "POST /api/backup/restore": [],
-    "GET /api/logs": [],
 }
 
 
@@ -119,13 +47,6 @@ def _sections() -> dict[str, str]:
         title, _, body = part.partition("\n")
         sections[title.strip().strip("`")] = body
     return sections
-
-
-def _match_key(title: str) -> str | None:
-    for key in SECTION_DTOS:
-        if title.startswith(key):
-            return key
-    return None
 
 
 def _json_blocks(section_body: str) -> list[Any]:
@@ -152,14 +73,6 @@ def test_doc_json_examples_validate_against_dtos() -> None:
         assert len(blocks) == len(dtos), f"{key}: expected {len(dtos)} JSON examples"
         for block, dto in zip(blocks, dtos, strict=True):
             dto.model_validate(block)
-
-
-def test_unmapped_doc_sections_carry_no_json_examples() -> None:
-    for title, body in _sections().items():
-        if _match_key(title) is None:
-            assert "```json" not in body, (
-                f"section {title!r} has a JSON example but no DTO mapping"
-            )
 
 
 def test_doc_examples_match_fixtures() -> None:

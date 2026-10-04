@@ -63,10 +63,8 @@ def file_client(tmp_path: Path) -> Any:
     deps = AppDeps(
         settings_repo=FileSettingsRepo(dest),
         prayer_repo=FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days),
-        user_repo=None,
         clock=clock,  # type: ignore[arg-type]
         event_bus=SSEBus(),
-        database=None,
         playlist_repo=FilePlaylistRepo(dest),
         media_dir=media,
         config_path=dest,

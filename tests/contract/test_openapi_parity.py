@@ -1,4 +1,4 @@
-"""OpenAPI parity: create_app(deps) schema vs DTOs (slice 1A-7).
+"""OpenAPI parity: create_app(deps) schema vs DTOs (task 6).
 
 The OpenAPI document must be generated from the same Pydantic DTOs that the
 fixtures validate against, so doc/fixtures/OpenAPI drift fails CI.
@@ -16,32 +16,15 @@ from pydantic import BaseModel
 
 from muhideen.adapters.sse_bus import SSEBus
 from muhideen.api import (
-    AuthRequestDTO,
-    AuthResponseDTO,
     ConfigUpdateEventDTO,
-    IqamahRuleDTO,
-    ManualDayDTO,
     NextEventDTO,
     PrayerDayDTO,
-    SessionStatusDTO,
     SettingsDTO,
     StateEventDTO,
     TickEventDTO,
     VersionDTO,
 )
-from muhideen.api.app import (
-    ActiveToggleDTO,
-    AdhanAudioUploadDTO,
-    AppDeps,
-    BackupRestoreDTO,
-    DisplayGroupUpdateDTO,
-    DisplayUpdateDTO,
-    PlaylistCreateDTO,
-    PlaylistDTO,
-    PlaylistImageUploadDTO,
-    PlaylistItemDTO,
-    create_app,
-)
+from muhideen.api.app import AppDeps, create_app
 from muhideen.core.values import PrayerDay, Settings
 
 pytestmark = pytest.mark.contract
@@ -83,22 +66,10 @@ class _FakePrayerRepo:
         raise NotImplementedError
 
 
-class _FakeUserRepo:
-    def has_users(self) -> bool:
-        return False
-
-    def create_user(self, username: str, password: str) -> bool:
-        raise NotImplementedError
-
-    def verify(self, username: str, password: str) -> bool:
-        return False
-
-
 def _app() -> Any:
     deps = AppDeps(
         settings_repo=_FakeSettingsRepo(),  # type: ignore[arg-type]
         prayer_repo=_FakePrayerRepo(),  # type: ignore[arg-type]
-        user_repo=_FakeUserRepo(),  # type: ignore[arg-type]
         clock=_FakeClock(),  # type: ignore[arg-type]
         event_bus=SSEBus(),
     )
@@ -109,36 +80,11 @@ JSON_ENDPOINTS: dict[str, tuple[str, type[BaseModel]]] = {
     "/api/prayer-day": ("get", PrayerDayDTO),
     "/api/next-event": ("get", NextEventDTO),
     "/api/version": ("get", VersionDTO),
-    # PUT /api/settings shares GET's $ref: one entry covers both methods.
-    "/api/settings": ("get", SettingsDTO),
-    # PUT /api/manual-day responds with the pinned day (PrayerDayDTO shape).
-    "/api/manual-day": ("put", PrayerDayDTO),
-    "/api/auth/setup": ("post", AuthResponseDTO),
-    "/api/auth/login": ("post", AuthResponseDTO),
-    "/api/auth/logout": ("post", AuthResponseDTO),
-    "/api/auth/session": ("get", SessionStatusDTO),
-    # Playlist detail: GET/PUT/PATCH share the path; one entry covers GET
-    # while PUT/PATCH $refs are asserted explicitly below (like settings).
-    "/api/playlists/{playlist_id}": ("get", PlaylistDTO),
 }
 ALL_DTOS = (
-    ActiveToggleDTO,
-    AdhanAudioUploadDTO,
-    BackupRestoreDTO,
-    DisplayGroupUpdateDTO,
-    DisplayUpdateDTO,
-    AuthRequestDTO,
-    AuthResponseDTO,
     ConfigUpdateEventDTO,
-    IqamahRuleDTO,
-    ManualDayDTO,
     NextEventDTO,
-    PlaylistCreateDTO,
-    PlaylistDTO,
-    PlaylistImageUploadDTO,
-    PlaylistItemDTO,
     PrayerDayDTO,
-    SessionStatusDTO,
     SettingsDTO,
     StateEventDTO,
     TickEventDTO,
@@ -183,30 +129,7 @@ def test_openapi_declares_all_five_paths() -> None:
         "/api/next-event",
         "/api/events",
         "/api/version",
-        "/api/settings",
-        "/api/manual-day",
-        "/api/auth/setup",
-        "/api/auth/login",
-        "/api/auth/logout",
-        "/api/auth/session",
-        "/api/playlists",
-        "/api/playlists/preview",
-        "/api/playlists/{playlist_id}",
-        "/api/playlists/{playlist_id}/items",
-        "/api/playlists/{playlist_id}/items/{sort_order}",
-        "/api/adhan-audio",
-        "/api/displays",
-        "/api/displays/{display_id}",
-        "/api/display-groups/{name}",
-        "/api/backup/export",
-        "/api/backup/restore",
-        "/api/logs",
         "/display",
-        "/admin",
-        "/admin/login",
-        "/admin/setup",
-        "/admin/settings",
-        "/admin/playlists",
     }
 
 
@@ -217,88 +140,6 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         responses = schema["paths"][path][method]["responses"]
         response_schema = responses["200"]["content"]["application/json"]["schema"]
         assert response_schema == {"$ref": f"#/components/schemas/{dto.__name__}"}
-        # `_strip_defaults`: FastAPI strips Pydantic's `default:` markers
-        # on DTOs that declare them (playlist shapes); older DTOs have
-        # none, so stripping is a no-op for them.
-        assert _strip_defaults(components[dto.__name__]) == _strip_defaults(
-            _normalized(dto.model_json_schema())
-        )
-    # PUT shares GET's $ref: same SettingsDTO on the same path.
-    put_schema = schema["paths"]["/api/settings"]["put"]["responses"]["200"]["content"][
-        "application/json"
-    ]["schema"]
-    assert put_schema == {"$ref": "#/components/schemas/SettingsDTO"}
-    for setup_login in ("/api/auth/setup", "/api/auth/login"):
-        body = schema["paths"][setup_login]["post"]["requestBody"]["content"][
-            "application/json"
-        ]["schema"]
-        assert body == {"$ref": "#/components/schemas/AuthRequestDTO"}
-    settings_body = schema["paths"]["/api/settings"]["put"]["requestBody"]["content"][
-        "application/json"
-    ]["schema"]
-    assert settings_body == {"$ref": "#/components/schemas/SettingsDTO"}
-    manual_body = schema["paths"]["/api/manual-day"]["put"]["requestBody"]["content"][
-        "application/json"
-    ]["schema"]
-    assert manual_body == {"$ref": "#/components/schemas/ManualDayDTO"}
-    # Playlist detail: PUT/PATCH share GET's $ref (same PlaylistDTO).
-    put_playlist = schema["paths"]["/api/playlists/{playlist_id}"]["put"]
-    assert put_playlist["responses"]["200"]["content"]["application/json"][
-        "schema"
-    ] == {"$ref": "#/components/schemas/PlaylistDTO"}
-    assert put_playlist["requestBody"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/PlaylistDTO"
-    }
-    patch_playlist = schema["paths"]["/api/playlists/{playlist_id}"]["patch"]
-    assert patch_playlist["responses"]["200"]["content"]["application/json"][
-        "schema"
-    ] == {"$ref": "#/components/schemas/PlaylistDTO"}
-    assert patch_playlist["requestBody"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/ActiveToggleDTO"
-    }
-    # Playlist creation is 201: response PlaylistDTO, body PlaylistCreateDTO.
-    create_playlist = schema["paths"]["/api/playlists"]["post"]
-    assert create_playlist["responses"]["201"]["content"]["application/json"][
-        "schema"
-    ] == {"$ref": "#/components/schemas/PlaylistDTO"}
-    assert create_playlist["requestBody"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/PlaylistCreateDTO"
-    }
-    # Image upload + display registry: dict envelopes, DTO request bodies.
-    upload_body = schema["paths"]["/api/playlists/{playlist_id}/items"]["post"][
-        "requestBody"
-    ]["content"]["application/json"]["schema"]
-    assert upload_body == {"$ref": "#/components/schemas/PlaylistImageUploadDTO"}
-    adhan_body = schema["paths"]["/api/adhan-audio"]["post"]["requestBody"]["content"][
-        "application/json"
-    ]["schema"]
-    assert adhan_body == {"$ref": "#/components/schemas/AdhanAudioUploadDTO"}
-    restore_body = schema["paths"]["/api/backup/restore"]["post"]["requestBody"][
-        "content"
-    ]["application/json"]["schema"]
-    assert restore_body == {"$ref": "#/components/schemas/BackupRestoreDTO"}
-    # Display config upsert: dict envelope, DTO request body.
-    update_body = schema["paths"]["/api/displays/{display_id}"]["patch"]["requestBody"][
-        "content"
-    ]["application/json"]["schema"]
-    assert update_body == {"$ref": "#/components/schemas/DisplayUpdateDTO"}
-    group_body = schema["paths"]["/api/display-groups/{name}"]["patch"]["requestBody"][
-        "content"
-    ]["application/json"]["schema"]
-    assert group_body == {"$ref": "#/components/schemas/DisplayGroupUpdateDTO"}
-    for dto in (
-        PlaylistDTO,
-        PlaylistCreateDTO,
-        PlaylistItemDTO,
-        ActiveToggleDTO,
-        PlaylistImageUploadDTO,
-        AdhanAudioUploadDTO,
-        BackupRestoreDTO,
-        DisplayUpdateDTO,
-        DisplayGroupUpdateDTO,
-    ):
-        # `_strip_defaults`: FastAPI strips Pydantic's `default:` markers
-        # when emitting components (same reason as the SSE `anyOf` below).
         assert _strip_defaults(components[dto.__name__]) == _strip_defaults(
             _normalized(dto.model_json_schema())
         )
@@ -306,21 +147,6 @@ def test_openapi_response_schemas_match_dto_schemas() -> None:
         "PrayerDayDTO",
         "NextEventDTO",
         "VersionDTO",
-        "SettingsDTO",
-        "IqamahRuleDTO",
-        "ManualDayDTO",
-        "AuthRequestDTO",
-        "AuthResponseDTO",
-        "SessionStatusDTO",
-        "PlaylistDTO",
-        "PlaylistCreateDTO",
-        "PlaylistItemDTO",
-        "ActiveToggleDTO",
-        "PlaylistImageUploadDTO",
-        "AdhanAudioUploadDTO",
-        "BackupRestoreDTO",
-        "DisplayUpdateDTO",
-        "DisplayGroupUpdateDTO",
     ):
         assert name in components
 

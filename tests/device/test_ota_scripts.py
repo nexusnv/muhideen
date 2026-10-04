@@ -1,11 +1,11 @@
 """update.sh + tools/build_vendor.sh: backup order, --check, dirty refusal,
-health recovery, vendor cross-download (1A-8).
+health recovery, vendor cross-download (task 6: file-config backup).
 
 Every invocation runs against file-local PATH shims (argv logged to a
 per-run file; `git status/describe/tag` answered from env seams, curl exit
-code from ``SHIM_CURL_EXIT``). update.sh's python backup step is the only
-command that executes for real, and only in the health test — where its
-``VACUUM INTO`` output is asserted on disk.
+code from ``SHIM_CURL_EXIT``). update.sh's config-file backup step is the
+only command that executes for real, and only in the health test — where
+its ``cp`` snapshot output is asserted on disk.
 """
 
 from __future__ import annotations
@@ -83,14 +83,14 @@ def _run_update(
     tag: str,
     git_dirty: str = "",
     curl_exit: int = 0,
-    db: Path | None = None,
+    config: Path | None = None,
     cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run update.sh from a throwaway cwd; a fresh shim set per call."""
     env = _shim_env(tmp_path, tag, git_dirty=git_dirty, curl_exit=curl_exit)
     argv = ["bash", str(UPDATE), *args]
-    if db is not None:
-        argv += ["--db", str(db)]
+    if config is not None:
+        argv += ["--config", str(config)]
     workdir = cwd if cwd is not None else tmp_path
     workdir.mkdir(exist_ok=True)
     return subprocess.run(
@@ -131,9 +131,10 @@ def test_dry_run_backs_up_before_checkout(tmp_path: Path) -> None:
         assert hits, f"missing step marker {marker!r} in:\n{result.stdout}"
         return hits[0]
 
-    # The backup (`VACUUM INTO` via backup_to) must be traced strictly
-    # before the fetch and the tag checkout (PRD §7.2 OTA, decision 5).
-    assert idx("backup_to") < idx("git fetch --tags") < idx("git checkout")
+    # The backup (a plain `cp` snapshot of the file-config state) must be
+    # traced strictly before the fetch and the tag checkout (PRD §7.2 OTA,
+    # decision 5).
+    assert idx("cp ") < idx("git fetch --tags") < idx("git checkout")
 
     # Every git command runs against this checkout, not the caller's cwd.
     assert f"pwd={REPO}" in _shim_log(tmp_path, "dry")
@@ -168,11 +169,12 @@ def test_dirty_tree_refuses_with_stash_hint(tmp_path: Path) -> None:
 
 
 def test_health_failure_reports_recovery_details(tmp_path: Path) -> None:
-    db = tmp_path / "muhideen.db"
+    config = tmp_path / "muhideen.json"
+    config.write_text('{"masjid": {"name": "Test", "zone": "SGR01"}}\n')
     # Invoked from a *different* directory than the checkout: the backup
     # must still land in MUHIDEEN_BACKUP_DIR, not the caller's cwd.
     result = _run_update(
-        tmp_path, [], tag="health", curl_exit=1, db=db, cwd=tmp_path / "work"
+        tmp_path, [], tag="health", curl_exit=1, config=config, cwd=tmp_path / "work"
     )
     assert result.returncode == 1
 
@@ -182,8 +184,9 @@ def test_health_failure_reports_recovery_details(tmp_path: Path) -> None:
     assert "systemctl" in combined  # systemctl recovery hint
 
     # The backup really exists on disk before the checkout ran.
-    backups = list((tmp_path / "backups").glob("v1.0.0-*.db"))
-    assert backups, "VACUUM INTO backup must exist on health failure"
+    backups = list((tmp_path / "backups").glob("v1.0.0-*.json"))
+    assert backups, "config snapshot must exist on health failure"
+    assert backups[0].read_text() == config.read_text()
 
 
 def test_build_vendor_dry_run_lists_locked_steps(tmp_path: Path) -> None:

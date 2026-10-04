@@ -63,9 +63,11 @@ def test_prayer_day_unknown_zone_is_404(
     assert "ZZZ99" in response.json()["detail"]
 
 
-def test_prayer_day_before_setup_is_503(
+def test_prayer_day_without_config_file_is_503(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
+    """A missing config file is the file-config unconfigured branch (503)."""
+    surface.config_path.unlink()
     response = client.get(
         "/api/prayer-day", params={"date": "2025-10-20", "zone": "SGR01"}
     )
@@ -160,10 +162,10 @@ def test_version_reports_package_version(
 def test_heartbeat_route_removed(surface: SimpleNamespace, client: TestClient) -> None:
     """v1.0 drops device registration: heartbeats are no longer accepted."""
     response = client.post("/api/displays/heartbeat", json={"id": "HALL-01"})
-    # 405, not 404: the path still matches /api/displays/{display_id}
-    # (PATCH-only), so Starlette reports method-not-allowed. Either way
-    # the old {"ok": True, "registered": ...} envelope is gone.
-    assert response.status_code == 405
+    # 404: the whole /api/displays/* registry surface is gone with the
+    # database stack, so the old {"ok": True, "registered": ...} envelope
+    # cannot come back under any method.
+    assert response.status_code == 404
     assert "registered" not in response.json()
 
 

@@ -17,18 +17,6 @@ OWNERS = {
         "src/muhideen/views/display.py",
         "src/muhideen/views/templates/display.html",
     ],
-    "admin_login": [
-        "src/muhideen/views/templates/admin/login.html",
-        "src/muhideen/static/admin.js",
-    ],
-    "admin_setup": [
-        "src/muhideen/views/templates/admin/setup.html",
-        "src/muhideen/static/admin.js",
-    ],
-    "admin_settings": [
-        "src/muhideen/views/templates/admin/settings.html",
-        "src/muhideen/static/admin.js",
-    ],
 }
 
 
