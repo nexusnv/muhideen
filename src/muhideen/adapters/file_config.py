@@ -339,6 +339,46 @@ class FilePrayerRepo:
         self._buffer = Path(buffer_path)
         self._manual_days = tuple(manual_days)
 
+    @property
+    def buffer_path(self) -> Path:
+        """Buffer file path (lets the lifespan watcher poll it)."""
+        return self._buffer
+
+    def validate_buffer(self) -> None:
+        """Re-read and fully validate the buffer cache.
+
+        Raises :class:`ConfigError` on any corrupt day entry (the
+        watcher logs it and keeps serving; the next ``tick`` would
+        surface it again, never blanking the display). Missing file
+        is an empty cache, not an error.
+        """
+        data = self._read_buffer()
+        raw_days = data.get("days", {})
+        if not isinstance(raw_days, dict):
+            return
+        top_zone, top_fetched = _top_defaults(data)
+        for key, entry in raw_days.items():
+            try:
+                candidate_date = date.fromisoformat(key)
+            except ValueError as exc:
+                raise _corrupt(self._buffer, key, exc) from exc
+            if not isinstance(entry, Mapping):
+                raise _corrupt(self._buffer, key, ValueError("not an object"))
+            try:
+                _entry_to_day(candidate_date, entry, top_zone, top_fetched)
+            except (ValueError, KeyError) as exc:
+                raise _corrupt(self._buffer, key, exc) from exc
+
+    def set_manual_days(self, manual_days: Sequence[ManualDay]) -> None:
+        """Refresh the in-memory manual-pin snapshot after a config reload.
+
+        Buffer rows are read-through per call, so only the hand-edited
+        ``manual_days`` snapshot needs swapping — the watcher calls this
+        after a successful revalidation (invalid edits never reach here,
+        keeping the last-good pins serving).
+        """
+        self._manual_days = tuple(manual_days)
+
     def _pin_for(self, day: date) -> ManualDay | None:
         """Return the config pin for ``day``, if one is hand-entered."""
         for pin in self._manual_days:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hashlib
 import json
 import logging
 import os
@@ -43,6 +44,7 @@ from muhideen.adapters.adhan_audio import (
 )
 from muhideen.adapters.backup import MAX_ARCHIVE_BYTES
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
+from muhideen.adapters.config_watcher import ConfigWatcher
 from muhideen.adapters.file_config import (
     FilePlaylistRepo,
     FilePrayerRepo,
@@ -530,10 +532,94 @@ def create_app(deps: AppDeps) -> FastAPI:
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        """Migrate at boot, optionally run ticker+scheduler, flush on exit."""
+        """Migrate at boot, optionally run ticker+scheduler+config watcher."""
         if deps.database is not None:
             migrate(deps.database)
         background: _Background | None = None
+        watcher: ConfigWatcher | None = None
+        if deps.config_path is not None:
+            cfg_path = Path(deps.config_path)
+            buf_path: Path | None = None
+            if isinstance(deps.prayer_repo, FilePrayerRepo):
+                buf_path = deps.prayer_repo.buffer_path
+            try:
+                last_seen: str | None = hashlib.sha256(
+                    cfg_path.read_bytes()
+                ).hexdigest()
+            except OSError:
+                last_seen = None
+
+            def _on_reload(
+                _cfg_path: Path = cfg_path,
+                _last: list[str | None] = [last_seen],
+            ) -> None:
+                """Revalidate the config; publish config-update on success.
+
+                Read-through note: ``FileSettingsRepo``/``FilePlaylistRepo``
+                re-read the file on every call, so there is nothing to swap
+                — only ``FilePrayerRepo``'s in-memory ``manual_days``
+                snapshot is refreshed here. Invalid edits log an error and
+                keep the last-good snapshot serving with NO publish.
+                Buffer-only changes are validated (log on corrupt) with NO
+                publish — the next ``tick`` picks up new timetables.
+                Timezone changes log a restart-required warning and keep
+                the old clock (tz is fixed at boot).
+                """
+                try:
+                    current_digest: str | None = hashlib.sha256(
+                        _cfg_path.read_bytes()
+                    ).hexdigest()
+                except OSError as exc:
+                    logger.error(
+                        "config reload failed; keeping last-good: %s", exc
+                    )
+                    return
+                if current_digest == _last[0]:
+                    if isinstance(deps.prayer_repo, FilePrayerRepo):
+                        try:
+                            deps.prayer_repo.validate_buffer()
+                        except ConfigError as exc:
+                            logger.error(
+                                "prayer buffer invalid; keeping last-good: %s",
+                                exc,
+                            )
+                    return
+                _last[0] = current_digest
+                try:
+                    cfg = load_config_file(_cfg_path)
+                except ConfigError as exc:
+                    logger.error(
+                        "config reload failed; keeping last-good: %s", exc
+                    )
+                    return
+                try:
+                    if isinstance(deps.settings_repo, FileSettingsRepo):
+                        deps.settings_repo.load()
+                    if isinstance(deps.playlist_repo, FilePlaylistRepo):
+                        deps.playlist_repo.list()
+                except ConfigError as exc:
+                    logger.error(
+                        "config reload failed; keeping last-good: %s", exc
+                    )
+                    return
+                if isinstance(deps.prayer_repo, FilePrayerRepo):
+                    deps.prayer_repo.set_manual_days(cfg.schedule.manual_days)
+                new_tz = cfg.masjid.timezone
+                current_tz = deps.clock.now().tzinfo
+                current_key = getattr(current_tz, "key", str(current_tz))
+                if current_key != new_tz:
+                    logger.warning(
+                        "timezone changed to %s; restart required to apply",
+                        new_tz,
+                    )
+                deps.event_bus.publish("config-update", ("settings",))
+
+            watch_paths = (
+                [cfg_path, buf_path] if buf_path is not None else [cfg_path]
+            )
+            watcher = ConfigWatcher(watch_paths, _on_reload)
+            _app.state.config_watcher = watcher
+            watcher.start()
         if deps.run_background:
             if deps.jakim_client is None:
                 raise ValueError("jakim_client is required for background wiring")
@@ -568,6 +654,8 @@ def create_app(deps: AppDeps) -> FastAPI:
         try:
             yield
         finally:
+            if watcher is not None:
+                watcher.stop()
             if background is not None:
                 background.stop.set()
                 background.ticker.join(2.0)
