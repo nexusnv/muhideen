@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Setup · Muhideen</title>
 <link rel="stylesheet" href="/static/admin.css">
+<script>try{document.documentElement.dataset.adminTheme=localStorage.getItem("muhideen-admin-theme")||"classic-green"}catch(e){document.documentElement.dataset.adminTheme="classic-green"}</script>
 </head>
 <body>
 <div class="auth-wrap">
@@ -55,6 +56,11 @@
       <button id="w-back" type="button" class="btn btn-ghost" hidden>Back</button>
       <button id="w-next" type="button" class="btn btn-primary">Next</button>
     </div>
+    <div class="auth-theme"><label class="theme-switch"><span class="lbl">Theme</span><select id="admin-theme">
+      <option value="classic-green">Classic green</option>
+      <option value="sand">Sand</option>
+      <option value="midnight">Midnight</option>
+    </select></label></div>
   </main>
 </div>
 <script src="/static/admin.js"></script>

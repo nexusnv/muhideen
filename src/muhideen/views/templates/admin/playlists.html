@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Playlists · Muhideen</title>
 <link rel="stylesheet" href="/static/admin.css">
+<script>try{document.documentElement.dataset.adminTheme=localStorage.getItem("muhideen-admin-theme")||"classic-green"}catch(e){document.documentElement.dataset.adminTheme="classic-green"}</script>
 </head>
 <body>
 <div class="admin-shell">
@@ -20,6 +21,11 @@
     </div>
     <div class="command-actions">
       <a class="btn btn-ghost btn-sm" href="/admin/settings">← Settings</a>
+      <label class="theme-switch"><span class="lbl">Theme</span><select id="admin-theme">
+        <option value="classic-green">Classic green</option>
+        <option value="sand">Sand</option>
+        <option value="midnight">Midnight</option>
+      </select></label>
       <button id="pl-save" class="btn btn-primary" type="button">Save playlist</button>
     </div>
   </header>
@@ -32,18 +38,24 @@
       <button id="pl-new" class="btn" type="button">+ New playlist</button>
     </div>
 
+    <div class="tablist" role="tablist" aria-label="Playlist sections">
+      <button type="button" role="tab" data-tab="occupancy-preview" aria-selected="true">Stage</button>
+      <button type="button" role="tab" data-tab="pl-list-panel" aria-selected="false">Playlists</button>
+      <button type="button" role="tab" data-tab="playlist-editor" aria-selected="false">Editor</button>
+    </div>
+
     <section id="occupancy-preview" class="admin-section" data-preview='{{ preview_json }}'>
       <div class="card-head"><h2><span class="ico">●</span><span>On stage now</span></h2><span class="pill-note">Next 24 h scan</span></div>
       {% if preview_error %}<div class="card-body"><p class="alert" role="alert">{{ preview_error }}</p></div>{% endif %}
       <div class="card-body"><div id="preview-body"></div></div>
     </section>
 
-    <section class="admin-section">
+    <section id="pl-list-panel" class="admin-section" hidden>
       <div class="card-head"><h2><span class="ico">▤</span><span>All playlists</span></h2></div>
       <div class="card-body"><div id="playlist-list" data-playlists='{{ playlists_json }}'></div></div>
     </section>
 
-    <section id="playlist-editor" class="admin-section">
+    <section id="playlist-editor" class="admin-section" hidden>
       <div class="card-head">
         <h2><span class="ico">✎</span><span>Editor</span></h2>
         <button id="pl-delete" class="btn btn-danger btn-sm" type="button">Delete</button>
