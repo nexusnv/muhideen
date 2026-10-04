@@ -329,6 +329,7 @@ class AppDeps:
     time_sync: TimeSyncProbe | None = None
     playlist_repo: SqlitePlaylistRepo | FilePlaylistRepo | None = None
     media_dir: Path | None = None
+    config_path: Path | None = None
 
 
 class EventStreamResponse(StreamingResponse):
@@ -678,9 +679,10 @@ def create_app(deps: AppDeps) -> FastAPI:
         """Server-rendered public display; error slate, never blank.
 
         Applies per-display presentation overrides for this render only:
-        ``display_settings`` theme.* rows over the global knobs, then the
-        display dim pin (else the group dim pin) over the salah-dim length.
-        Unknown ids render the global theme; corrupt stored rows slate 503.
+        file-config ``displays.<id>`` theme overlay over the global knobs,
+        then the display dim pin over the salah-dim length. Unknown ids
+        render the global theme with language ``en``; corrupt file rows
+        cannot occur (validated at load) but legacy sqlite rows slate 503.
         """
 
         def _invalid_display() -> HTMLResponse:
@@ -705,7 +707,42 @@ def create_app(deps: AppDeps) -> FastAPI:
         dim_minutes = settings.dim_minutes_default
         dim_source = "settings"
         show_carousel = True
-        if deps.database is not None:
+        language = "en"
+        custom_colors: dict[str, str] | None = None
+        cfg_path = deps.config_path
+        if cfg_path is None and isinstance(deps.settings_repo, FileSettingsRepo):
+            cfg_path = deps.settings_repo.path
+        if cfg_path is not None:
+            try:
+                cfg = load_config_file(cfg_path)
+            except ConfigError:
+                return _TEMPLATES.TemplateResponse(
+                    request,
+                    "error.html",
+                    {"code": 503, "message": "Setup required"},
+                    status_code=503,
+                )
+            entry = cfg.displays.get(id)
+            if entry is not None:
+                overlay = {
+                    key: value
+                    for key, value in entry.theme.model_dump().items()
+                    if value is not None
+                }
+                if overlay:
+                    try:
+                        effective_theme = _replace(settings.theme, **overlay)
+                    except (ValueError, TypeError):
+                        return _invalid_display()
+                if entry.dim_minutes_override is not None:
+                    dim_minutes = entry.dim_minutes_override
+                    dim_source = "display"
+                show_carousel = entry.carousel_enabled
+                language = entry.language
+                custom_colors = (
+                    dict(entry.custom_colors) if entry.custom_colors else None
+                )
+        elif deps.database is not None:
             display_store = SqliteDisplaySettingsRepo(deps.database)
             overrides = display_store.overrides_for(id)
             theme_rows = {
@@ -813,6 +850,8 @@ def create_app(deps: AppDeps) -> FastAPI:
                 show_carousel=show_carousel,
                 adhan_audio_url=adhan_url,
                 adhan_volume=settings.adhan_volume,
+                language=language,
+                custom_colors=custom_colors,
             )
         except ConfigError:
             return _TEMPLATES.TemplateResponse(
@@ -1656,5 +1695,6 @@ def create_production_app(
         time_sync=SystemTimeSyncProbe(clock=clock),
         playlist_repo=FilePlaylistRepo(cfg_path),
         media_dir=Path(media_dir) if media_dir is not None else None,
+        config_path=cfg_path,
     )
     return create_app(deps)

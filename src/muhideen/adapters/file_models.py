@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from muhideen.core.values import (
     ThemeBoundaryStrip,
@@ -187,6 +195,20 @@ class Display(Strict):
     dim_minutes_override: Annotated[int | None, Field(ge=5, le=60)] = None
     carousel_enabled: bool = True
     custom_colors: dict[str, str] | None = None
+
+    @field_validator("custom_colors")
+    @classmethod
+    def _colors_hex(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        """Custom colors are an optional #rrggbb map (background/foreground)."""
+        if value is None:
+            return None
+        allowed = {"background", "foreground", "accent"}
+        for key, hex_value in value.items():
+            if key not in allowed:
+                raise ValueError(f"unknown custom color key: {key!r}")
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", hex_value):
+                raise ValueError(f"custom color must be #rrggbb: {key}={hex_value!r}")
+        return value
 
 
 class PlaylistItemFile(Strict):

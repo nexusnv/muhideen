@@ -139,6 +139,11 @@ class FileSettingsRepo:
         """Hold the config file path (reads are fresh on every call)."""
         self._path = Path(path)
 
+    @property
+    def path(self) -> Path:
+        """Config file path (lets the display route load per-display entries)."""
+        return self._path
+
     def load(self) -> Settings:
         """Load settings; ``ConfigError`` on invalid file or domain values."""
         cfg = load_config_file(self._path)

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ language }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ masjid_name }} — Prayer Times</title>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/app.css">{% if custom_colors %}<style>:root{% for k, v in custom_colors.items() %}--custom-{{ k }}:{{ v }};{% endfor %}</style>{% endif %}
 </head>
 <body class="{{ body_class }} state-{{ state|lower }}">
 <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
@@ -19,7 +19,7 @@
       </div>
       {% for c in cards %}
       <div class="prayer-row{% if c.is_next %} current{% endif %}" id="row-{{ c.key }}">
-        <div class="cell prayer-name">{{ c.en }}</div>
+        <div class="cell prayer-name">{{ c.name }}</div>
         <div class="cell prayer-time">{{ c.time12 }}<small class="period">{{ c.period }}</small></div>
         <div class="cell prayer-time" id="iqamah-{{ c.key }}">{{ c.iqamah12 }}<small class="period">{{ c.iqamah_period }}</small></div>
       </div>
@@ -29,7 +29,7 @@
     <div class="additional-times" id="bounds">
       {% for b in bounds %}
       <div class="additional-time{% if b.is_next %} next{% endif %}" id="bound-{{ b.key }}">
-        <span class="additional-label">{{ b.en }}</span>
+        <span class="additional-label">{{ b.name }}</span>
         <span class="additional-value">{{ b.time12 }}<small class="period">{{ b.period }}</small></span>
       </div>
       {% endfor %}
