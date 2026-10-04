@@ -52,7 +52,11 @@ def test_service_unit_runtime_directives_and_exec_start() -> None:
     assert "bin/muhideen --host" in exec_start
     assert "--host 0.0.0.0" in exec_start
     assert "--port 8000" in exec_start
-    assert "--db /var/lib/muhideen/muhideen.db" in exec_start
+    assert "--config /etc/muhideen/muhideen.json" in exec_start
+    assert "--prayer-buffer /var/lib/muhideen/prayer_buffer.json" in exec_start
+    assert "--media-dir /var/lib/muhideen/media" in exec_start
+    assert "--db" not in exec_start
+    assert "muhideen.db" not in exec_start
     assert service["Install"]["wantedby"] == "multi-user.target"
 
 

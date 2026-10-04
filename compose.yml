@@ -1,4 +1,4 @@
-# Muhideen v1.0 compose: single app service. Screens are admin-provisioned
+# Muhideen v1.0 compose: single app service. Screens are provisioned
 # Chromium kiosks pointed at the display URLs (see docs/deployment.md for
 # the kiosk contract) — compose owns the backend only.
 services:
@@ -8,8 +8,12 @@ services:
     ports:
       - "${MUHIDEEN_PORT:-8000}:8000"
     volumes:
-      # SQLite + uploads persist across image swaps; back this up, not the image.
-      - muhideen-data:/data
+      # Hand-edited config + machine-written timetable cache (back this up,
+      # not the image). prayer_buffer.json is rewritten by the sync worker —
+      # never hand-edit it.
+      - ./config:/config
+      # Adhan audio + playlist images served to the displays.
+      - ./media:/media
     environment:
       TZ: ${TZ:-Asia/Kuala_Lumpur}
     restart: unless-stopped
@@ -19,6 +23,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-
-volumes:
-  muhideen-data:

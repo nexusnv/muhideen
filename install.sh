@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Muhideen device installer: preflight → deps → venv → units → seed →
+# Muhideen device installer: preflight → deps → venv → units → config →
 # NTP → enable → health (PRD §4.2.5 offline installer, §7.1 hardware
 # policy). Every step traces its command to stdout; --dry-run prints each
 # command and executes only the preflight reads.
@@ -9,48 +9,33 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=packaging/lib.sh
 source "$ROOT_DIR/packaging/lib.sh"
 
-ZONE=""
-MASJID_NAME=""
-TIMEZONE=""
 NEW_HOSTNAME="muhideen"
 FORCE=0
 MUHIDEEN_DRY_RUN=0
 MUHIDEEN_SYSTEMD_DIR="${MUHIDEEN_SYSTEMD_DIR:-/etc/systemd/system}"
+CONFIG_DIR="${MUHIDEEN_CONFIG_DIR:-/etc/muhideen}"
 STATE_DIR="${MUHIDEEN_STATE_DIR:-/var/lib/muhideen}"
-SEED_BIN="${MUHIDEEN_SEED:-$ROOT_DIR/.venv/bin/muhideen-seed}"
+CONFIG_FILE="${CONFIG_DIR}/muhideen.json"
+MEDIA_DIR="${STATE_DIR}/media"
 VENDOR_WHEELS="${MUHIDEEN_VENDOR_DIR:-$ROOT_DIR/vendor/wheels}"
 HEALTH_URL="http://127.0.0.1:8000/api/version"
 
 usage() {
   cat <<'EOF'
-usage: install.sh [--zone ZONE] [--masjid-name NAME] [--timezone TZ]
-                   [--hostname NAME] [--force] [--dry-run]
-  --zone ZONE        JAKIM zone passed to muhideen-seed (required first boot)
-  --masjid-name NAME display name recorded on first boot
-  --timezone TZ      IANA timezone recorded on first boot (default Asia/Kuala_Lumpur)
+usage: install.sh [--hostname NAME] [--force] [--dry-run]
   --hostname NAME    system hostname to set ('' leaves it unchanged)
   --force            override the 1GB RAM preflight refusal (PRD §7.1)
   --dry-run          print each step's command; execute only preflight reads
+
+Configuration is a hand-edited JSON file: the installer copies
+config/muhideen.example.json to /etc/muhideen/muhideen.json when missing
+and never touches an existing one. Edit it for your masjid (name, zone,
+timezone) — the service hot-reloads it in ~1s, no login.
 EOF
 }
 
 while (( $# )); do
   case "$1" in
-    --zone)
-      (( $# >= 2 )) || die "--zone requires a value"
-      ZONE="$2"
-      shift 2
-      ;;
-    --masjid-name)
-      (( $# >= 2 )) || die "--masjid-name requires a value"
-      MASJID_NAME="$2"
-      shift 2
-      ;;
-    --timezone)
-      (( $# >= 2 )) || die "--timezone requires a value"
-      TIMEZONE="$2"
-      shift 2
-      ;;
     --hostname)
       (( $# >= 2 )) || die "--hostname requires a value ('' to skip)"
       NEW_HOSTNAME="$2"
@@ -90,12 +75,6 @@ install_unit() { # install_unit <name> — @VENV@ placeholder → this checkout'
 
 preflight
 
-if [[ -z "$ZONE" && ! -f "${STATE_DIR}/muhideen.db" ]]; then
-  # Fail before apt/venv/units/user: first boot has no zone to seed, and a
-  # late failure would leave a half-installed device.
-  die "--zone is required on first boot (no database at ${STATE_DIR}/muhideen.db) — re-run with --zone <ZONE>"
-fi
-
 note "deps: avahi + curl + git via apt"
 maybe_run apt-get install -y avahi-daemon avahi-utils git curl
 maybe_run apt-get install -y systemd-timesyncd \
@@ -133,27 +112,15 @@ else
 fi
 
 # Don't rely on useradd's --create-home: when muhideen already exists that
-# command is skipped, and seed would then sqlite3.connect into a missing dir.
-maybe_run mkdir -p "$STATE_DIR"
+# command is skipped, and the service would then fail writing its
+# timetable cache into a missing dir.
+maybe_run mkdir -p "$CONFIG_DIR" "$MEDIA_DIR"
 
-seed_args=(--db "${STATE_DIR}/muhideen.db")
-if [[ -n "$ZONE" ]]; then
-  seed_args=(--zone "$ZONE" "${seed_args[@]}")
-fi
-if [[ -n "$MASJID_NAME" ]]; then
-  seed_args+=(--masjid-name "$MASJID_NAME")
-fi
-if [[ -n "$TIMEZONE" ]]; then
-  seed_args+=(--timezone "$TIMEZONE")
-fi
-seed_rc=0
-maybe_run "$SEED_BIN" "${seed_args[@]}" || seed_rc=$?
-if (( seed_rc == 3 )); then
-  # Configured-but-unsynced (JAKIM unreachable): the service still enables
-  # and the scheduler retries — an offline first boot must not abort here.
-  note "warn: seed sync failed (exit 3) — configured but unsynced; the scheduler will retry"
-elif (( seed_rc != 0 )); then
-  die "seed failed with exit ${seed_rc} — see its message above"
+if [[ -f "$CONFIG_FILE" ]]; then
+  # Re-installs must never clobber the admin's hand-edited config.
+  note "config: ${CONFIG_FILE} already exists — leaving it (edit it for your masjid)"
+else
+  maybe_run cp "$ROOT_DIR/config/muhideen.example.json" "$CONFIG_FILE"
 fi
 
 if ! maybe_run chown -R muhideen "$STATE_DIR"; then

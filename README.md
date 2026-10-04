@@ -1,6 +1,6 @@
 # Muhideen
 
-Open-source masjid digital display system for mosques and suraus. Offline-first prayer times, Iqamah countdown, auto-dimming during prayer, and phone-friendly admin over LAN.
+Open-source masjid digital display system for mosques and suraus. Offline-first prayer times, Iqamah countdown, auto-dimming during prayer, and hand-edited JSON config with live reload.
 
 ![Muhideen display preview](preview.jpg)
 
@@ -8,7 +8,7 @@ Open-source masjid digital display system for mosques and suraus. Offline-first 
 
 ## Status
 
-In active development. Phase 1A (backend core) has landed: `core` vocabulary and ports, the pure `domain` state machine and fallback chain, the executable API contract (Pydantic DTOs, fixtures, OpenAPI), `engine` orchestration, SQLite persistence — WAL, hand-rolled migrations on `PRAGMA user_version`, the repository adapters (prayer/settings/display/user), 60s heartbeat batching, and `VACUUM INTO` backup — plus JAKIM e-solat sync with MABIMS calc fallback and scheduler, real HTTP handlers with SSE/auth/admin settings, and device integration (`muhideen`/`muhideen-seed` entrypoints, `install.sh`/`update.sh`, NTP health). Pending: the display/admin frontend (Phase 1B) and content/management (Phase 2) — see the milestone roadmap in [`PRD.md`](PRD.md) §9.
+In active development. The backend serves prayer state from hand-edited JSON files: `core` vocabulary and ports, the pure `domain` state machine and fallback chain, the executable API contract (Pydantic DTOs, fixtures, OpenAPI), `engine` orchestration, file-backed settings/schedule repos with a ~1s hot-reload watcher — plus JAKIM e-solat sync with MABIMS calc fallback and scheduler, real HTTP handlers with SSE, and device integration (`muhideen` entrypoint, `install.sh`/`update.sh`, NTP health). There is no admin UI, no login, and no database. Pending: the display frontend refresh and content/management (Phase 2) — see the milestone roadmap in [`PRD.md`](PRD.md) §9.
 
 ## What it will do
 
@@ -16,14 +16,16 @@ In active development. Phase 1A (backend core) has landed: `core` vocabulary and
 * Display: clock, Gregorian + Hijri dates, 5 prayer times (primary) + Imsak/Syuruq/Dhuha boundary markers (secondary), next-prayer hero, Iqamah countdown.
 * Prayer state machine: `NORMAL → PRE_ADHAN → ADHAN → IQAMAH_COUNTDOWN → SALAH_DIM`.
 * Carousel for announcements (auto-hidden around prayer), sandboxed community themes, display groups.
-* Admin: setup wizard, mobile UI, QR fast-connect (`http://muhideen.local:8000/admin`), backup/restore.
+* Admin: edit `config/muhideen.json` (copy from `config/muhideen.example.json`) — the watcher auto-reloads it in ~1s, no login. Per-display overrides (language, theme, dim, carousel) live in the `displays` map and render at `/display?id=<id>`.
+* `config/prayer_buffer.json` is the machine-written timetable cache (manual-day pins outrank synced days) — don't hand-edit it; a missing file is just an empty cache.
+* `media/` holds adhan audio plus playlist images served to the displays.
 * System: `muhideen.service` + Chromium kiosk + NTP health + optional HDMI-CEC.
 
 Full requirements: [`PRD.md`](PRD.md).
 
 ## Tech stack
 
-Python 3.11+ FastAPI-sync + Uvicorn 1 worker + SQLite WAL + Jinja2 + HTMX/Alpine.js + hand-written vanilla CSS. No Node, no build step. See `PRD.md` §4, `ARCHITECTURE.md`, and `docs/adr/0001-backend-stack.md`.
+Python 3.11+ FastAPI-sync + Uvicorn 1 worker + JSON file config + Jinja2 display + hand-written vanilla CSS. No Node, no build step, no login, no database. See `PRD.md` §4, `ARCHITECTURE.md`, and `docs/adr/0001-backend-stack.md`.
 
 ## Hardware
 
@@ -41,10 +43,11 @@ Python 3.11+ FastAPI-sync + Uvicorn 1 worker + SQLite WAL + Jinja2 + HTMX/Alpine
 * `CONTRIBUTING.md` — frontend-only / backend-only tracks.
 * `docs/adr/` — accepted decisions. `docs/api-contract.md` — normative API.
 * `api/fixtures/` — contract examples. Frontend builds against these.
-* `src/muhideen/` — `core/ domain/ engine/ adapters/ api/ views/ migrations/`.
+* `src/muhideen/` — `core/ domain/ engine/ adapters/ api/ views/` (file config, no persistence layer).
+* `config/muhideen.example.json` — golden config: copy to `muhideen.json` and edit for your masjid.
 * `themes/classic-green/` — MVP theme scaffold. `tools/` — `mock_api.py`, `new_theme.py`, `lint_theme.py`.
 * `preview.jpg` — non-binding display mockup.
-* `install.sh` / `update.sh` / `packaging/` — device install and OTA update (`sudo ./install.sh --zone SGR01`); guide: `docs/deployment.md`.
+* `install.sh` / `update.sh` / `packaging/` — device install and OTA update (`sudo ./install.sh` installs the example config when missing, then serve with `--config`); guide: `docs/deployment.md`.
 
 ## Contribute
 
