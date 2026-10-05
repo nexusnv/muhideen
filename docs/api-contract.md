@@ -1,5 +1,14 @@
 # API Contract (normative)
 
+> File-config history note: the served surface is read-only —
+> `prayer-day`, `next-event`, `events` (SSE), `version`, and `/display`.
+> Every admin/database section below (`settings` writes, `manual-day`,
+> `auth`, `playlists` CRUD, `adhan-audio` uploads, `displays`/`display-groups`,
+> `backup`, `logs`) documents the pre-file-config API and now answers
+> 404. Those sections are retained as documentation history (the parity
+> tests map only the kept routes); fixtures win on conflict, and CI
+> enforces parity for the kept surface.
+
 Single-repo logical split. Backend implements first; frontend builds against `api/fixtures/`. Any example here duplicated in fixtures — fixtures win on conflict, and CI enforces parity.
 
 Base URL (device): `http://muhideen.local:8000`. Mock: `http://localhost:8001` via `uv run tools/mock_api.py`.
@@ -420,7 +429,7 @@ Admin session required. Tails the `muhideen` systemd unit's journal (`journalctl
 
 ## Errors
 
-Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Unconfigured installations are 503 with a detail message. Invalid bodies and query inputs are 422; `PUT /api/settings` rejects (422) bodies that duplicate a prayer's iqamah rule, omit a prayer's rule, set a `fixed` rule without `fixed_time`, set `delay_minutes` outside 0–60, or set a theme knob outside its closed enum, leaving the stored settings unchanged. A `fixed` iqamah time at or before its adhan is stored but resolves to 503 (`ConfigError`) on schedule reads until corrected. Missing admin sessions are 401. Exhausted login or setup rate limits are 429. Documentation endpoints are 404 off-LAN and 401 on-LAN without a session.
+Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Missing or invalid configuration is 503: the wire detail is path-scrubbed (`config: …`; the full path goes to the server log), while domain causes (e.g. a `fixed` iqamah time at or before its adhan) pass through verbatim. Invalid bodies and query inputs are 422; naive `now` values are 422. `/docs`, `/redoc`, and `/openapi.json` are public by decision (read-only schemas only). The admin/database error codes (401 sessions, 429 rate limits) no longer exist on this surface.
 
 ## Versioning
 Additive fields allowed without bump — e.g. `time_synced` on `next-event` and SSE `state` payloads (slice 1A-8), and `stage` on SSE `tick` payloads. Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.

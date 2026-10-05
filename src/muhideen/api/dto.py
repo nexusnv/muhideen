@@ -338,7 +338,7 @@ class ThemeDTO(ContractDTO):
 
 
 class SettingsDTO(ContractDTO):
-    """Full-replace admin settings body and response.
+    """Full-replace settings body and response (file-config read surface).
 
     All fields required except the pre-adhan countdown knobs, the
     adhan-audio knobs, and the theme knobs, which default so older

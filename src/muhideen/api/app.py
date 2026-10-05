@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import queue
+import re
 import threading
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -40,6 +42,7 @@ from muhideen.adapters.file_config import (
     FilePrayerRepo,
     FileSettingsRepo,
     load_config_file,
+    validate_manual_days,
 )
 from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
@@ -73,6 +76,8 @@ logger = logging.getLogger(__name__)
 
 _KEEPALIVE_S = 60.0
 _POLL_S = 0.05
+_ABS_PATH_RE = re.compile(r"/[^\s\"']*")
+"""Absolute-path scrubber for wire details (OS errors re-embed the path)."""
 _PROD_TZ = ZoneInfo("Asia/Kuala_Lumpur")
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 _TEMPLATES = Jinja2Templates(
@@ -81,12 +86,43 @@ _TEMPLATES = Jinja2Templates(
 
 
 def _adhan_audio_url(media_dir: Path) -> str:
-    """Public URL for the canonical adhan file; default when outside the static root."""
+    """Public URL for the canonical adhan file.
+
+    Inside the static root the file keeps its ``/static/...`` URL;
+    anywhere else (both deploy targets: compose ``/media``, systemd
+    ``/var/lib/muhideen/media``) it is served from the ``/media`` mount
+    below — never the dead ``/static/uploads`` fallback.
+    """
     try:
         rel = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
     except ValueError:
-        return f"/static/uploads/{ADHAN_FILENAME}"
+        return f"/media/{ADHAN_FILENAME}"
     return f"/static/{rel.as_posix()}/{ADHAN_FILENAME}"
+
+
+def _media_inside_static(media_dir: Path) -> bool:
+    """Whether ``media_dir`` is already covered by the ``/static`` mount."""
+    try:
+        media_dir.resolve().relative_to(_STATIC_DIR.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _public_detail(exc: ConfigError) -> str:
+    """Scrub absolute filesystem paths from 503 details.
+
+    ``load_config_file`` embeds the config path (``/etc/muhideen/...``)
+    to point the SSH operator at the offending file — useful in logs,
+    but filesystem-layout disclosure to every network client. Domain
+    messages (no path prefix) pass through so callers keep the cause.
+    """
+    message = str(exc)
+    path, sep, rest = message.partition(": ")
+    if not sep or not Path(path).is_absolute():
+        return message
+    scrubbed = _ABS_PATH_RE.sub("<path>", rest)
+    return f"config: {scrubbed}" if scrubbed else "config: invalid configuration"
 
 
 def _require_tz_aware(value: datetime) -> datetime:
@@ -340,7 +376,9 @@ def create_app(deps: AppDeps) -> FastAPI:
                 re-read the file on every call, so there is nothing to swap
                 — only ``FilePrayerRepo``'s in-memory ``manual_days``
                 snapshot is refreshed here. Invalid edits log an error and
-                keep the last-good snapshot serving with NO publish.
+                keep the last-good snapshot serving with NO publish (this
+                includes unordered manual-day pins, validated before the
+                snapshot swap).
                 Buffer-only changes are validated (log on corrupt) with NO
                 publish — the next ``tick`` picks up new timetables.
                 Timezone changes log a restart-required warning and keep
@@ -374,6 +412,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                         deps.settings_repo.load()
                     if isinstance(deps.playlist_repo, FilePlaylistRepo):
                         deps.playlist_repo.list()
+                    validate_manual_days(cfg.schedule.manual_days, cfg.masjid.zone)
                 except ConfigError as exc:
                     logger.error("config reload failed; keeping last-good: %s", exc)
                     return
@@ -442,13 +481,38 @@ def create_app(deps: AppDeps) -> FastAPI:
         title="muhideen",
         version=package_version("muhideen"),
         lifespan=_lifespan,
+        # Docs stay public by decision: the OpenAPI document contains only
+        # the read-only public schemas (prayer-day, next-event, events,
+        # version, display) — no credentials, config values, or filesystem
+        # material. Contract tests pin OpenAPI parity, so disabling the
+        # document would trade verifiability for obscurity. Revisit only
+        # if a non-public route ever returns to this surface.
     )
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    if not _media_inside_static(media_dir):
+        # Serve operator-dropped media (adhan audio, playlist images) from
+        # the configured dir. Starlette answers 404 for missing files and
+        # blocks traversal above the root. The mount is skipped when the
+        # dir does not exist yet (fresh checkout before the first media
+        # drop — the installer creates it); recreate + restart to serve.
+        if media_dir.is_dir():
+            app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")
+        else:
+            logger.warning(
+                "media dir %s missing: /media/* will 404 until the dir "
+                "exists and the service restarts",
+                media_dir,
+            )
 
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:
-        """Map missing/invalid configuration to HTTP 503."""
-        return JSONResponse(status_code=503, content={"detail": str(exc)})
+        """Map missing/invalid configuration to HTTP 503.
+
+        The full message (with config path) goes to the server log for
+        the SSH operator; the wire detail is path-scrubbed.
+        """
+        logger.warning("config error serving %s: %s", request.url.path, exc)
+        return JSONResponse(status_code=503, content={"detail": _public_detail(exc)})
 
     @app.exception_handler(ScheduleError)
     async def _schedule_error(request: Request, exc: ScheduleError) -> JSONResponse:
@@ -711,6 +775,24 @@ def create_production_app(
         if prayer_buffer is not None
         else cfg_path.parent / "prayer_buffer.json"
     )
+    # Fail loud early on the classic docker bind-mount trap: the image runs
+    # as ``muhideen`` but a host-owned ``./config`` masks the image ``chown``,
+    # so the sync worker's tmp+rename gets EACCES and retries forever
+    # without ever caching a timetable. Warn once at boot with the fix.
+    buffer_parent = buffer_path.parent
+    try:
+        writable = buffer_parent.exists() and os.access(buffer_parent, os.W_OK)
+    except OSError:
+        writable = False
+    if not writable:
+        logger.warning(
+            "prayer buffer dir %s is not writable: the sync worker cannot "
+            "cache timetables (EACCES retry loop). On compose bind mounts, "
+            "run: sudo chown -R $(id -u):$(id -g) %s (or the container uid) "
+            "so the service user can write prayer_buffer.json.",
+            buffer_parent,
+            buffer_parent,
+        )
     try:
         stored_tz = FileSettingsRepo(cfg_path).load().timezone
         clock_tz = ZoneInfo(stored_tz)

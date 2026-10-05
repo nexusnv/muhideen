@@ -247,3 +247,58 @@ def test_schema_violation_raises_config_error(tmp_path: Path):
     path.write_text(json.dumps(raw))
     with pytest.raises(ConfigError, match=str(path)):
         load_config_file(path)
+
+
+def test_unordered_manual_pin_raises_config_error(tmp_path: Path):
+    """An out-of-order hand-edit is ConfigError (503), never SyncError (500)."""
+    from muhideen.adapters.file_config import validate_manual_days
+
+    path = _copy_example(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["schedule"]["manual_days"][0]["fajr"] = "14:00"
+    path.write_text(json.dumps(raw))
+    cfg = load_config_file(path)
+    repo = FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days)
+    with pytest.raises(ConfigError):
+        repo.get_day(PINNED, ZONE)
+    with pytest.raises(ConfigError):
+        repo.last_known(PINNED, ZONE)
+    with pytest.raises(ConfigError):
+        validate_manual_days(cfg.schedule.manual_days, ZONE)
+
+
+def test_playlist_anchor_normalizes_case_and_whitespace(tmp_path: Path):
+    """Anchors accept the same case/whitespace folding as window bounds."""
+    for anchor in ("Fajr", " FAJR ", "dhuhr"):
+        path = _copy_example(tmp_path)
+        raw = json.loads(path.read_text())
+        raw["playlists"][0]["anchor_marker"] = anchor
+        path.write_text(json.dumps(raw))
+        assert FilePlaylistRepo(path).list()[0].anchor_marker is MarkerName(
+            anchor.strip().lower()
+        )
+
+
+def test_duplicate_manual_day_dates_are_config_error(tmp_path: Path):
+    """Two pins for one date fail at load (they would serve divergently)."""
+    path = _copy_example(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["schedule"]["manual_days"].append(dict(raw["schedule"]["manual_days"][0]))
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ConfigError, match="duplicate manual_day"):
+        load_config_file(path)
+
+
+def test_playlist_errors_carry_the_playlist_id(tmp_path: Path):
+    """One typo in a multi-playlist file points at the offending entry."""
+    path = _copy_example(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["playlists"][0]["anchor_marker"] = "bogus"
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ConfigError, match="announcements"):
+        FilePlaylistRepo(path).list()
+    raw["playlists"][0]["anchor_marker"] = None
+    raw["playlists"][0]["window_start"] = "bogus"
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ConfigError, match="announcements"):
+        FilePlaylistRepo(path).list()

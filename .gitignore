@@ -15,5 +15,11 @@ coverage.xml
 *.db
 *.sqlite3
 media/uploads/
+# Live file-config state (never committed): the hand-edited install config
+# and the machine-written timetable cache. Only the example is tracked.
+# Without these entries the updater's dirty-tree gate trips on every
+# docker install right after first boot.
+config/muhideen.json
+config/prayer_buffer.json
 tmp/
 .playwright-cli/

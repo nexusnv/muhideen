@@ -44,7 +44,8 @@ REQUIRED_IQAMAH_PRAYERS: tuple[IqamahPrayer, ...] = (
 )
 """Every Prayer Time Marker needs exactly one iqamah rule (FR-1.4)."""
 
-Language = Literal["en", "ms", "ar"]
+Language = Literal["en", "ms", "ar", "bm"]
+"""Display language: English, Malay (ms), Arabic, or Malay alias (bm → ms labels)."""
 
 
 class Strict(BaseModel):
@@ -88,6 +89,20 @@ class Schedule(Strict):
     dhuha_offset_min: Annotated[int, Field(ge=15, le=30)] = 28
     boundary_countdown: bool = False
     manual_days: list[ManualDay] = Field(default_factory=list[ManualDay])
+
+    @model_validator(mode="after")
+    def _manual_dates_unique(self) -> Schedule:
+        """Manual pins are keyed by date: duplicates would serve divergently.
+
+        ``get_day`` returns the first pin for a date while ``last_known``
+        keeps the last, so two pins for one date serve different times
+        depending on the call path. Reject the file loudly instead.
+        """
+        dates = [pin.date for pin in self.manual_days]
+        dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})
+        if dupes:
+            raise ValueError(f"duplicate manual_day date: {dupes}")
+        return self
 
     @model_validator(mode="after")
     def _lat_lon_paired(self) -> Schedule:
@@ -277,11 +292,21 @@ def _default_timing() -> Timing:
 class ConfigFile(Strict):
     """Root of config/muhideen.json: identity, schedule, timing, theme, displays."""
 
-    schema_version: Annotated[int, Field(alias="$schemaVersion")] = 1
+    # Fail closed on unversioned files: ``$schemaVersion`` is required, and
+    # the snake-case spelling is rejected (name-validation is off for this
+    # model so only the alias validates). A file written with the wrong
+    # spelling must error, not round-trip forever.
+    model_config = ConfigDict(
+        extra="forbid",
+        validate_by_alias=True,
+        validate_by_name=False,
+    )
+
+    schema_version: Annotated[Literal[1], Field(alias="$schemaVersion")]
     masjid: Masjid
     schedule: Schedule = Field(default_factory=Schedule)
     timing: Timing = Field(default_factory=_default_timing)
     adhan_audio: AdhanAudio = Field(default_factory=AdhanAudio)
     theme: Theme = Field(default_factory=Theme)
-    displays: Annotated[dict[str, Display], Field(min_length=1)]
+    displays: dict[str, Display] = Field(default_factory=dict)
     playlists: list[PlaylistFile] = Field(default_factory=list[PlaylistFile])

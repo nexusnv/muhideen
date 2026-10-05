@@ -5,7 +5,8 @@
 :class:`Settings` domain object, :class:`FilePrayerRepo` layers the config
 ``manual_days`` pins over a JSON buffer cache, and :class:`FilePlaylistRepo`
 maps the playlist section. Every ``ValueError`` from domain construction
-becomes :class:`ConfigError` at this boundary, mirroring the former
+(and every ``SyncError`` from pin ordering) becomes :class:`ConfigError`
+at this boundary, mirroring the former
 database-backed repos (read fresh on every call, validated on load).
 """
 
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time
 from pathlib import Path
@@ -21,7 +23,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from muhideen.adapters.file_models import ConfigFile, ManualDay, PlaylistFile
-from muhideen.core.errors import ConfigError
+from muhideen.core.errors import ConfigError, SyncError
 from muhideen.core.values import (
     IqamahRule,
     MarkerName,
@@ -62,10 +64,30 @@ def load_config_file(path: str | Path) -> ConfigFile:
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    """Write JSON via tmp+rename so a crash never leaves half a file."""
-    tmp = path.with_name(f"{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    """Write JSON via tmp+rename so readers see the old or new file, never torn.
+
+    The tmp name is pid-unique so concurrent writers cannot share it; the
+    payload is flushed and fsynced (plus a directory fsync where the OS
+    allows) so a crash loses at most the update, never the file itself.
+    Callers needing read-modify-write atomicity must still hold a lock —
+    see :class:`FilePrayerRepo`.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    with open(tmp, "w") as handle:
+        handle.write(json.dumps(payload, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(tmp, path)
+    try:
+        dir_fd = os.open(path.parent, os.O_DIRECTORY)
+    except OSError:
+        return
+    try:
+        os.fsync(dir_fd)
+    except OSError:
+        pass
+    finally:
+        os.close(dir_fd)
 
 
 def _iqamah_rules_from_file(cfg: ConfigFile) -> tuple[IqamahRule, ...]:
@@ -248,7 +270,13 @@ _DAY_KEYS: tuple[str, ...] = (
 
 
 def _manual_to_day(pin: ManualDay, zone: str) -> PrayerDay:
-    """Stamp a config pin with the requested zone; ``SyncError`` when unordered."""
+    """Stamp a config pin with the requested zone; ``ConfigError`` when unordered.
+
+    An out-of-order hand-edit is a configuration error (HTTP 503), never
+    a sync failure: the lifespan revalidation and every read path map it
+    through :class:`ConfigError` so the display keeps its error slate
+    instead of a bare 500.
+    """
     day = PrayerDay(
         date=pin.date,
         zone=zone,
@@ -263,7 +291,22 @@ def _manual_to_day(pin: ManualDay, zone: str) -> PrayerDay:
         source=ScheduleSource.MANUAL,
         fetched_at=datetime.now(tz=UTC),
     )
-    return ensure_ordered(day)
+    try:
+        return ensure_ordered(day)
+    except SyncError as exc:
+        raise ConfigError(f"invalid manual_day {pin.date}: {exc}") from exc
+
+
+def validate_manual_days(pins: Sequence[ManualDay], zone: str) -> None:
+    """Materialize every manual pin; ``ConfigError`` on the first unordered day.
+
+    Ordering is zone-independent, so the lifespan revalidation calls this
+    with the configured zone *before* swapping the snapshot — a bad
+    hand-edit keeps the last-good pins serving with no publish instead of
+    poisoning the snapshot and 503ing the next request.
+    """
+    for pin in pins:
+        _manual_to_day(pin, zone)
 
 
 def _day_to_entry(day: PrayerDay) -> dict[str, str]:
@@ -339,6 +382,11 @@ class FilePrayerRepo:
         """Hold the buffer path plus a snapshot of the config manual pins."""
         self._buffer = Path(buffer_path)
         self._manual_days = tuple(manual_days)
+        # Guards the read-modify-write in ``save_day``/``delete_day`` so two
+        # in-process writers (scheduler thread vs a tick path) cannot lose
+        # a day. Cross-process writers still rely on tmp+rename (last
+        # writer wins, readers never tear).
+        self._lock = threading.Lock()
 
     @property
     def buffer_path(self) -> Path:
@@ -355,8 +403,6 @@ class FilePrayerRepo:
         """
         data = self._read_buffer()
         raw_days = data.get("days", {})
-        if not isinstance(raw_days, dict):
-            return
         top_zone, top_fetched = _top_defaults(data)
         for key, entry in raw_days.items():
             try:
@@ -452,13 +498,16 @@ class FilePrayerRepo:
 
     def save_day(self, prayer_day: PrayerDay) -> None:
         """Upsert one day into the buffer (manual pins are never written here)."""
-        data = self._read_buffer()
-        raw_days = data.get("days", {})
-        days: dict[str, dict[str, str]] = (
-            dict(raw_days) if isinstance(raw_days, dict) else {}
-        )
-        days[prayer_day.date.isoformat()] = _day_to_entry(prayer_day)
-        self._write_buffer(days, prayer_day.zone, prayer_day.fetched_at.isoformat())
+        with self._lock:
+            data = self._read_buffer()
+            raw_days = data.get("days", {})
+            days: dict[str, dict[str, str]] = (
+                dict(raw_days) if isinstance(raw_days, dict) else {}
+            )
+            days[prayer_day.date.isoformat()] = _day_to_entry(prayer_day)
+            self._write_buffer(
+                days, prayer_day.zone, prayer_day.fetched_at.isoformat()
+            )
 
     def save_day_unless_manual(self, prayer_day: PrayerDay) -> bool:
         """Upsert unless a manual pin (or manual buffer row) holds the date."""
@@ -507,40 +556,53 @@ class FilePrayerRepo:
         """Delete a ``manual``-sourced buffer row; config pins return False."""
         if self._pin_for(day) is not None:
             return False
-        data = self._read_buffer()
-        raw_days = data.get("days", {})
-        if not isinstance(raw_days, dict):
-            return False
-        entry = raw_days.get(day.isoformat())
-        if not isinstance(entry, Mapping):
-            return False
-        top_zone, top_fetched = _top_defaults(data)
-        try:
-            candidate = _entry_to_day(day, entry, top_zone, top_fetched)
-        except (ValueError, KeyError) as exc:
-            raise _corrupt(self._buffer, day.isoformat(), exc) from exc
-        if candidate.source is not ScheduleSource.MANUAL or candidate.zone != zone:
-            return False
-        days = dict(raw_days)
-        del days[day.isoformat()]
-        self._write_buffer(
-            days,
-            str(data.get("zone", zone)),
-            str(data.get("fetched_at", candidate.fetched_at.isoformat())),
-        )
-        return True
+        with self._lock:
+            data = self._read_buffer()
+            raw_days = data.get("days", {})
+            if not isinstance(raw_days, dict):
+                return False
+            entry = raw_days.get(day.isoformat())
+            if not isinstance(entry, Mapping):
+                return False
+            top_zone, top_fetched = _top_defaults(data)
+            try:
+                candidate = _entry_to_day(day, entry, top_zone, top_fetched)
+            except (ValueError, KeyError) as exc:
+                raise _corrupt(self._buffer, day.isoformat(), exc) from exc
+            if (
+                candidate.source is not ScheduleSource.MANUAL
+                or candidate.zone != zone
+            ):
+                return False
+            days = dict(raw_days)
+            del days[day.isoformat()]
+            self._write_buffer(
+                days,
+                str(data.get("zone", zone)),
+                str(data.get("fetched_at", candidate.fetched_at.isoformat())),
+            )
+            return True
 
 
 def _playlist_from_file(entry: PlaylistFile) -> Playlist:
-    """Map one file playlist; unknown anchors and bad windows fail loudly."""
+    """Map one file playlist; unknown anchors and bad windows fail loudly.
+
+    Anchors normalize case/whitespace (``" Fajr "`` → ``fajr``), mirroring
+    ``parse_bound`` for window bounds — a hand-edited file should not fail
+    on capitalization that a window bound accepts. Every failure carries
+    the playlist id so one typo in a multi-playlist file points at the
+    offending entry instead of 503ing the whole list anonymously.
+    """
+    playlist_id = entry.id
     if entry.anchor_marker is None:
         anchor: MarkerName | None = None
     else:
         try:
-            anchor = MarkerName(entry.anchor_marker)
+            anchor = MarkerName(entry.anchor_marker.strip().lower())
         except ValueError:
             raise ConfigError(
-                f"unknown playlist anchor marker: {entry.anchor_marker!r}"
+                f"playlist {playlist_id!r}: unknown anchor marker: "
+                f"{entry.anchor_marker!r}"
             ) from None
     try:
         playlist = Playlist(
@@ -565,8 +627,10 @@ def _playlist_from_file(entry: PlaylistFile) -> Playlist:
         )
         parse_window(playlist)
         return playlist
+    except ConfigError as exc:
+        raise ConfigError(f"playlist {playlist_id!r}: {exc}") from exc
     except ValueError as exc:
-        raise ConfigError(str(exc)) from exc
+        raise ConfigError(f"playlist {playlist_id!r}: {exc}") from exc
 
 
 class FilePlaylistRepo:

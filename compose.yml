@@ -11,8 +11,22 @@ services:
       # Hand-edited config + machine-written timetable cache (back this up,
       # not the image). prayer_buffer.json is rewritten by the sync worker —
       # never hand-edit it.
+      # First boot: copy the example into place before `compose up`, then
+      # edit name/zone/timezone for your masjid:
+      #   cp config/muhideen.example.json config/muhideen.json
+      # The service fails fast when /config/muhideen.json is missing and
+      # hot-reloads hand-edits live (~1s), no rebuild.
+      # Permissions: the image runs as the unprivileged `muhideen` user but
+      # the bind mount masks the image-side chown, so the sync worker can
+      # only write prayer_buffer.json when the host dirs are writable by
+      # the container uid. Fix once after first boot:
+      #   sudo chown -R $(id -u):$(id -g) config media
+      # (Without this the boot log warns and the timetable never caches —
+      # the sync retries forever on EACCES.)
       - ./config:/config
-      # Adhan audio + playlist images served to the displays.
+      # Adhan audio served to the displays at /media/adhan.mp3, plus
+      # playlist image files referenced by the config (carousel rendering
+      # is a future slice — see docs/deployment.md).
       - ./media:/media
     environment:
       TZ: ${TZ:-Asia/Kuala_Lumpur}

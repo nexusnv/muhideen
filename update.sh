@@ -64,8 +64,21 @@ backup_path="${backup_root}/${current}-${ts}.json"
 
 # File-config state: snapshot the hand-edited config file before the tag
 # checkout so a bad update can be recovered by copying it back.
-maybe_run mkdir -p "$backup_root"
-maybe_run cp "$CONFIG" "$backup_path"
+# Scope note: only muhideen.json is snapshotted here. prayer_buffer.json
+# is a regenerable sync cache (the scheduler refetches it), and media/
+# (adhan audio, playlist images under /var/lib/muhideen/media) lives
+# outside the repo and is never touched by the checkout — back up media
+# separately if you need a full-media rollback.
+# A missing config file is not fatal: DB-era boxes predate the JSON file
+# entirely (see docs/deployment.md "Upgrading from a database install"),
+# and there is simply nothing to snapshot yet. In --dry-run the cp is
+# still traced so the order proof (backup before fetch/checkout) holds.
+if [[ -f "$CONFIG" || "${MUHIDEEN_DRY_RUN:-0}" == "1" ]]; then
+  maybe_run mkdir -p "$backup_root"
+  maybe_run cp "$CONFIG" "$backup_path"
+else
+  note "config: $CONFIG missing — nothing to back up (fresh or pre-file-config install; continuing)"
+fi
 
 maybe_run git fetch --tags
 

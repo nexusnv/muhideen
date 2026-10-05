@@ -25,7 +25,8 @@ RUN uv sync --locked --no-dev
 # unrestricted access to the mounted volumes. The venv binary runs
 # directly (no `uv run` at runtime, so no cache/lockfile writes as the
 # unprivileged user). Bind mounts from compose provide /config and /media;
-# the seed below only sets ownership for named-volume first mounts.
+# the mkdir/chown below only covers named-volume first mounts — host bind
+# mounts keep their host ownership (see the permissions note in compose.yml).
 RUN useradd --system --create-home --home-dir /home/muhideen \
       --shell /usr/sbin/nologin muhideen \
   && mkdir -p /config /media \

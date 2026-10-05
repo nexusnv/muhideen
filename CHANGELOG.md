@@ -8,6 +8,17 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- File-config refactor (no database): the admin UI, auth, SQLite repos,
+  migrations, seed, and backup/logs/QR routes are deleted. One hand-edited
+  `config/muhideen.json` (validated by `file_models.py`, hot-reloaded in
+  ~1s with last-good fallback) plus the machine-written
+  `prayer_buffer.json` cache and a plain `media/` tree replace them. The
+  kept surface is read-only: `prayer-day`, `next-event`, `events` (SSE),
+  `version`, and `/display`. Operator media is served at `/media/*`;
+  `/docs` stays public by decision (read-only schemas only). Upgrade
+  notes: no DB→JSON importer ships — database installs must recreate
+  settings by hand (see `docs/deployment.md`); `--zone`/`--db` flags are
+  gone; `update.sh` snapshots only the JSON config.
 
 - Calc backend swap (issues #35/#36): `al-falak==1.0.0` replaces `adhanpy==1.0.5` (same adhan port lineage, maintained, typed); per-method reference parameters (`MABIMS` fitted custom angles, `MWL`/`ISNA`/`Egyptian` built-ins with `ISNA` mapped to North America); `asr_juristic` setting (`shafi`/`hanafi`, default `shafi`) end-to-end with wizard method parity.
 

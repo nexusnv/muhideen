@@ -18,7 +18,7 @@ In active development. The backend serves prayer state from hand-edited JSON fil
 * Carousel for announcements (auto-hidden around prayer), sandboxed community themes, display groups.
 * Admin: edit `config/muhideen.json` (copy from `config/muhideen.example.json`) — the watcher auto-reloads it in ~1s, no login. Per-display overrides (language, theme, dim, carousel) live in the `displays` map and render at `/display?id=<id>`.
 * `config/prayer_buffer.json` is the machine-written timetable cache (manual-day pins outrank synced days) — don't hand-edit it; a missing file is just an empty cache.
-* `media/` holds adhan audio plus playlist images served to the displays.
+* `media/` holds adhan audio (served at `/media/adhan.mp3`) plus playlist image files referenced by the config (template carousel rendering is a future slice).
 * System: `muhideen.service` + Chromium kiosk + NTP health + optional HDMI-CEC.
 
 Full requirements: [`PRD.md`](PRD.md).

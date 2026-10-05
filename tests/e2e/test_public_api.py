@@ -222,3 +222,36 @@ def test_prayer_day_hijri_date_null_outside_library_range(
     )
     assert response.status_code == 200
     assert response.json()["hijri_date"] is None
+
+
+def test_503_detail_scrubs_absolute_config_path(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    """Wire 503s must not disclose the server's filesystem layout."""
+    surface.config_path.unlink()
+    response = client.get(
+        "/api/prayer-day", params={"date": "2025-10-20", "zone": "SGR01"}
+    )
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert str(surface.config_path) not in detail
+    assert "/etc/" not in detail and "/tmp/" not in detail
+
+
+def test_media_mount_serves_operator_dropped_adhan(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    """The configured media dir (outside the static root) is served at /media."""
+    blob = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 64
+    (surface.media_dir / "adhan.mp3").write_bytes(blob)
+    response = client.get("/media/adhan.mp3")
+    assert response.status_code == 200
+    assert response.content == blob
+
+
+def test_media_mount_blocks_traversal(
+    surface: SimpleNamespace, client: TestClient
+) -> None:
+    """Above-root escapes through the /media mount must not resolve."""
+    response = client.get("/media/%2e%2e/muhideen.json")
+    assert response.status_code == 404

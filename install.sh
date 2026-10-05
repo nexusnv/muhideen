@@ -123,6 +123,15 @@ else
   maybe_run cp "$ROOT_DIR/config/muhideen.example.json" "$CONFIG_FILE"
 fi
 
+# Pre-file-config installs kept all state in a SQLite database, which this
+# layout no longer reads: flag it loudly so the operator recreates the
+# settings by hand instead of wondering why the display is unconfigured.
+# The check is a real file test (not maybe_run) so --dry-run stays silent
+# unless a legacy database is actually present.
+if [[ -f "${STATE_DIR}/muhideen.db" ]]; then
+  note "warn: legacy database ${STATE_DIR}/muhideen.db is not used by file-config builds — recreate name/zone/manual-days/playlists in ${CONFIG_FILE} by hand (see docs/deployment.md 'Upgrading from a database install')"
+fi
+
 if ! maybe_run chown -R muhideen "$STATE_DIR"; then
   note "warn: chown ${STATE_DIR} failed — ensure User=muhideen can write it"
 fi

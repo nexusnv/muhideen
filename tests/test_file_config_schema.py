@@ -75,3 +75,50 @@ def test_playlist_cycle_pairing_enforced():
     raw["playlists"][0]["max_cycles"] = None
     with pytest.raises(ValidationError, match="max_cycles"):
         ConfigFile.model_validate(raw)
+
+
+def test_display_language_accepts_bm_alias():
+    raw = _example_raw()
+    raw["displays"]["main-hall"]["language"] = "bm"
+    cfg = ConfigFile.model_validate(raw)
+    assert cfg.displays["main-hall"].language == "bm"
+
+
+def test_schema_version_rejects_unknown():
+    raw = _example_raw()
+    raw["$schemaVersion"] = 999
+    with pytest.raises(ValidationError):
+        ConfigFile.model_validate(raw)
+
+
+def test_schema_version_is_required():
+    """Unversioned files fail closed instead of assuming version 1."""
+    raw = _example_raw()
+    del raw["$schemaVersion"]
+    with pytest.raises(ValidationError):
+        ConfigFile.model_validate(raw)
+
+
+def test_schema_version_rejects_snake_case_spelling():
+    """Only the ``$schemaVersion`` alias validates; ``schema_version`` does not."""
+    raw = _example_raw()
+    del raw["$schemaVersion"]
+    raw["schema_version"] = 1
+    with pytest.raises(ValidationError):
+        ConfigFile.model_validate(raw)
+
+
+def test_duplicate_manual_day_dates_rejected():
+    """Two pins for one date would serve divergently (get_day vs last_known)."""
+    raw = _example_raw()
+    raw["schedule"]["manual_days"].append(dict(raw["schedule"]["manual_days"][0]))
+    with pytest.raises(ValidationError, match="duplicate manual_day"):
+        ConfigFile.model_validate(raw)
+
+
+def test_displays_may_be_empty_or_missing():
+    raw = _example_raw()
+    raw["displays"] = {}
+    assert ConfigFile.model_validate(raw).displays == {}
+    minimal = {"$schemaVersion": 1, "masjid": raw["masjid"]}
+    assert ConfigFile.model_validate(minimal).displays == {}

@@ -32,15 +32,28 @@ MUHIDEEN_VERSION=1.0.0 MUHIDEEN_PORT=8000 docker compose up -d
 What this does, in order:
 
 1. **Build** — resolves `uv.lock` (`--locked`) and installs the
-   `muhideen` / `muhideen-seed` entrypoints into the image.
+   `muhideen` entrypoint into the image.
 2. **Run** — starts one container (`restart: unless-stopped`) with
-   port 8000 published and state in the `muhideen-data` volume
-   (SQLite + uploads persist across image swaps — back up the volume,
-   not the image). `TZ` defaults to `Asia/Kuala_Lumpur`.
-3. **Seed** — first boot needs configuration: run the setup wizard at
-   `/admin/setup` (or `muhideen-seed` against the volume-mounted DB
-   for scripted installs). Without JAKIM reachability the scheduler
-   retries; without coordinates the calc fallback stays off.
+   port 8000 published and `./config` + `./media` bind-mounted
+   (the JSON config, the timetable cache, and media persist across
+   image swaps — back up the files, not the image).
+   `TZ` defaults to `Asia/Kuala_Lumpur`.
+3. **Configure** — first boot needs `config/muhideen.json`: copy the
+   example into place, then edit name/zone/timezone for your masjid:
+
+   ```bash
+   cp config/muhideen.example.json config/muhideen.json
+   # edit config/muhideen.json, then:
+   sudo chown -R $(id -u):$(id -g) config media
+   ```
+
+   The service fails fast when the file is missing and hot-reloads
+   hand-edits live (~1s) — no login, no rebuild. The `chown` matters:
+   the image runs as the unprivileged `muhideen` user, so without it
+   the sync worker cannot write `prayer_buffer.json` (the boot log
+   warns and the timetable never caches). Without JAKIM reachability
+   the scheduler retries; without coordinates the calc fallback stays
+   off.
 4. **Health** — the compose `healthcheck` polls `/api/version`;
    `docker compose ps` shows it, `docker compose logs muhideen` is the first
    stop on failure.
@@ -55,19 +68,19 @@ to the site, `docker load < muhideen-1.0.0.tar`, then
 The display never renders an empty or healthy-looking page without a
 schedule. First boot must satisfy **one** of:
 
-* **JAKIM reachability** — `muhideen-seed` (install step 3) fetches the
-  configured zone's year into the prayer cache; when the fetch fails, the
+* **JAKIM reachability** — the scheduler fetches the configured
+  zone's year into the prayer cache on boot; when the fetch fails, the
   scheduler retries it (transient failures re-arm on a 6h long-pole —
   429 rate limits stay transient and retry; other, unrecoverable 4xx
   rejections never retry — recheck the zone code instead of waiting).
 * **Coordinates** — `lat`/`lon` settings let the built-in MABIMS
   calculator resolve each day locally with no network at all.
 
-Otherwise — fresh database, no coordinates, JAKIM unreachable — the
+Otherwise — empty config, no coordinates, JAKIM unreachable — the
 outcome is a documented slate, never a Clock: `GET /display` renders the
 error slate, and schedule reads such as
 `GET /api/next-event?now=…` answer 404 with a detail message (503 is
-reserved for an installation with no settings at all). The SSE tick
+reserved for a missing or invalid config file). The SSE tick
 likewise reports the `error` stage instead of `clock`, so the display
 reloads into the route slate (see `docs/api-contract.md`).
 
@@ -86,22 +99,22 @@ reloads into the route slate (see `docs/api-contract.md`).
   December. From early December the 30-days-forward cache window runs
   out of rows, and dates past 31-Dec resolve through the automatic
   fallback chain (calc / last-known) until the first January fetch.
-* **Bridging (December).** Pin each needed January date by hand — in
-  `/admin/settings` under Manual schedule (pick the date, check the 8
-  times, Save pin), or directly: `PUT /api/manual-day` with a full
-  8-marker `HH:MM` body plus `date` (times must be strictly increasing,
-  else 422; a second PUT for the same date replaces the pin). The
-  response echoes the pinned day with `"source": "manual"` and
-  `"stale": true`, and the display carries the MANUAL banner. Pins
+* **Bridging (December).** Pin each needed January date by hand: add
+  an entry to `schedule.manual_days` in `config/muhideen.json` (or
+  `/etc/muhideen/muhideen.json` on systemd installs) with the date plus
+  the 8 `HH:MM` markers — times must be strictly increasing, duplicate
+  dates are rejected. The service hot-reloads the file (~1s, validated
+  before swap; a bad edit keeps the last-good pins serving).
+  The response surface echoes the pinned day with `"source": "manual"`
+  and `"stale": true`, and the display carries the MANUAL banner. Pins
   outrank every automatic source (manual > JAKIM > calc) and the daily
   02:00 sync never overwrites them.
 * **Auto-recovery (January).** The first successful daily sync in the
   new year fetches that year's full table, so unpinned January dates
   resolve automatically again — no action needed.
 * **Releasing a pin.** Pins persist across syncs (the sync skips them),
-  so hand a date back to the automatic schedule explicitly:
-  `DELETE /api/manual-day?date=YYYY-MM-DD` (or Clear pin in the admin
-  section; dates with no pin are 404). The date immediately falls back
+  so hand a date back to the automatic schedule explicitly: delete the
+  entry from `manual_days` and save — the date immediately falls back
   to the automatic chain, and the next sync re-saves the JAKIM row for
   it — no restart required.
 
@@ -116,61 +129,63 @@ docker build -t muhideen:1.0.1 .
 MUHIDEEN_VERSION=1.0.1 docker compose up -d
 ```
 
-1. Back up first: `POST /api/backup/export` from `/admin/settings`
-   (the zip holds the DB snapshot + media — treat it as secret).
+1. Back up first: copy `config/muhideen.json` aside (and `media/`
+   separately if you changed adhan audio or playlist images — the
+   updater snapshots only the JSON file; see Backup and restore).
 2. Build the new tag, then recreate the container against the same
-   `muhideen-data` volume — the staged database migrates itself on
-   boot; a backup from a newer app version than the running build is
-   rejected, so never boot an older image over a migrated volume
-   without restoring the matching backup first.
+   bind mounts — there is no database to migrate. `prayer_buffer.json`
+   is a regenerable cache the scheduler refetches, so it needs no
+   backup; a config file written by a newer app version than the
+   running build may fail validation until you update the image.
 3. Confirm the release's application version via `/api/version`
    (the endpoint reports the app version from the release, not the
    Docker tag — compare against the release notes); on failure, roll
    back with
    `docker compose down && MUHIDEEN_VERSION=<prev> docker compose up -d`
-   (plus `POST /api/backup/restore` if the database itself is suspect).
-   **No automatic rollback:** the operator owns the backup-restore step.
+   (plus copy your config backup back if the file itself is suspect).
+   **No automatic rollback:** the operator owns the backup step.
 
-## Backup and restore (one-click export)
+## Upgrading from a database install
 
-The admin System section (`/admin/settings`) exports the whole installation
-as one zip and restores it onto replacement hardware — no SSH or SQLite
-needed. API: `POST /api/backup/export` (zip download),
-`POST /api/backup/restore` (base64 zip), `GET /api/logs` (see
-`docs/api-contract.md` for shapes and status codes).
+File-config builds cannot read the old SQLite database: there is no
+DB→JSON importer. `install.sh` warns when it sees
+`/var/lib/muhideen/muhideen.db`, and `update.sh` skips its snapshot
+when no JSON config exists yet — neither migrates anything.
 
-**When to export.** Before every image update (the Compose flow creates
-no automatic backup — export explicitly first), before replacing
-hardware, and after any large media change (playlist images, adhan
-audio). There are no scheduled or automatic exports — back up on
-demand, or add a cron job that POSTs the
-export endpoint and stores the download off-device.
+To carry an install forward by hand:
 
-**What the bundle holds.** The `muhideen.db` snapshot at the zip root plus
-the uploads tree under `media/` (playlist images, `adhan.mp3`). Caps are
-defense-in-depth: total archive ≤256MB, per-member ≤64MB, member count
-≤512. A restore payload travels as base64 JSON, so the practical request
-ceiling is ~341MB of base64 (larger is 413); corrupt or traversal-unsafe
-archives are rejected (400).
+1. Read the old settings (zone, masjid name, timezone, manual pins,
+   playlists, theme knobs) from the running v1.0 surface or the admin
+   pages before updating.
+2. Update, then write them into `config/muhideen.json` (copy
+   `config/muhideen.example.json` first) and drop adhan audio /
+   playlist images into `media/`.
+3. `docker compose up -d` and check `/display` plus
+   `/api/prayer-day?date=…&zone=…` resolve.
 
-**Treat the archive as secret.** It contains the `users` password hashes —
-handle it exactly like the live database file: encrypted transport, no
-shared folders or chat uploads, delete working copies after the move.
+## Backup and restore (file copies)
 
-**Restore onto replacement hardware.** Bring up the release compose
-on the new device first, complete first-boot setup at `/admin/setup`
-(a fresh volume has no admin yet — sign-in alone cannot proceed),
-then sign in as admin and choose the backup file
-in the System section and Restore (or POST the file base64 to
-`/api/backup/restore`). The staged database is migrated before it replaces
-the live one (older versions migrate up; backups from a newer application
-version than the installed build are rejected), the media tree swaps atomically,
-and no restart is required.
+There is no admin UI and no export API: the installation is two JSON
+files plus a media tree, so backup is copying them.
 
-**What is NOT in the bundle.** Scheduler runtime state (in-memory retry
-chains re-arm from the database on boot), admin sessions (in-memory — log
-in again after a restore), and service logs (read live via the Logs panel
-or `docker compose logs muhideen`; never stored in the archive).
+* **What to copy.** The hand-edited config (`config/muhideen.json` on
+  compose, `/etc/muhideen/muhideen.json` on systemd) and, when media
+  changed, the media tree (`media/` on compose,
+  `/var/lib/muhideen/media` on systemd). `prayer_buffer.json` is a
+  regenerable sync cache — copy it if you like, or let the scheduler
+  refetch it.
+* **When.** Before every image update (the Compose flow creates no
+  automatic backup), before replacing hardware, and after any large
+  media change. There are no scheduled exports — back up on demand,
+  or add a cron job that copies the files off-device.
+* **Restore onto replacement hardware.** Install fresh, copy the config
+  (and media) into place with the same ownership the service user can
+  read, and start — the watcher validates on load and serves 503
+  slates until the file parses.
+* **Treat old archives as secret.** Pre-file-config backup zips contain
+  the `users` password hashes — handle them like the live database
+  file and delete working copies after the move. Current file backups
+  hold no credentials.
 
 ## Time sync (NTP) and `TIME UNSYNCED`
 
@@ -226,10 +241,10 @@ deferred alongside Pi support (see ADR-0005):
 ## Network: mDNS and the `.local` URL
 Hostname publication is host provisioning (like the kiosk): if the LAN
 needs `.local` names, run Avahi on the host and point it at the
-compose-published port. The QR fast-connect target (FR-6.3) is whatever
-LAN URL reaches the app (`http://<host>:8000/admin`); on networks that
-block mDNS or isolate clients, use the host IP directly (`hostname -I`
-or the router lease list).
+compose-published port. The kiosk target (FR-6.3) is whatever
+LAN URL reaches a display (`http://<host>:8000/display?id=hall`); on
+networks that block mDNS or isolate clients, use the host IP directly
+(`hostname -I` or the router lease list).
 
 ## Service operations
 ```bash
@@ -238,16 +253,22 @@ docker compose logs -f muhideen
 docker compose restart muhideen
 ```
 
-State lives in the `muhideen-data` volume (database + media); the image
-itself is stateless. Port and tag come from `MUHIDEEN_PORT` /
-`MUHIDEEN_VERSION`.
+State lives in the bind-mounted files (config + timetable cache +
+media); the image itself is stateless. Port and tag come from
+`MUHIDEEN_PORT` / `MUHIDEEN_VERSION`. Adhan audio dropped into `media/`
+is served at `/media/adhan.mp3`; playlist `image_path` files are
+addressable under `/media/` (template carousel rendering is a future
+slice). `/docs`, `/redoc`, and `/openapi.json` are public by decision —
+they expose only the read-only public schemas; the contract tests pin
+their parity.
 
 ## Kiosk display
 The repo ships no kiosk unit: the admin provisions Chromium on each
 screen machine and points it at that screen's display URL. One install
 serves many screens — `/display?id=hall` and `/display?id=entrance`
-render independently, each with its own saved configuration (palette,
-clock format, language, dim, carousel) from `/admin/settings`.
+render independently, each with its own presentation entry (language,
+theme overlay, dim, carousel flag) from the `displays` map in
+`config/muhideen.json`.
 
 Validated kiosk invocation (Chromium/Chrome):
 
@@ -257,8 +278,8 @@ chromium --kiosk 'http://<host>:8000/display?id=hall' \
 ```
 
 * `--kiosk` gives the full-screen display surface; the id selects the
-  screen config (unknown ids render the global theme — configure the
-  id first via `PATCH /api/displays/{id}` or the admin page).
+  screen config (unknown ids render the global theme — add the id to
+  the `displays` map in the JSON config).
 * `--autoplay-policy=no-user-gesture-required` lets the adhan audio
   play without a click.
 * The display reloads itself on state/stage changes over SSE, with a

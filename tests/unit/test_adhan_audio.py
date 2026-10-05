@@ -50,6 +50,6 @@ def test_adhan_audio_url_helper_default_and_custom(tmp_path) -> None:
     assert _adhan_audio_url(_STATIC_DIR / "uploads") == "/static/uploads/adhan.mp3"
     custom = _STATIC_DIR / "uploads" / "custom-subdir"
     assert _adhan_audio_url(custom) == f"/static/uploads/custom-subdir/{ADHAN_FILENAME}"
-    assert (
-        _adhan_audio_url(tmp_path / "elsewhere") == f"/static/uploads/{ADHAN_FILENAME}"
-    )
+    # Outside the static root (both deploy targets) the file is served
+    # from the /media mount, never the dead /static/uploads fallback.
+    assert _adhan_audio_url(tmp_path / "elsewhere") == f"/media/{ADHAN_FILENAME}"
