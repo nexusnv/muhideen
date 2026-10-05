@@ -206,3 +206,16 @@ def test_merge_days_falls_back_to_calc() -> None:
     )
     assert merge_days(None, calc) == calc
     assert merge_days(None, None) is None
+
+
+def test_is_stale_normalizes_naive_and_aware_mixes() -> None:
+    """A naive stored stamp never raises against an aware now (and back)."""
+    from muhideen.domain.fallback import is_stale
+
+    aware_now = datetime(2026, 4, 2, 12, 0, tzinfo=TZ)
+    naive_day = _day(fetched_at=datetime(2026, 4, 2, 11, 0))
+    assert is_stale(naive_day, aware_now) is False
+    aware_day = _day(fetched_at=datetime(2026, 4, 2, 11, 0, tzinfo=TZ))
+    assert is_stale(aware_day, datetime(2026, 4, 2, 12, 0)) is False
+    old_naive = _day(fetched_at=datetime(2026, 3, 30, 11, 0))
+    assert is_stale(old_naive, aware_now) is True

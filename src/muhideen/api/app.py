@@ -388,7 +388,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                     current_digest: str | None = hashlib.sha256(
                         cfg_path.read_bytes()
                     ).hexdigest()
-                except OSError as exc:
+                except OSError as exc:  # pragma: no cover - digest race guard
                     logger.error("config reload failed; keeping last-good: %s", exc)
                     return
                 if current_digest == last_holder[0]:

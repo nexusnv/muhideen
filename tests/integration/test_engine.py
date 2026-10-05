@@ -577,3 +577,16 @@ def test_calc_receives_settings_asr_juristic() -> None:
     )
     harness.engine.resolve_day(date(2026, 9, 23), ZONE, harness.clock.now())
     assert calc.calls[0][6] == "hanafi"
+
+
+def test_tomorrow_prefers_pin_over_cache() -> None:
+    """Tomorrow keeps pin visibility: a pinned tomorrow wins wholesale."""
+    pin = _day(date(2026, 9, 24), source=ScheduleSource.MANUAL, fajr=time(6, 5))
+    cached = _day(date(2026, 9, 24), fajr=time(5, 50))
+    harness = _harness(rows=(cached,), pins=(pin,))
+    tomorrow = harness.engine._tomorrow(
+        date(2026, 9, 24), ZONE, harness.settings.load()
+    )
+    assert tomorrow is not None
+    assert tomorrow.fajr == time(6, 5)
+    assert tomorrow.source is ScheduleSource.MANUAL

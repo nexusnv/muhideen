@@ -135,3 +135,16 @@ def test_watches_multiple_paths(tmp_path: Path):
     finally:
         watcher.stop()
         assert not threading.enumerate() or True  # stop() joined; no leak assert needed
+
+
+def test_snapshot_returns_none_when_unreadable(tmp_path: Path):
+    from muhideen.adapters.config_watcher import _snapshot
+
+    target = tmp_path / "cfg.json"
+    target.write_text("{}")
+    assert _snapshot(target) is not None
+    target.chmod(0o000)
+    try:
+        assert _snapshot(target) is None
+    finally:
+        target.chmod(0o644)

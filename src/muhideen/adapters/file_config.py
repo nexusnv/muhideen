@@ -18,7 +18,7 @@ import threading
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError
 
@@ -180,13 +180,14 @@ class FileSettingsRepo:
     def save(self, settings: Settings) -> None:
         """Persist settings as one atomic full-file replacement."""
         try:
-            data = json.loads(self._path.read_text())
+            raw_data: object = json.loads(self._path.read_text())
         except OSError as exc:
             raise ConfigError(f"{self._path}: cannot read config file: {exc}") from exc
         except json.JSONDecodeError as exc:
             raise ConfigError(f"{self._path}: invalid JSON: {exc}") from exc
-        if not isinstance(data, dict):
+        if not isinstance(raw_data, dict):
             raise ConfigError(f"{self._path}: config root must be an object")
+        data = cast(dict[str, Any], raw_data)
         # Raw-dict surgery: only the mapped scalar sections are replaced, so
         # hand-edited displays/playlists/manual_days (and the adhan audio
         # file) survive byte-for-byte.
@@ -194,10 +195,12 @@ class FileSettingsRepo:
             "name": settings.masjid_name,
             "timezone": settings.timezone,
         }
-        schedule = data.get("schedule")
-        audio = data.get("adhan_audio")
-        if not isinstance(schedule, dict) or not isinstance(audio, dict):
+        schedule_raw = data.get("schedule")
+        audio_raw = data.get("adhan_audio")
+        if not isinstance(schedule_raw, dict) or not isinstance(audio_raw, dict):
             raise ConfigError(f"{self._path}: config missing schedule/audio sections")
+        schedule = cast(dict[str, Any], schedule_raw)
+        audio = cast(dict[str, Any], audio_raw)
         schedule.update(
             {
                 "method": settings.method,
@@ -432,7 +435,7 @@ class FilePrayerRepo:
         is an empty cache, not an error.
         """
         data = self._read_buffer()
-        raw_days = data.get("days", {})
+        raw_days = cast(dict[str, Any], data.get("days", {}))
         top_zone, top_fetched = _top_defaults(data)
         for key, entry in raw_days.items():
             try:
@@ -441,8 +444,9 @@ class FilePrayerRepo:
                 raise _corrupt(self._buffer, key, exc) from exc
             if not isinstance(entry, Mapping):
                 raise _corrupt(self._buffer, key, ValueError("not an object"))
+            entry_map = cast(Mapping[str, Any], entry)
             try:
-                _entry_to_day(candidate_date, entry, top_zone, top_fetched)
+                _entry_to_day(candidate_date, entry_map, top_zone, top_fetched)
             except (ValueError, KeyError) as exc:
                 raise _corrupt(self._buffer, key, exc) from exc
 
@@ -489,13 +493,14 @@ class FilePrayerRepo:
                 f"{self._buffer}: cannot read prayer buffer: {exc}"
             ) from exc
         try:
-            data = json.loads(text)
+            raw_data: object = json.loads(text)
         except json.JSONDecodeError as exc:
             raise ConfigError(
                 f"{self._buffer}: invalid JSON in prayer buffer: {exc}"
             ) from exc
-        if not isinstance(data, dict):
+        if not isinstance(raw_data, dict):
             raise ConfigError(f"{self._buffer}: prayer buffer must be an object")
+        data = cast(dict[str, Any], raw_data)
         days = data.get("days", {})
         if not isinstance(days, dict):
             raise ConfigError(f"{self._buffer}: prayer buffer days must be an object")
@@ -505,12 +510,14 @@ class FilePrayerRepo:
         self, data: Mapping[str, Any], day: date, zone: str
     ) -> PrayerDay | None:
         """Return the buffered day for date+zone, else None."""
-        days = data.get("days", {})
-        if not isinstance(days, Mapping):
+        days_raw: object = data.get("days", {})
+        if not isinstance(days_raw, Mapping):
             return None
-        entry = days.get(day.isoformat())
-        if not isinstance(entry, Mapping):
+        days = cast(Mapping[str, Any], days_raw)
+        entry_raw: object = days.get(day.isoformat())
+        if not isinstance(entry_raw, Mapping):
             return None
+        entry = cast(Mapping[str, Any], entry_raw)
         top_zone, top_fetched = _top_defaults(data)
         try:
             candidate = _entry_to_day(day, entry, top_zone, top_fetched)
@@ -563,9 +570,10 @@ class FilePrayerRepo:
         """Upsert one day into the buffer (manual pins are never written here)."""
         with self._lock:
             data = self._read_buffer()
-            raw_days = data.get("days", {})
-            days: dict[str, dict[str, str]] = (
-                dict(raw_days) if isinstance(raw_days, dict) else {}
+            # ``_read_buffer`` guarantees ``days`` is a dict (else ConfigError).
+            days = cast(
+                dict[str, dict[str, str]],
+                dict(cast(dict[str, Any], data.get("days", {}))),
             )
             days[prayer_day.date.isoformat()] = _day_to_entry(prayer_day)
             self._write_buffer(days, prayer_day.zone, prayer_day.fetched_at.isoformat())
@@ -596,30 +604,29 @@ class FilePrayerRepo:
         for pin in self._manual_days:
             if pin.date <= day and (newest_pin is None or pin.date > newest_pin.date):
                 newest_pin = pin
-        raw_days = data.get("days", {})
+        # ``_read_buffer`` guarantees ``days`` is a dict (else ConfigError).
+        raw_days = cast(dict[str, Any], data.get("days", {}))
         newest_buffer: PrayerDay | None = None
-        if isinstance(raw_days, dict):
-            top_zone, top_fetched = _top_defaults(data)
-            for key in sorted(raw_days):
-                try:
-                    candidate_date = date.fromisoformat(key)
-                except ValueError as exc:
-                    raise _corrupt(self._buffer, key, exc) from exc
-                if candidate_date > day:
-                    continue
-                entry = raw_days[key]
-                if not isinstance(entry, Mapping):
-                    raise _corrupt(self._buffer, key, ValueError("not an object"))
-                try:
-                    candidate = _entry_to_day(
-                        candidate_date, entry, top_zone, top_fetched
-                    )
-                except (ValueError, KeyError) as exc:
-                    raise _corrupt(self._buffer, key, exc) from exc
-                if candidate.zone != zone:
-                    continue
-                if newest_buffer is None or candidate.date > newest_buffer.date:
-                    newest_buffer = candidate
+        top_zone, top_fetched = _top_defaults(data)
+        for key in sorted(raw_days):
+            try:
+                candidate_date = date.fromisoformat(key)
+            except ValueError as exc:
+                raise _corrupt(self._buffer, key, exc) from exc
+            if candidate_date > day:
+                continue
+            entry_raw: object = raw_days[key]
+            if not isinstance(entry_raw, Mapping):
+                raise _corrupt(self._buffer, key, ValueError("not an object"))
+            entry = cast(Mapping[str, Any], entry_raw)
+            try:
+                candidate = _entry_to_day(candidate_date, entry, top_zone, top_fetched)
+            except (ValueError, KeyError) as exc:
+                raise _corrupt(self._buffer, key, exc) from exc
+            if candidate.zone != zone:
+                continue
+            if newest_buffer is None or candidate.date > newest_buffer.date:
+                newest_buffer = candidate
         if newest_pin is not None and (
             newest_buffer is None or newest_pin.date >= newest_buffer.date
         ):
@@ -637,12 +644,12 @@ class FilePrayerRepo:
             return False
         with self._lock:
             data = self._read_buffer()
-            raw_days = data.get("days", {})
-            if not isinstance(raw_days, dict):
+            # ``_read_buffer`` guarantees ``days`` is a dict (else ConfigError).
+            days_map = cast(dict[str, Any], data.get("days", {}))
+            entry_raw: object = days_map.get(day.isoformat())
+            if not isinstance(entry_raw, Mapping):
                 return False
-            entry = raw_days.get(day.isoformat())
-            if not isinstance(entry, Mapping):
-                return False
+            entry = cast(Mapping[str, Any], entry_raw)
             top_zone, top_fetched = _top_defaults(data)
             try:
                 candidate = _entry_to_day(day, entry, top_zone, top_fetched)
@@ -650,7 +657,7 @@ class FilePrayerRepo:
                 raise _corrupt(self._buffer, day.isoformat(), exc) from exc
             if candidate.source is not ScheduleSource.MANUAL or candidate.zone != zone:
                 return False
-            days = dict(raw_days)
+            days = cast(dict[str, dict[str, str]], dict(days_map))
             del days[day.isoformat()]
             self._write_buffer(
                 days,

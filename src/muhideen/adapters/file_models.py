@@ -401,7 +401,7 @@ class ConfigFile(Strict):
 
     schema_version: Annotated[Literal[1], Field(alias="$schemaVersion")]
     masjid: Masjid
-    schedule: Schedule = Field(default_factory=Schedule)
+    schedule: Schedule
     timing: Timing = Field(default_factory=_default_timing)
     adhan_audio: AdhanAudio = Field(default_factory=AdhanAudio)
     theme: Theme = Field(default_factory=Theme)

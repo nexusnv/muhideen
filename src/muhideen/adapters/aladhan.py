@@ -126,19 +126,23 @@ def parse_calendar_month(
 
     expected = calendar_mod.monthrange(year, month)[1]
     days: list[PrayerDay] = []
-    for raw_entry in raw_days:
+    day_list = cast(list[object], raw_days)
+    for raw_entry in day_list:
         if not isinstance(raw_entry, dict):
             raise SyncError("aladhan day is not a JSON object", zone=zone)
         entry = cast(dict[str, object], raw_entry)
-        timings = entry.get("timings")
-        if not isinstance(timings, dict):
+        timings_raw = entry.get("timings")
+        if not isinstance(timings_raw, dict):
             raise SyncError("aladhan day has no timings object", zone=zone)
+        timings = cast(dict[str, object], timings_raw)
         day_entry = entry.get("date")
-        gregorian = (
-            day_entry.get("gregorian", {}).get("date")
-            if isinstance(day_entry, dict)
-            else None
-        )
+        gregorian: object = None
+        if isinstance(day_entry, dict):
+            date_dict = cast(dict[str, object], day_entry)
+            gregorian_raw = date_dict.get("gregorian")
+            if isinstance(gregorian_raw, dict):
+                greg_dict = cast(dict[str, object], gregorian_raw)
+                gregorian = greg_dict.get("date")
         row_date = _parse_gregorian(gregorian, zone=zone)
         if row_date.year != year or row_date.month != month:
             raise SyncError(

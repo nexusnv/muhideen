@@ -7,6 +7,7 @@ into ``tmp_path``; no test imports from ``muhideen.api`` (adapters only).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from dataclasses import replace
 from datetime import UTC, date, datetime, time
@@ -351,3 +352,337 @@ def test_playlist_errors_carry_the_playlist_id(tmp_path: Path):
     path.write_text(json.dumps(raw))
     with pytest.raises(ConfigError, match="announcements"):
         FilePlaylistRepo(path).list()
+
+
+def _buffer_file(tmp_path: Path, payload: object) -> Path:
+    """Write a raw prayer buffer file; return its path."""
+    path = tmp_path / "buffer.json"
+    path.write_text(payload if isinstance(payload, str) else json.dumps(payload))
+    return path
+
+
+def _buffer_entry(zone: str = ZONE, **overrides: str) -> dict[str, str]:
+    """One buffer day entry mirroring the example pin (HH:MM strings)."""
+    entry = {
+        "zone": zone,
+        "source": ScheduleSource.JAKIM.value,
+        "fetched_at": FETCHED.isoformat(),
+        **{key: value.strftime("%H:%M") for key, value in _TIMES.items()},
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_settings_path_property(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    assert repo.path == path
+
+
+def test_settings_load_wraps_domain_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Domain construction failures surface as ConfigError, never ValueError."""
+    import muhideen.adapters.file_config as file_config_module
+
+    def _boom(cfg: object) -> object:
+        raise ValueError("bad domain")
+
+    monkeypatch.setattr(file_config_module, "_settings_from_config", _boom)
+    repo, _ = _settings_repo(tmp_path)
+    with pytest.raises(ConfigError, match="bad domain"):
+        repo.load()
+
+
+def test_settings_save_missing_file_is_config_error(tmp_path: Path):
+    repo, _ = _settings_repo(tmp_path)
+    settings = repo.load()
+    missing = FileSettingsRepo(tmp_path / "no-such-dir" / "muhideen.json")
+    with pytest.raises(ConfigError, match="cannot read config file"):
+        missing.save(settings)
+
+
+def test_settings_save_invalid_json_is_config_error(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    settings = repo.load()
+    path.write_text("{bogus")
+    with pytest.raises(ConfigError, match="invalid JSON"):
+        repo.save(settings)
+
+
+def test_settings_save_non_object_root_is_config_error(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    settings = repo.load()
+    path.write_text("[]")
+    with pytest.raises(ConfigError, match="must be an object"):
+        repo.save(settings)
+
+
+def test_settings_save_missing_sections_is_config_error(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    settings = repo.load()
+    raw = json.loads(path.read_text())
+    del raw["schedule"]
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ConfigError, match="missing schedule/audio"):
+        repo.save(settings)
+
+
+def test_settings_save_rejects_invalid_round_trip(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    settings = repo.load()
+    raw = json.loads(path.read_text())
+    raw["bogus_root_key"] = True
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ConfigError):
+        repo.save(settings)
+
+
+def test_atomic_write_skips_dir_fsync_when_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Platforms without directory fsync still persist the payload."""
+    from muhideen.adapters.file_config import _atomic_write_json
+
+    def _no_dir_fd(*args: object, **kwargs: object) -> int:
+        raise OSError("no directory fsync here")
+
+    monkeypatch.setattr(os, "open", _no_dir_fd)
+    target = tmp_path / "buffer.json"
+    _atomic_write_json(target, {"days": {}})
+    assert json.loads(target.read_text()) == {"days": {}}
+
+
+def test_atomic_write_ignores_dir_fsync_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from muhideen.adapters.file_config import _atomic_write_json
+
+    calls = {"count": 0}
+    real_fsync = os.fsync
+
+    def _flaky_fsync(fd: int) -> None:
+        calls["count"] += 1
+        if calls["count"] >= 2:
+            raise OSError("dir fsync unavailable")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", _flaky_fsync)
+    target = tmp_path / "buffer.json"
+    _atomic_write_json(target, {"days": {}})
+    assert json.loads(target.read_text()) == {"days": {}}
+
+
+def test_partial_pin_unordered_after_completion_is_config_error(tmp_path: Path):
+    """A partial pin that breaks ordering once completed is ConfigError."""
+    path = _copy_example(tmp_path)
+    raw = json.loads(path.read_text())
+    pin_date = raw["schedule"]["manual_days"][0]["date"]
+    raw["schedule"]["manual_days"] = [{"date": pin_date, "fajr": "14:00"}]
+    path.write_text(json.dumps(raw))
+    cfg = load_config_file(path)
+    repo = FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days)
+    repo.save_day(_jakim_day(PINNED))
+    with pytest.raises(ConfigError, match="invalid manual_day"):
+        repo.get_pin(PINNED, ZONE)
+
+
+def test_validate_buffer_accepts_seeded_days(tmp_path: Path):
+    repo, _ = _prayer_repo(tmp_path)
+    repo.save_day(_jakim_day(PINNED))
+    repo.save_day(_jakim_day(date(2026, 4, 2)))
+    repo.validate_buffer()
+
+
+def test_validate_buffer_rejects_bad_date_key(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": {"bogus": _buffer_entry()}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="bogus"):
+        repo.validate_buffer()
+
+
+def test_validate_buffer_rejects_non_object_entry(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": {PINNED.isoformat(): [1, 2]}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="not an object"):
+        repo.validate_buffer()
+
+
+def test_validate_buffer_rejects_corrupt_times(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": {PINNED.isoformat(): _buffer_entry(fajr="xx")}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="corrupt buffer day"):
+        repo.validate_buffer()
+
+
+def test_set_manual_days_refreshes_snapshot(tmp_path: Path):
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    assert repo.get_pin(PINNED, ZONE) is None
+    config_path = _copy_example(tmp_path)
+    cfg = load_config_file(config_path)
+    repo.set_manual_days(cfg.schedule.manual_days)
+    assert repo.get_pin(PINNED, ZONE) is not None
+
+
+def test_validate_pins_accepts_empty(tmp_path: Path):
+    repo, _ = _prayer_repo(tmp_path)
+    repo.validate_pins([], ZONE)
+
+
+def test_validate_pins_checks_new_pins_not_snapshot(tmp_path: Path):
+    """Reload validation checks incoming pins, never the stale snapshot."""
+    config_path = _copy_example(tmp_path)
+    good_cfg = load_config_file(config_path)
+    repo = FilePrayerRepo(tmp_path / "buffer.json", good_cfg.schedule.manual_days)
+    raw = json.loads(config_path.read_text())
+    raw["schedule"]["manual_days"][0]["fajr"] = "14:00"
+    config_path.write_text(json.dumps(raw))
+    bad_cfg = load_config_file(config_path)
+    with pytest.raises(ConfigError):
+        repo.validate_pins(bad_cfg.schedule.manual_days, ZONE)
+    # ...and the live snapshot still serves the last-good pin.
+    assert repo.get_pin(PINNED, ZONE) is not None
+    # A repo holding stale-bad pins still accepts good incoming pins.
+    stale = FilePrayerRepo(tmp_path / "buffer.json", bad_cfg.schedule.manual_days)
+    stale.validate_pins(good_cfg.schedule.manual_days, ZONE)
+
+
+def test_read_buffer_unreadable_is_config_error(tmp_path: Path):
+    repo = FilePrayerRepo(tmp_path, [])  # a directory, not a file
+    with pytest.raises(ConfigError, match="cannot read prayer buffer"):
+        repo.get_day(PINNED, ZONE)
+
+
+def test_read_buffer_invalid_json_is_config_error(tmp_path: Path):
+    _buffer_file(tmp_path, "{bogus")
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="invalid JSON"):
+        repo.get_day(PINNED, ZONE)
+
+
+def test_read_buffer_non_object_is_config_error(tmp_path: Path):
+    _buffer_file(tmp_path, [1, 2, 3])
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="must be an object"):
+        repo.get_day(PINNED, ZONE)
+
+
+def test_read_buffer_non_object_days_is_config_error(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": [1]})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="days must be an object"):
+        repo.get_day(PINNED, ZONE)
+
+
+def test_buffer_day_ignores_non_mapping_days(tmp_path: Path):
+    """The pure buffer read tolerates a non-mapping days section."""
+    repo, _ = _prayer_repo(tmp_path)
+    assert repo._buffer_day({"days": []}, PINNED, ZONE) is None
+
+
+def test_buffer_day_rejects_corrupt_entry(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": {PINNED.isoformat(): _buffer_entry(fajr="xx")}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="corrupt buffer day"):
+        repo.get_day(PINNED, ZONE)
+
+
+def test_save_day_unless_manual_writes_through_when_unpinned(tmp_path: Path):
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    assert repo.save_day_unless_manual(_jakim_day(PINNED)) is True
+    assert repo.get_day(PINNED, ZONE) is not None
+
+
+def test_save_day_unless_manual_respects_manual_buffer_row(tmp_path: Path):
+    """A manual-sourced buffer row blocks the sync write like a pin does."""
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    manual = replace(_jakim_day(PINNED), source=ScheduleSource.MANUAL)
+    repo.save_day(manual)
+    assert repo.save_day_unless_manual(_jakim_day(PINNED)) is False
+    assert repo.get_day(PINNED, ZONE) == manual
+
+
+def test_last_known_skips_superseded_uncompletable_pin(tmp_path: Path):
+    """An older partial pin without its row must not poison newer history."""
+    path = _copy_example(tmp_path)
+    _strip_pin_to(path, ["maghrib"])
+    cfg = load_config_file(path)
+    repo = FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days)
+    repo.save_day(_jakim_day(date(2026, 4, 5)))
+    known = repo.last_known(date(2026, 4, 5), ZONE)
+    assert known is not None
+    assert known.date == date(2026, 4, 5)
+    assert known.source is ScheduleSource.JAKIM
+
+
+def test_last_known_returns_none_when_empty(tmp_path: Path):
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    assert repo.last_known(PINNED, ZONE) is None
+
+
+def test_last_known_rejects_bad_date_key(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": {"bogus": _buffer_entry()}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="bogus"):
+        repo.last_known(PINNED, ZONE)
+
+
+def test_last_known_rejects_non_object_entry(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": {PINNED.isoformat(): [1]}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="not an object"):
+        repo.last_known(PINNED, ZONE)
+
+
+def test_last_known_rejects_corrupt_entry(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": {PINNED.isoformat(): _buffer_entry(fajr="xx")}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="corrupt buffer day"):
+        repo.last_known(PINNED, ZONE)
+
+
+def test_delete_day_removes_manual_buffer_row(tmp_path: Path):
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    manual = replace(_jakim_day(PINNED), source=ScheduleSource.MANUAL)
+    repo.save_day(manual)
+    assert repo.delete_day(PINNED, ZONE) is True
+    assert repo.get_day(PINNED, ZONE) is None
+
+
+def test_delete_day_keeps_provider_rows(tmp_path: Path):
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    repo.save_day(_jakim_day(PINNED))
+    assert repo.delete_day(PINNED, ZONE) is False
+    assert repo.get_day(PINNED, ZONE) is not None
+    foreign = replace(
+        _jakim_day(date(2026, 4, 2)), source=ScheduleSource.MANUAL, zone="XX99"
+    )
+    repo.save_day(foreign)
+    assert repo.delete_day(date(2026, 4, 2), ZONE) is False
+
+
+def test_delete_day_rejects_corrupt_entry(tmp_path: Path):
+    _buffer_file(tmp_path, {"days": {PINNED.isoformat(): _buffer_entry(fajr="xx")}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="corrupt buffer day"):
+        repo.delete_day(PINNED, ZONE)
+
+
+def test_playlist_value_error_carries_the_playlist_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import muhideen.adapters.file_config as file_config_module
+
+    def _boom(playlist: object) -> object:
+        raise ValueError("bad window shape")
+
+    monkeypatch.setattr(file_config_module, "parse_window", _boom)
+    path = _copy_example(tmp_path)
+    with pytest.raises(ConfigError, match="announcements"):
+        FilePlaylistRepo(path).list()
+
+
+def test_playlist_get_hit_and_miss(tmp_path: Path):
+    path = _copy_example(tmp_path)
+    repo = FilePlaylistRepo(path)
+    assert repo.get("announcements") is not None
+    assert repo.get("no-such-playlist") is None

@@ -515,3 +515,23 @@ def test_late_night_carry_agrees_with_main_stage() -> None:
     # Widest legal window (90m) opens at 04:15, well after midnight, so the
     # tomorrow-Fajr carry and the Stage takeover cannot disagree overnight.
     assert resolve_stage(now, _day(), widest, event, ()) == ClockOccupant()
+
+
+def test_fixed_fajr_drift_degrades_to_iqamah_less_carry() -> None:
+    """A fixed Fajr valid today but stale tomorrow degrades, not 503s."""
+    from dataclasses import replace
+
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    rules = _rules()
+    rules[MarkerName.FAJR] = IqamahRule(
+        prayer=MarkerName.FAJR,
+        mode="fixed",
+        delay_minutes=15,
+        fixed_time=dtime(5, 50),
+    )
+    tomorrow = replace(_day(), date=date(2025, 10, 23), fajr=dtime(5, 50))
+    event = resolve_next_event(_at(23, 30), _day(), tomorrow, rules, _settings(), False)
+    assert event.state == PrayerState.NORMAL
+    assert event.next_prayer == MarkerName.FAJR
+    assert event.iqamah_at is None

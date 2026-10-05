@@ -387,3 +387,39 @@ def test_countdown_label_target_matrix() -> None:
     dim_ctx = _ctx(day=day, event=dim, settings=settings)
     assert dim_ctx["countdown_label"] == ""
     assert dim_ctx["countdown_target"] == ""
+
+
+def test_missing_iqamah_label_is_config_error() -> None:
+    from muhideen.core.errors import ConfigError
+    from muhideen.views.display import build_display_context as _build
+
+    day, event = _dtos(KL)
+    with pytest.raises(ConfigError, match="missing iqamah label"):
+        _build(day=day, event=event, settings=_settings(), iqamah={})
+
+
+def test_disabled_imsak_hides_the_imsak_bound() -> None:
+    from dataclasses import replace
+
+    day, event = _dtos(KL)
+    settings = replace(_settings(), imsak_offset_min=0)
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert [bound["key"] for bound in ctx["bounds"]] == ["syuruq", "dhuha"]
+    shown = _ctx(day=day, event=event, settings=_settings())
+    assert [bound["key"] for bound in shown["bounds"]] == [
+        "imsak",
+        "syuruq",
+        "dhuha",
+    ]
+
+
+def test_unsynced_time_renders_the_banner() -> None:
+    day, event = _dtos(KL)
+    synced = _ctx(day=day, event=event, settings=_settings())
+    assert "TIME UNSYNCED" not in synced["banners"]
+    unsynced = _ctx(
+        day=day,
+        event=event.model_copy(update={"time_synced": False}),
+        settings=_settings(),
+    )
+    assert "TIME UNSYNCED" in unsynced["banners"]

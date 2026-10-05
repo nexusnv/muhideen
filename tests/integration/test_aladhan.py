@@ -191,6 +191,35 @@ def test_parse_rejects_ordering_violation() -> None:
         _parse(_month_payload(2026, 10, timings=timings))
 
 
+def test_parse_rejects_non_object_day() -> None:
+    payload = _month_payload(2026, 10)
+    payload["data"][0] = 42
+    with pytest.raises(SyncError, match="not a JSON object"):
+        _parse(payload)
+
+
+def test_parse_rejects_day_without_timings() -> None:
+    payload = _month_payload(2026, 10)
+    del payload["data"][0]["timings"]
+    with pytest.raises(SyncError, match="no timings"):
+        _parse(payload)
+
+
+def test_parse_rejects_non_object_date() -> None:
+    """A string day entry carries no gregorian object — loud, not skipped."""
+    payload = _month_payload(2026, 10)
+    payload["data"][0]["date"] = "01-10-2026"
+    with pytest.raises(SyncError, match="gregorian"):
+        _parse(payload)
+
+
+def test_parse_rejects_non_object_gregorian() -> None:
+    payload = _month_payload(2026, 10)
+    payload["data"][0]["date"]["gregorian"] = "01-10-2026"
+    with pytest.raises(SyncError, match="gregorian"):
+        _parse(payload)
+
+
 # --- fetch_year ----------------------------------------------------------
 
 

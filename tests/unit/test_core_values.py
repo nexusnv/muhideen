@@ -750,3 +750,61 @@ def test_playlist_indefinite_rejects_max_cycles() -> None:
         items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
     )
     assert (playlist.cycle_mode, playlist.max_cycles) == ("indefinite", None)
+
+
+def _valid_settings(**overrides: object) -> Settings:
+    base: dict[str, object] = {
+        "masjid_name": "M",
+        "zone": "SGR01",
+        "hijri_offset": 0,
+    }
+    base.update(overrides)
+    return Settings(**base)  # type: ignore[arg-type]
+
+
+def test_theme_helpers_read_the_single_owner_table() -> None:
+    from muhideen.core.values import theme_choices, theme_default
+
+    assert theme_default("palette") in theme_choices("palette")
+
+
+def test_settings_rejects_bad_scalars() -> None:
+    with pytest.raises(ValueError, match="hijri_offset"):
+        _valid_settings(hijri_offset=5)
+    with pytest.raises(ValueError, match="adhan_duration_s"):
+        _valid_settings(adhan_duration_s=0)
+    with pytest.raises(ValueError, match="dim_minutes_default"):
+        _valid_settings(dim_minutes_default=61)
+    with pytest.raises(ValueError, match="dim_minutes_jumuah"):
+        _valid_settings(dim_minutes_jumuah=4)
+    with pytest.raises(ValueError, match="unknown timezone"):
+        _valid_settings(timezone="Bogus/Zone")
+    with pytest.raises(ValueError, match="asr juristic"):
+        _valid_settings(asr_juristic="maliki")
+    with pytest.raises(ValueError, match="lat and lon"):
+        _valid_settings(lat=3.1)
+    with pytest.raises(ValueError, match="adhan_volume"):
+        _valid_settings(adhan_volume=101)
+    with pytest.raises(ValueError, match="quiet hours need both"):
+        _valid_settings(quiet_hours_start="22:00")
+    with pytest.raises(ValueError, match="quiet hours must be HH:MM"):
+        _valid_settings(quiet_hours_start="22:00", quiet_hours_end="xx")
+    with pytest.raises(ValueError):
+        _valid_settings(adhan_muted_prayers=["bogus"])
+
+
+def test_playlist_value_guards() -> None:
+    with pytest.raises(ValueError, match="duration must be positive"):
+        PlaylistItem(image_path="a.jpg", duration_s=0, sort_order=0)
+    with pytest.raises(ValueError, match="sort order cannot be negative"):
+        PlaylistItem(image_path="a.jpg", duration_s=5, sort_order=-1)
+    with pytest.raises(ValueError, match="non-empty id"):
+        Playlist(id="", title="t", active=True)
+    with pytest.raises(ValueError, match="non-empty title"):
+        Playlist(id="p", title="", active=True)
+    with pytest.raises(ValueError, match="max_cycles >= 1"):
+        Playlist(id="p", title="t", active=True, cycle_mode="repeat")
+    with pytest.raises(ValueError, match="max_cycles None"):
+        Playlist(id="p", title="t", active=True, cycle_mode="indefinite", max_cycles=2)
+    with pytest.raises(ValueError, match="unknown playlist cycle mode"):
+        Playlist(id="p", title="t", active=True, cycle_mode="bogus")

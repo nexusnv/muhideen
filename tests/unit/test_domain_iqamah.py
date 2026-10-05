@@ -1,6 +1,6 @@
 """Domain iqamah resolution guards (slice 1A-2, Task 1)."""
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -114,3 +114,31 @@ def test_fixed_time_at_or_before_adhan_raises_config_error(
     else:
         with pytest.raises(ConfigError, match="at or before adhan"):
             resolve_iqamah(MarkerName.DHUHR, _adhan(), rules)
+
+
+def test_card_labels_reject_unknown_prayer_and_bad_time() -> None:
+    from muhideen.domain.iqamah import card_iqamah_labels
+
+    times = {
+        "fajr": "05:58",
+        "dhuhr": "13:15",
+        "asr": "16:30",
+        "maghrib": "19:15",
+        "isha": "20:30",
+    }
+    with pytest.raises(ConfigError, match="missing iqamah rule"):
+        card_iqamah_labels(
+            date(2026, 4, 1),
+            {**times, "bogus": "12:00"},
+            TZ,
+            _rules(),
+            MarkerName.FAJR,
+        )
+    with pytest.raises(ConfigError, match="invalid adhan time"):
+        card_iqamah_labels(
+            date(2026, 4, 1),
+            {**times, "fajr": "not-a-time"},
+            TZ,
+            _rules(),
+            MarkerName.FAJR,
+        )

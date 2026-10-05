@@ -237,3 +237,102 @@ def test_aladhan_provider_requires_coordinates():
     raw["schedule"]["lat"] = 3.139
     raw["schedule"]["lon"] = 101.6869
     assert ConfigFile.model_validate(raw).schedule.sync_provider == "aladhan"
+
+
+def test_schedule_section_is_required():
+    """A config without a schedule section fails closed (no silent offline)."""
+    raw = _example_raw()
+    del raw["schedule"]
+    with pytest.raises(ValidationError):
+        ConfigFile.model_validate(raw)
+
+
+def test_lat_lon_must_be_paired():
+    raw = _example_raw()
+    raw["schedule"]["lat"] = 3.139
+    assert raw["schedule"]["lon"] is None
+    with pytest.raises(ValidationError, match="lat and lon"):
+        ConfigFile.model_validate(raw)
+
+
+def test_fixed_iqamah_rule_needs_time():
+    raw = _example_raw()
+    raw["timing"]["iqamah_rules"][0]["mode"] = "fixed"
+    raw["timing"]["iqamah_rules"][0]["fixed_time"] = None
+    with pytest.raises(ValidationError, match="without time"):
+        ConfigFile.model_validate(raw)
+
+
+def test_iqamah_rules_must_cover_every_prayer():
+    """Six unique slots that skip a prayer fail loudly (bypasses literals)."""
+    from types import SimpleNamespace
+
+    from muhideen.adapters.file_models import Timing
+
+    prayers = ("fajr", "dhuhr", "asr", "maghrib", "isha", "bogus")
+    timing = Timing.model_construct(
+        iqamah_rules=[SimpleNamespace(prayer=p) for p in prayers]
+    )
+    with pytest.raises(ValueError, match="missing iqamah rule"):
+        Timing._rules_cover_prayers_exactly(timing)
+
+
+def test_quiet_hours_must_be_paired():
+    raw = _example_raw()
+    raw["adhan_audio"]["quiet_hours_start"] = "22:00"
+    assert raw["adhan_audio"]["quiet_hours_end"] is None
+    with pytest.raises(ValidationError, match="quiet hours"):
+        ConfigFile.model_validate(raw)
+
+
+def test_display_theme_getitem():
+    cfg = ConfigFile.model_validate(_example_raw())
+    theme = cfg.displays["main-hall"].theme
+    assert theme["palette"] == theme.palette
+    with pytest.raises(KeyError):
+        theme["bogus_knob"]
+
+
+def test_custom_colors_accept_none_and_valid_map():
+    raw = _example_raw()
+    raw["displays"]["main-hall"]["custom_colors"] = None
+    assert ConfigFile.model_validate(raw).displays["main-hall"].custom_colors is None
+    raw["displays"]["main-hall"]["custom_colors"] = {"background": "#112233"}
+    validated = ConfigFile.model_validate(raw).displays["main-hall"].custom_colors
+    assert validated == {"background": "#112233"}
+
+
+def test_custom_colors_reject_unknown_key_and_bad_hex():
+    raw = _example_raw()
+    raw["displays"]["main-hall"]["custom_colors"] = {"wallpaper": "#112233"}
+    with pytest.raises(ValidationError, match="unknown custom color"):
+        ConfigFile.model_validate(raw)
+    raw["displays"]["main-hall"]["custom_colors"] = {"background": "112233"}
+    with pytest.raises(ValidationError, match="#rrggbb"):
+        ConfigFile.model_validate(raw)
+
+
+def test_playlist_repeat_needs_cycles_and_indefinite_forbids_them():
+    raw = _example_raw()
+    raw["playlists"][0]["cycle_mode"] = "repeat"
+    raw["playlists"][0]["max_cycles"] = None
+    with pytest.raises(ValidationError, match="max_cycles"):
+        ConfigFile.model_validate(raw)
+    raw["playlists"][0]["cycle_mode"] = "indefinite"
+    raw["playlists"][0]["max_cycles"] = 3
+    with pytest.raises(ValidationError, match="max_cycles"):
+        ConfigFile.model_validate(raw)
+
+
+def test_playlist_items_capped_at_fifty():
+    from muhideen.adapters.file_models import PlaylistFile
+
+    raw = _example_raw()
+    raw["playlists"][0]["items"] = [
+        {"image_path": f"media/{i}.jpg", "duration_s": 5, "sort_order": i}
+        for i in range(51)
+    ]
+    with pytest.raises(ValidationError, match="capped at 50"):
+        ConfigFile.model_validate(raw)
+    valid = _example_raw()
+    assert PlaylistFile.model_validate(valid["playlists"][0]).id == "announcements"
