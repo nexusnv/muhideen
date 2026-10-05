@@ -55,10 +55,15 @@ class Strict(BaseModel):
 
 
 class Masjid(Strict):
-    """Installation identity: display name, JAKIM zone code, IANA timezone."""
+    """Installation identity: display name and IANA timezone.
+
+    No zone code here: the served-zone label lives in ``schedule.zone``
+    (any short label for non-JAKIM installs) and the JAKIM fetch key
+    lives in ``schedule.jakim.zone`` — a Malaysia-only code that must
+    not leak into the international profile.
+    """
 
     name: Annotated[str, Field(min_length=1, max_length=200)]
-    zone: Annotated[str, Field(min_length=1, max_length=32)]
     timezone: str = "Asia/Kuala_Lumpur"
 
 
@@ -76,6 +81,37 @@ class ManualDay(Strict):
     isha: TimeHHMM
 
 
+class JakimSource(Strict):
+    """JAKIM e-solat fetch arguments: the zone code (e.g. ``SWK08``).
+
+    Malaysia-only, kept with the provider — never in the profile.
+    Required when ``sync_provider`` is ``jakim``, ignored otherwise.
+    """
+
+    zone: Annotated[str, Field(min_length=1, max_length=32)] | None = None
+
+
+class AladhanSource(Strict):
+    """Aladhan-compatible host: base URL plus calculation-method id.
+
+    One adapter serves every Aladhan-core host (``api.aladhan.com``,
+    ``aladhan.api.islamic.network``, or any mirror) — only this URL
+    varies. ``method`` defaults to 17/JAKIM; school follows the
+    installation's ``asr_juristic`` (no separate knob).
+    """
+
+    base_url: str = "https://api.aladhan.com/v1"
+    method: Annotated[int, Field(ge=0, le=23)] = 17
+
+    @field_validator("base_url")
+    @classmethod
+    def _base_url_http(cls, value: str) -> str:
+        """Base URL is an http(s) host; any path suffix is trimmed."""
+        if not re.match(r"^https?://[^/\s]+", value):
+            raise ValueError(f"aladhan base URL must be http(s): {value!r}")
+        return value.rstrip("/")
+
+
 class Schedule(Strict):
     """Schedule-source switches plus boundary offsets and manual pins."""
 
@@ -89,9 +125,17 @@ class Schedule(Strict):
     dhuha_offset_min: Annotated[int, Field(ge=15, le=30)] = 28
     boundary_countdown: bool = False
     manual_days: list[ManualDay] = Field(default_factory=list[ManualDay])
-    sync_provider: Literal["jakim", "aladhan"] = "jakim"
-    aladhan_base_url: str = "https://api.aladhan.com/v1"
-    aladhan_method: Annotated[int, Field(ge=0, le=23)] = 17
+    sync_provider: Literal["jakim", "aladhan"]
+    """Sync source, no default: an international app pins no country's API."""
+    zone: Annotated[str, Field(min_length=1, max_length=32)] | None = None
+    """Served-zone label (API param, display, buffer key).
+
+    Optional display override: unset falls back to the JAKIM fetch key,
+    else ``"local"``. JAKIM users write one zone (in ``jakim``) unless
+    they want the display/API label to differ from the upstream code.
+    """
+    jakim: JakimSource = Field(default_factory=JakimSource)
+    aladhan: AladhanSource = Field(default_factory=AladhanSource)
 
     @model_validator(mode="after")
     def _manual_dates_unique(self) -> Schedule:
@@ -114,13 +158,22 @@ class Schedule(Strict):
             raise ValueError("lat and lon must be set together")
         return self
 
-    @field_validator("aladhan_base_url")
-    @classmethod
-    def _aladhan_base_url_http(cls, value: str) -> str:
-        """Aladhan-compatible base URL: http(s) host, no trailing slash."""
-        if not re.match(r"^https?://[^/\s]+", value):
-            raise ValueError(f"aladhan base URL must be http(s): {value!r}")
-        return value.rstrip("/")
+    @property
+    def effective_zone(self) -> str:
+        """Installation zone label: explicit override, else JAKIM fetch
+        key, else ``"local"`` (provider-neutral installs label nothing)."""
+        if self.zone:
+            return self.zone
+        if self.jakim.zone:
+            return self.jakim.zone
+        return "local"
+
+    @model_validator(mode="after")
+    def _jakim_needs_zone(self) -> Schedule:
+        """The JAKIM fetch key ships with the provider, never by default."""
+        if self.sync_provider == "jakim" and not self.jakim.zone:
+            raise ValueError("jakim provider needs schedule.jakim.zone set")
+        return self
 
     @model_validator(mode="after")
     def _aladhan_needs_coordinates(self) -> Schedule:

@@ -114,7 +114,8 @@ def _settings_from_config(cfg: ConfigFile) -> Settings:
     audio = cfg.adhan_audio
     return Settings(
         masjid_name=cfg.masjid.name,
-        zone=cfg.masjid.zone,
+        zone=cfg.schedule.effective_zone,
+        jakim_zone=cfg.schedule.jakim.zone,
         timezone=cfg.masjid.timezone,
         hijri_offset=cfg.schedule.hijri_offset,
         method=cfg.schedule.method,
@@ -190,7 +191,6 @@ class FileSettingsRepo:
         # file) survive byte-for-byte.
         data["masjid"] = {
             "name": settings.masjid_name,
-            "zone": settings.zone,
             "timezone": settings.timezone,
         }
         schedule = data.get("schedule")

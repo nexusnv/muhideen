@@ -304,6 +304,7 @@ class Settings:
     masjid_name: str
     zone: str
     hijri_offset: int
+    jakim_zone: str | None = None
     adhan_duration_s: int = 180
     dim_minutes_default: int = 20
     dim_minutes_jumuah: int = 45

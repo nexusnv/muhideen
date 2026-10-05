@@ -112,12 +112,15 @@ def test_production_app_prayer_buffer_defaults_next_to_config(
 
 
 def test_example_config_zone_survives_json_round_trip(tmp_path: Path) -> None:
-    """Tmp copy keeps the golden zone after a settings save round-trip."""
+    """Tmp copy keeps provider zone + label after a settings save round-trip."""
     from muhideen.adapters.file_config import FileSettingsRepo
 
     dest = _copy_example(tmp_path)
     repo = FileSettingsRepo(dest)
     settings = repo.load()
+    assert settings.zone == "SGR01"
+    assert settings.jakim_zone == "SGR01"
     repo.save(settings)
     raw = json.loads(dest.read_text())
-    assert raw["masjid"]["zone"] == "SGR01"
+    assert raw["schedule"]["jakim"]["zone"] == "SGR01"
+    assert "zone" not in raw["masjid"]

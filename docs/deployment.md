@@ -39,7 +39,8 @@ What this does, in order:
    image swaps — back up the files, not the image).
    `TZ` defaults to `Asia/Kuala_Lumpur`.
 3. **Configure** — first boot needs `config/muhideen.json`: copy the
-   example into place, then edit name/zone/timezone for your masjid:
+   example into place, then edit name/timezone plus the schedule
+   provider block for your masjid:
 
    ```bash
    cp config/muhideen.example.json config/muhideen.json
@@ -78,21 +79,31 @@ schedule. First boot must satisfy **one** of:
 
 ## Schedule providers (JAKIM or Aladhan)
 
-`schedule.sync_provider` selects the sync source: `"jakim"` (default,
-e-solat year table by zone code) or `"aladhan"` (any Aladhan-compatible
-`/v1` host by coordinates). Aladhan knobs:
+`schedule.sync_provider` selects the sync source — it has **no default**,
+so every install chooses explicitly (`"jakim"` or `"aladhan"`). The zone
+code is a provider argument, not profile identity: `masjid` holds only
+`name` + `timezone`, while `schedule.jakim.zone` carries codes like
+`SWK08`. `schedule.zone` is an optional served-zone label (API param,
+display, buffer key): unset falls back to the JAKIM fetch key, else
+`"local"`.
 
 ```json
-"sync_provider": "aladhan",
-"aladhan_base_url": "https://aladhan.api.islamic.network/v1",
-"aladhan_method": 17,
+"sync_provider": "jakim",
+"jakim": { "zone": "SWK08" },
+"aladhan": {
+  "base_url": "https://aladhan.api.islamic.network/v1",
+  "method": 17
+},
 ```
 
-* `aladhan_base_url` — `api.aladhan.com` and
+* `jakim.zone` — e-solat zone code, required for `"jakim"`. Fetched rows
+  are stamped with the served-zone label, so the label may differ from
+  the upstream code (e.g. label `"surau-alhuda"` fetching `"SWK08"`).
+* `aladhan.base_url` — `api.aladhan.com` and
   `aladhan.api.islamic.network` are verified live mirrors of the same
   core; any compatible host works (there is no `.ru` mirror — that host
   does not resolve, so don't use it). Any path suffix is trimmed.
-* `aladhan_method` — Aladhan calculation-method id (`17` = JAKIM, the
+* `aladhan.method` — Aladhan calculation-method id (`17` = JAKIM, the
   default, keeps Malaysian numbers closest to e-solat).
 * School follows the existing `asr_juristic` (`shafi`→0, `hanafi`→1);
   Dhuha derives as Sunrise + `dhuha_offset_min` (Aladhan serves no Dhuha
@@ -103,7 +114,7 @@ e-solat year table by zone code) or `"aladhan"` (any Aladhan-compatible
   mode explicitly and render none).
 * Provider, host, and method are boot config: changing them needs a
   service restart (the sync client is built once, like the timezone).
-  Zone, coordinates, and offsets hot-reload as usual.
+  Zone label, coordinates, and offsets hot-reload as usual.
 * **Coordinates** — `lat`/`lon` settings let the built-in MABIMS
   calculator resolve each day locally with no network at all.
 

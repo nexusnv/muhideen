@@ -413,7 +413,9 @@ def create_app(deps: AppDeps) -> FastAPI:
                         deps.settings_repo.load()
                     if isinstance(deps.playlist_repo, FilePlaylistRepo):
                         deps.playlist_repo.list()
-                    validate_manual_days(cfg.schedule.manual_days, cfg.masjid.zone)
+                    validate_manual_days(
+                        cfg.schedule.manual_days, cfg.schedule.effective_zone
+                    )
                 except ConfigError as exc:
                     logger.error("config reload failed; keeping last-good: %s", exc)
                     return
@@ -817,8 +819,8 @@ def create_production_app(
         # needs a restart — hot-reload covers zone/coords/offsets only.
         sync_client = AladhanClient(
             clock=clock,
-            base_url=schedule.aladhan_base_url,
-            method=schedule.aladhan_method,
+            base_url=schedule.aladhan.base_url,
+            method=schedule.aladhan.method,
         )
     else:
         # JAKIM default, and the inert fallback when the file is invalid

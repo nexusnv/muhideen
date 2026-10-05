@@ -28,8 +28,14 @@ PINNED = datetime(2026, 9, 23, 12, 0, tzinfo=TZ)
 Handler = Callable[[httpx.Request], httpx.Response]
 
 
-def _settings() -> Settings:
-    return Settings(masjid_name="Masjid Test", zone="SGR01", hijri_offset=0)
+def _settings(**overrides: Any) -> Settings:
+    base: dict[str, Any] = {
+        "masjid_name": "Masjid Test",
+        "zone": "SGR01",
+        "hijri_offset": 0,
+    }
+    base.update(overrides)
+    return Settings(**base)
 
 
 class FakeClock:
@@ -376,6 +382,21 @@ def test_failure_logs_zone_and_status(caplog: pytest.LogCaptureFixture) -> None:
 
 
 # --- port ------------------------------------------------------------------
+
+
+def test_fetch_key_and_label_split() -> None:
+    """Upstream validates the fetch key; rows carry the installation label."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "zone=SGR01" in str(request.url)
+        return httpx.Response(200, content=_payload_bytes())
+
+    sleeps: list[float] = []
+    days = _client(handler, sleeps).fetch_year(
+        _settings(zone="surau-alhuda", jakim_zone="SGR01")
+    )
+    assert len(days) == 365
+    assert {day.zone for day in days} == {"surau-alhuda"}
 
 
 def test_http_jakim_client_satisfies_port() -> None:

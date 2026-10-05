@@ -29,8 +29,8 @@ usage: install.sh [--hostname NAME] [--force] [--dry-run]
 
 Configuration is a hand-edited JSON file: the installer copies
 config/muhideen.example.json to /etc/muhideen/muhideen.json when missing
-and never touches an existing one. Edit it for your masjid (name, zone,
-timezone) — the service hot-reloads it in ~1s, no login.
+and never touches an existing one. Edit it for your masjid (name,
+timezone, sync provider) — the service hot-reloads it in ~1s, no login.
 EOF
 }
 

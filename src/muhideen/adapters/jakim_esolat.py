@@ -19,6 +19,7 @@ import logging
 import re
 import time as time_mod
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date, datetime, time
 from typing import cast
 from urllib.parse import quote
@@ -245,9 +246,16 @@ class HttpJAKIMClient:
         self._transport = transport
 
     def fetch_year(self, settings: Settings) -> list[PrayerDay]:
-        """Fetch and fully validate one calendar year; ``SyncError`` on rejection."""
-        zone = settings.zone
-        url = URL_TEMPLATE.format(zone=quote(zone, safe=""))
+        """Fetch and fully validate one calendar year; ``SyncError`` on rejection.
+
+        The upstream request uses the JAKIM fetch key (``jakim_zone``,
+        falling back to the installation label); parsed rows are stamped
+        with the installation label so the engine/buffer zone check —
+        which knows labels, not fetch keys — keeps hitting.
+        """
+        fetch_zone = settings.jakim_zone or settings.zone
+        label = settings.zone
+        url = URL_TEMPLATE.format(zone=quote(fetch_zone, safe=""))
         last: Exception | None = None
         with httpx.Client(transport=self._transport) as client:
             for attempt in range(1 + len(RETRY_DELAYS_S)):
@@ -266,7 +274,7 @@ class HttpJAKIMClient:
                         status = exc.response.status_code
                     logger.warning(
                         "jakim fetch failed zone=%s status=%s attempt=%d: %s",
-                        zone,
+                        fetch_zone,
                         status,
                         attempt + 1,
                         exc,
@@ -284,15 +292,23 @@ class HttpJAKIMClient:
                         # 4xx is a non-transient rejection (never retried).
                         raise SyncError(
                             f"jakim fetch rejected with HTTP {status}",
-                            zone=zone,
+                            zone=fetch_zone,
                             transient=(exc.response.status_code == 429),
                         ) from exc
                     if attempt < len(RETRY_DELAYS_S):
                         self._sleep(RETRY_DELAYS_S[attempt])
                     continue
                 # A SyncError from parse escapes here: reject, keep cache.
-                return parse_takwim(payload, zone=zone, fetched_at=self._clock.now())
+                # Validation runs against the fetch key; rows are stamped
+                # with the installation label (identical when the label
+                # is the code, which is the common case).
+                days = parse_takwim(
+                    payload, zone=fetch_zone, fetched_at=self._clock.now()
+                )
+                if label != fetch_zone:
+                    days = [replace(day, zone=label) for day in days]
+                return days
         raise SyncError(
             f"jakim fetch failed after {1 + len(RETRY_DELAYS_S)} attempts",
-            zone=zone,
+            zone=fetch_zone,
         ) from last

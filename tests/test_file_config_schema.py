@@ -18,7 +18,8 @@ def _example_raw() -> dict:
 def test_example_config_validates():
     raw = _example_raw()
     cfg = ConfigFile.model_validate(raw)
-    assert cfg.masjid.zone == "SGR01"
+    assert cfg.schedule.effective_zone == "SGR01"
+    assert cfg.schedule.jakim.zone == "SGR01"
     assert cfg.displays["main-hall"].language == "en"
     assert cfg.displays["entrance"].theme.palette == "midnight"
 
@@ -120,16 +121,32 @@ def test_displays_may_be_empty_or_missing():
     raw = _example_raw()
     raw["displays"] = {}
     assert ConfigFile.model_validate(raw).displays == {}
-    minimal = {"$schemaVersion": 1, "masjid": raw["masjid"]}
+    minimal = {
+        "$schemaVersion": 1,
+        "masjid": raw["masjid"],
+        "schedule": {
+            "sync_provider": "jakim",
+            "jakim": {"zone": "SGR01"},
+        },
+    }
     assert ConfigFile.model_validate(minimal).displays == {}
 
 
-def test_sync_provider_defaults_jakim_with_aladhan_knobs():
+def test_masjid_has_no_zone_code():
+    """Zone codes are provider arguments, not profile identity."""
     raw = _example_raw()
-    cfg = ConfigFile.model_validate(raw)
-    assert cfg.schedule.sync_provider == "jakim"
-    assert cfg.schedule.aladhan_base_url == "https://api.aladhan.com/v1"
-    assert cfg.schedule.aladhan_method == 17
+    assert set(raw["masjid"]) == {"name", "timezone"}
+    raw["masjid"]["zone"] = "SGR01"
+    with pytest.raises(ValidationError):
+        ConfigFile.model_validate(raw)
+
+
+def test_sync_provider_is_required_with_no_default():
+    """An international app pins no country's API as the default."""
+    raw = _example_raw()
+    del raw["schedule"]["sync_provider"]
+    with pytest.raises(ValidationError):
+        ConfigFile.model_validate(raw)
 
 
 def test_sync_provider_rejects_unknown():
@@ -139,25 +156,45 @@ def test_sync_provider_rejects_unknown():
         ConfigFile.model_validate(raw)
 
 
+def test_jakim_provider_requires_its_zone():
+    raw = _example_raw()
+    raw["schedule"]["jakim"] = {}
+    with pytest.raises(ValidationError, match="jakim.zone"):
+        ConfigFile.model_validate(raw)
+
+
+def test_effective_zone_prefers_label_then_fetch_key():
+    raw = _example_raw()
+    assert ConfigFile.model_validate(raw).schedule.effective_zone == "SGR01"
+    raw["schedule"]["zone"] = "surau-alhuda"
+    assert ConfigFile.model_validate(raw).schedule.effective_zone == "surau-alhuda"
+    raw["schedule"]["sync_provider"] = "aladhan"
+    raw["schedule"]["lat"] = 3.139
+    raw["schedule"]["lon"] = 101.6869
+    del raw["schedule"]["zone"]
+    del raw["schedule"]["jakim"]
+    assert ConfigFile.model_validate(raw).schedule.effective_zone == "local"
+
+
 def test_aladhan_base_url_must_be_http():
     for bad in ("ftp://example.com/v1", "not-a-url", "https://"):
         raw = _example_raw()
-        raw["schedule"]["aladhan_base_url"] = bad
+        raw["schedule"]["aladhan"]["base_url"] = bad
         with pytest.raises(ValidationError):
             ConfigFile.model_validate(raw)
 
 
 def test_aladhan_base_url_trailing_slash_stripped():
     raw = _example_raw()
-    raw["schedule"]["aladhan_base_url"] = "https://aladhan.api.islamic.network/v1/"
+    raw["schedule"]["aladhan"]["base_url"] = "https://aladhan.api.islamic.network/v1/"
     cfg = ConfigFile.model_validate(raw)
-    assert cfg.schedule.aladhan_base_url == "https://aladhan.api.islamic.network/v1"
+    assert cfg.schedule.aladhan.base_url == "https://aladhan.api.islamic.network/v1"
 
 
 def test_aladhan_method_bounded():
     for bad in (-1, 24):
         raw = _example_raw()
-        raw["schedule"]["aladhan_method"] = bad
+        raw["schedule"]["aladhan"]["method"] = bad
         with pytest.raises(ValidationError):
             ConfigFile.model_validate(raw)
 
