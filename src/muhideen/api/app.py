@@ -823,8 +823,9 @@ def create_production_app(
             method=schedule.aladhan.method,
         )
     else:
-        # JAKIM default, and the inert fallback when the file is invalid
-        # (sync skips on ConfigError until the file parses).
+        # JAKIM wiring, the inert fallback when the file is invalid
+        # (sync skips on ConfigError until the file parses), and for
+        # provider "none" (run_sync returns before touching the client).
         sync_client = HttpJAKIMClient(clock=clock)
     deps = AppDeps(
         settings_repo=FileSettingsRepo(cfg_path),

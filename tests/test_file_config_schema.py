@@ -156,6 +156,18 @@ def test_sync_provider_rejects_unknown():
         ConfigFile.model_validate(raw)
 
 
+def test_none_provider_needs_no_zone_or_coordinates():
+    """Explicit offline validates with neither fetch key nor coords."""
+    raw = _example_raw()
+    raw["schedule"]["sync_provider"] = "none"
+    del raw["schedule"]["jakim"]
+    cfg = ConfigFile.model_validate(raw)
+    assert cfg.schedule.effective_zone == "local"
+    raw["schedule"]["lat"] = 3.139
+    raw["schedule"]["lon"] = 101.6869
+    assert ConfigFile.model_validate(raw).schedule.sync_provider == "none"
+
+
 def test_jakim_provider_requires_its_zone():
     raw = _example_raw()
     raw["schedule"]["jakim"] = {}

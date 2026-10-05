@@ -86,6 +86,10 @@ class ScheduleSource(StrEnum):
     MANUAL = "manual"
 
 
+SyncProvider = Literal["jakim", "aladhan", "none"]
+"""Sync source choice: a REST provider, or explicit offline (no fetch ever)."""
+
+
 @dataclass(frozen=True, slots=True)
 class PrayerDay:
     """One day's full schedule: all 5 Prayer Time + 3 Boundary Time Markers."""
@@ -305,6 +309,7 @@ class Settings:
     zone: str
     hijri_offset: int
     jakim_zone: str | None = None
+    sync_provider: SyncProvider = "jakim"
     adhan_duration_s: int = 180
     dim_minutes_default: int = 20
     dim_minutes_jumuah: int = 45

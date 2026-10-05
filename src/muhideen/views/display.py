@@ -183,10 +183,11 @@ def build_display_context(
         banners.append("TIME UNSYNCED")
     # Source provenance renders as small legend badges, not the warning
     # bar: the bar is reserved for genuine health warnings (clock sync).
-    # An installation running calc_only chose offline/computed operation
-    # explicitly, so degraded-source badges would nag about a known fact.
+    # Explicit offline installs (calc_only, or provider "none") chose
+    # that operation mode, so degraded-source badges would nag about a
+    # known fact.
     badges: list[str] = []
-    if not settings.calc_only:
+    if not settings.calc_only and settings.sync_provider != "none":
         if event.stale:
             badges.append("offline")
         if day.source is ScheduleSource.CALC:

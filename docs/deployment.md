@@ -80,7 +80,9 @@ schedule. First boot must satisfy **one** of:
 ## Schedule providers (JAKIM or Aladhan)
 
 `schedule.sync_provider` selects the sync source — it has **no default**,
-so every install chooses explicitly (`"jakim"` or `"aladhan"`). The zone
+so every install chooses explicitly (`"jakim"`, `"aladhan"`, or `"none"`).
+`"none"` is explicit offline: no fetch ever runs (calc/manual only),
+for fully offline sites. The zone
 code is a provider argument, not profile identity: `masjid` holds only
 `name` + `timezone`, while `schedule.jakim.zone` carries codes like
 `SWK08`. `schedule.zone` is an optional served-zone label (API param,
@@ -115,6 +117,11 @@ display, buffer key): unset falls back to the JAKIM fetch key, else
 * Provider, host, and method are boot config: changing them needs a
   service restart (the sync client is built once, like the timezone).
   Zone label, coordinates, and offsets hot-reload as usual.
+* **Fully offline** — `"sync_provider": "none"` (or the legacy
+  `calc_only: true` switch): the scheduler never fetches, the display
+  renders no source badges, and times resolve from coordinates via the
+  on-device calculator, or from hand-entered `manual_days` pins when no
+  coordinates are set. Coordinates are recommended but not required.
 * **Coordinates** — `lat`/`lon` settings let the built-in MABIMS
   calculator resolve each day locally with no network at all.
 

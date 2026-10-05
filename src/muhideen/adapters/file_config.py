@@ -116,6 +116,7 @@ def _settings_from_config(cfg: ConfigFile) -> Settings:
         masjid_name=cfg.masjid.name,
         zone=cfg.schedule.effective_zone,
         jakim_zone=cfg.schedule.jakim.zone,
+        sync_provider=cfg.schedule.sync_provider,
         timezone=cfg.masjid.timezone,
         hijri_offset=cfg.schedule.hijri_offset,
         method=cfg.schedule.method,

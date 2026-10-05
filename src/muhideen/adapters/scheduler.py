@@ -125,7 +125,7 @@ def run_sync(
     re-exposes the date to the next sync.
     """
     settings = settings_repo.load()
-    if settings.calc_only:
+    if settings.calc_only or settings.sync_provider == "none":
         return 0
     days = client.fetch_year(settings)
     saved = 0

@@ -26,9 +26,9 @@ versioning follows [Semantic Versioning](https://semver.org/).
   `aladhan.api.islamic.network`, or any mirror works; `method` defaults to
   17/JAKIM, school
   follows `asr_juristic`, Dhuha derives from Sunrise + `dhuha_offset_min`).
-  Switch via `schedule.sync_provider` (required — no default pins any
-  country's API; needs coordinates, changing
-  provider/host/method needs a restart). Synced Aladhan rows are fresh
+  Switch via `schedule.sync_provider` (required — `"jakim"`, `"aladhan"`,
+  or `"none"` for explicit offline; needs coordinates except manual-only;
+  changing provider/host/method needs a restart). Synced Aladhan rows are fresh
   provenance (`ALADHAN` banner, no `STALE`).
 - Zone codes leave the profile: `masjid` holds only `name` + `timezone`;
   `schedule.jakim.zone` carries codes like `SWK08` (required for

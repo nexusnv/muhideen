@@ -419,6 +419,19 @@ def test_calc_only_mode_skips_fetch() -> None:
     assert repo.save_calls == []
 
 
+def test_none_provider_skips_fetch() -> None:
+    """Explicit offline: no provider means no fetch ever (calc/manual only)."""
+    from dataclasses import replace
+
+    settings_repo = FakeSettingsRepo()
+    settings_repo.settings = replace(settings_repo.settings, sync_provider="none")
+    client = FakeScheduleClient(days=[_day(date(2026, 9, 24))])
+    repo = FakePrayerRepo()
+    assert _run_sync(client=client, prayer_repo=repo, settings_repo=settings_repo) == 0
+    assert client.last_zone is None
+    assert repo.save_calls == []
+
+
 def test_run_sync_skips_manually_pinned_days() -> None:
     from dataclasses import replace
 

@@ -27,6 +27,7 @@ from muhideen.core.values import (
     PrayerState,
     ScheduleSource,
     Settings,
+    SyncProvider,
     marker_kind,
 )
 
@@ -53,5 +54,6 @@ __all__ = [
     "Settings",
     "SettingsRepo",
     "SyncError",
+    "SyncProvider",
     "marker_kind",
 ]

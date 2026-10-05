@@ -16,6 +16,7 @@ from pydantic import (
 )
 
 from muhideen.core.values import (
+    SyncProvider,
     ThemeBoundaryStrip,
     ThemeClockFormat,
     ThemeCountdownStyle,
@@ -125,8 +126,9 @@ class Schedule(Strict):
     dhuha_offset_min: Annotated[int, Field(ge=15, le=30)] = 28
     boundary_countdown: bool = False
     manual_days: list[ManualDay] = Field(default_factory=list[ManualDay])
-    sync_provider: Literal["jakim", "aladhan"]
-    """Sync source, no default: an international app pins no country's API."""
+    sync_provider: SyncProvider
+    """Sync source, no default: ``jakim``/``aladhan`` fetch, ``none`` is
+    explicit offline (no fetch ever — calc/manual only)."""
     zone: Annotated[str, Field(min_length=1, max_length=32)] | None = None
     """Served-zone label (API param, display, buffer key).
 

@@ -131,6 +131,15 @@ def test_calc_only_suppresses_source_badges() -> None:
     assert ctx["badges"] == ["manual"]
 
 
+def test_none_provider_suppresses_source_badges() -> None:
+    from dataclasses import replace
+
+    settings = replace(_settings(), sync_provider="none")
+    day, event = _dtos(KL, source="calc", event_stale=True)
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert ctx["badges"] == []
+
+
 def _theme_settings(**knobs):
     from muhideen.core.values import ThemeSettings
 
