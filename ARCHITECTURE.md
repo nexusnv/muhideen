@@ -107,18 +107,19 @@ And the three users from the domain glossary each touch a different surface: the
 
 Prayer times reach the screen through three stages: acquire candidate schedules, resolve one day, compute the display state. Exactly one zone is configured per installation, and every stage respects that.
 
-**Acquire.** The scheduler fetches the whole calendar year for the configured zone once daily (with classified retries on failure), caching each day in `prayer_buffer.json` with its provenance; a manual day pinned in `muhideen.json` outranks cached days and syncs never overwrite it. Independently, the on-device calculator can derive a day's markers from coordinates plus the current calculation settings. Each stored day carries its source, and each fetch either fully validates or leaves the cache untouched. At resolve time markers merge per marker with manual pins winning over cached (API) markers over calc (pins may be partial — present markers win, missing ones fall through); rows are complete today so a present cached day wins wholesale.
+**Acquire.** The scheduler fetches the whole calendar year for the configured zone once daily (with classified retries on failure), caching each day in `prayer_buffer.json` with its provenance; a manual day pinned in `muhideen.json` outranks cached days and syncs never overwrite it. Independently, the on-device calculator can derive a day's markers from coordinates plus the current calculation settings. Each stored day carries its source, and each fetch either fully validates or leaves the cache untouched. At resolve time a manual pin (completed against its cached row; partial pins fail loud without one) wins over the cached provider row over calc; calc runs only when no pin and no cached row cover the date.
 
 **Resolve (the fallback chain).** For a requested date, the engine takes the first candidate that matches, in fixed priority:
 
 ```
-1. cached day for (date, zone)      → fresh if recent and first-party
-2. calculated day for (date, zone)  → always flagged as fallback provenance
-3. last-known saved day for zone    → always flagged stale
-4. none of the above                → unknown schedule (404 at the API)
+1. manual pin for (date)               → completed against the cached row
+2. cached day for (date, zone)      → fresh if recent and first-party
+3. calculated day for (date, zone)  → always flagged as fallback provenance
+4. last-known saved day for zone    → always flagged stale
+5. none of the above                → unknown schedule (404 at the API)
 ```
 
-Per-marker precedence: when both candidates exist, each marker takes the cached value; provenance follows the cached day. Calc derivation itself is per marker: 6 from the library plus `imsak_offset_min`/`dhuha_offset_min` offsets (0 hides imsak).
+Wholesale precedence: a present pin wins over a present cached day over calc; provenance follows the winning day. Calc derivation itself is per marker: 6 from the library plus `imsak_offset_min`/`dhuha_offset_min` offsets (0 hides imsak).
 
 Freshness is a separate flag from identity: anything older than 48 hours or produced by a degraded step renders with a banner, never silently. A requested zone that is not the configured zone is unknown even when coordinates exist — the system never serves a schedule stamped for a zone it was not resolved for. An installation with no settings yet reports itself unconfigured rather than guessing.
 

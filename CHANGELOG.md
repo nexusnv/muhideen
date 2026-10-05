@@ -37,9 +37,9 @@ versioning follows [Semantic Versioning](https://semver.org/).
   with the label so the engine/buffer zone check keeps hitting.
 - Per-marker precedence manual → provider → calc: pins may be partial
   (date + any subset of markers, completed against the stored row; loud
-  when uncompletable), the engine merges pin over cache over calc, and
-  calculation (`method` default `MABIMS`) stays the mandatory final
-  fallback whenever coordinates are set.
+  when uncompletable), the engine prefers pin over cache over calc, and
+  calculation (`method` default `MABIMS`) stays the final fallback when
+  no pin and no provider row cover the date and coordinates are set.
 
 - Calc backend swap (issues #35/#36): `al-falak==1.0.0` replaces `adhanpy==1.0.5` (same adhan port lineage, maintained, typed); per-method reference parameters (`MABIMS` fitted custom angles, `MWL`/`ISNA`/`Egyptian` built-ins with `ISNA` mapped to North America); `asr_juristic` setting (`shafi`/`hanafi`, default `shafi`) end-to-end with wizard method parity.
 

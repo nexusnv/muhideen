@@ -307,10 +307,12 @@ def _complete_pin(pin: ManualDay, buffer_day: PrayerDay | None, zone: str) -> Pr
     """Complete a pin per-marker against a stored day; ``ConfigError`` when stuck.
 
     Present pin markers win; missing ones fall through to the stored
-    provider row (manual → provider per-marker precedence). A partial pin
-    with no stored row to complete against raises instead of silently
-    dropping the correction — the file is unresolvable until the pin is
-    completed or the row syncs. Complete pins ignore the stored row.
+    provider row (manual → provider per-marker precedence). Calc never
+    completes a pin here: it is the resolve fallback only when no pin and
+    no provider row cover the date. A partial pin with no stored row to
+    complete against raises instead of silently dropping the correction —
+    the file is unresolvable until the pin is completed or the row syncs.
+    Complete pins ignore the stored row.
     """
     if buffer_day is None:
         return _manual_to_day(pin, zone)
@@ -454,18 +456,19 @@ class FilePrayerRepo:
         """
         self._manual_days = tuple(manual_days)
 
-    def validate_pins(self, zone: str) -> None:
-        """Ordering-check every completable pin; ``ConfigError`` on violation.
+    def validate_pins(self, pins: Sequence[ManualDay], zone: str) -> None:
+        """Ordering-check candidate pins; ``ConfigError`` on violation.
 
-        Called by the lifespan revalidation *before* the snapshot swap, so
-        a bad hand-edit keeps the last-good pins serving with no publish.
-        Partial pins complete against the current buffer rows: one with no
-        row to complete against fails here (loud at edit time) instead of
-        silently dropping its correction at resolve time. Resolve-time
-        completion re-checks (the buffer can change under a valid file).
+        Called by the lifespan revalidation with the *new* file's pins
+        *before* the snapshot swap, so a bad hand-edit keeps the last-good
+        pins serving with no publish. Partial pins complete against the
+        current buffer rows: one with no row to complete against fails
+        here (loud at edit time) instead of silently dropping its
+        correction at resolve time. Resolve-time completion re-checks
+        (the buffer can change under a valid file).
         """
         data = self._read_buffer()
-        for pin in self._manual_days:
+        for pin in pins:
             _complete_pin(pin, self._buffer_day(data, pin.date, zone), zone)
 
     def _pin_for(self, day: date) -> ManualDay | None:
@@ -534,9 +537,10 @@ class FilePrayerRepo:
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
         """Return the buffered day for date+zone, else None (pins excluded).
 
-        Manual pins live one layer up: the engine merges ``get_pin`` over
-        this row per-marker (pin → provider → calc), so this method stays
-        a pure buffer read.
+        Manual pins live one layer up: the engine prefers ``get_pin``
+        (completed against this row) over this row, falling back to calc
+        only when neither covers the date, so this method stays a pure
+        buffer read.
         """
         return self._buffer_day(self._read_buffer(), day, zone)
 
@@ -581,15 +585,19 @@ class FilePrayerRepo:
         """Newest manual pin or buffered day on or before ``day``, else None.
 
         Pins complete against their date's stored row (same per-marker
-        precedence as ``get_pin``); uncompletable partial pins raise
-        ``ConfigError`` instead of silently vanishing from history.
+        precedence as ``get_pin``). Only the newest entry matters: an
+        uncompletable partial pin raises ``ConfigError`` when it is the
+        newest history entry (its correction must never vanish silently),
+        while an older uncompletable pin is skipped when a newer buffer
+        row already supersedes it.
         """
         data = self._read_buffer()
-        best: PrayerDay | None = None
+        newest_pin: ManualDay | None = None
         for pin in self._manual_days:
-            if pin.date <= day and (best is None or pin.date >= best.date):
-                best = _complete_pin(pin, self._buffer_day(data, pin.date, zone), zone)
+            if pin.date <= day and (newest_pin is None or pin.date > newest_pin.date):
+                newest_pin = pin
         raw_days = data.get("days", {})
+        newest_buffer: PrayerDay | None = None
         if isinstance(raw_days, dict):
             top_zone, top_fetched = _top_defaults(data)
             for key in sorted(raw_days):
@@ -610,9 +618,18 @@ class FilePrayerRepo:
                     raise _corrupt(self._buffer, key, exc) from exc
                 if candidate.zone != zone:
                     continue
-                if best is None or candidate.date > best.date:
-                    best = candidate
-        return best
+                if newest_buffer is None or candidate.date > newest_buffer.date:
+                    newest_buffer = candidate
+        if newest_pin is not None and (
+            newest_buffer is None or newest_pin.date >= newest_buffer.date
+        ):
+            # Pin wins ties: complete it against its own date's stored row.
+            return _complete_pin(
+                newest_pin,
+                self._buffer_day(data, newest_pin.date, zone),
+                zone,
+            )
+        return newest_buffer
 
     def delete_day(self, day: date, zone: str) -> bool:
         """Delete a ``manual``-sourced buffer row; config pins return False."""

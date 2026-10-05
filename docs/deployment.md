@@ -124,12 +124,14 @@ display, buffer key): unset falls back to the JAKIM fetch key, else
   coordinates are set. Coordinates are recommended but not required.
 * **Coordinates** — `lat`/`lon` settings let the built-in MABIMS
   calculator resolve each day locally with no network at all.
-* **Calculation is the mandatory fallback** — every resolve ends at the
-  on-device calculator (`method` defaults to `MABIMS`, `asr_juristic` to
-  `shafi`) whenever the higher sources miss a marker: the full
-  per-marker precedence is manual pin → provider row → calc. Calc runs
-  whenever coordinates are set; without them the chain ends at the
-  last-known row or an honest empty slate.
+* **Calculation is the mandatory fallback** — when no pin and no
+  provider row cover the date, the resolve ends at the on-device
+  calculator (`method` defaults to `MABIMS`, `asr_juristic` to `shafi`)
+  whenever coordinates are set: the full precedence is manual pin
+  (completed against its provider row) → provider row → calc. A partial
+  pin completes against its provider row only and fails loudly without
+  one — it never falls through to calc. Without coordinates the chain
+  ends at the last-known row or an honest empty slate.
 
 Otherwise — empty config, no coordinates, JAKIM unreachable — the
 outcome is a documented slate, never a Clock: `GET /display` renders the
@@ -159,8 +161,8 @@ reloads into the route slate (see `docs/api-contract.md`).
   `/etc/muhideen/muhideen.json` on systemd installs) with the date plus
   any subset of the 8 `HH:MM` markers (at least one) — the merged day
   must stay strictly increasing, duplicate dates are rejected. Present
-  pin markers override everything; missing markers fall through
-  per-marker (pin → provider → calc), so a one-marker correction needs
+  pin markers override everything; missing markers fall through to the
+  provider row (pin → provider), so a one-marker correction needs
   no full retype. The service hot-reloads the file (~1s, validated
   before swap; a bad edit keeps the last-good pins serving).
   The response surface echoes the pinned day with `"source": "manual"`

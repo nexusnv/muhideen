@@ -63,6 +63,9 @@ class FakePrayerRepo:
         self._save_error = save_error
         self._read_error = read_error
 
+    def get_pin(self, day: date, zone: str) -> PrayerDay | None:
+        return None
+
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
         if self._read_error is not None:
             raise self._read_error

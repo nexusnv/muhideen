@@ -186,27 +186,28 @@ class Engine:
     ) -> FallbackResult:
         """Walk pin, then cache, then calc, then last-known; miss only when all miss.
 
-        Per-marker precedence is manual → provider → calc: the pin
-        (completed against the stored row, partials included) wins its
-        present markers, the cached provider row supplies the rest, and
-        calc fills whatever remains. Whole-day sources keep their debate
-        settled by ``merge_days`` wholesale — identical outcome, one seam.
+        Precedence is manual pin (completed against the provider row,
+        partials included) over provider row over calc. Calc is consulted
+        only when no pin and no cached row cover the date — a partial pin
+        without a provider row fails loud instead of falling through to
+        calc. Whole-day sources keep their debate settled by
+        ``merge_days`` wholesale — identical outcome, one seam.
         """
-        # Lazy chain: calc and last-known are queried only when every
-        # cheaper source already missed.
+        # Lazy chain: each cheaper source is queried once; a present pin
+        # already carries its provider row, so the buffer is not re-read.
         pin_day = self._prayer_repo.get_pin(requested, zone)
+        if pin_day is not None:
+            return resolve_fallback(requested, zone, now, pin_day, None, None)
         cached = self._prayer_repo.get_day(requested, zone)
         calculated = (
-            self._calc_day(requested, zone, settings)
-            if pin_day is None and cached is None
-            else None
+            self._calc_day(requested, zone, settings) if cached is None else None
         )
         last_known = (
             self._prayer_repo.last_known(requested, zone)
-            if pin_day is None and cached is None and calculated is None
+            if cached is None and calculated is None
             else None
         )
-        merged = merge_days(pin_day, merge_days(cached, calculated))
+        merged = merge_days(cached, calculated)
         return resolve_fallback(requested, zone, now, merged, None, last_known)
 
     def _calc_day(self, day: date, zone: str, settings: Settings) -> PrayerDay | None:

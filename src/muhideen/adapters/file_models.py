@@ -48,6 +48,18 @@ REQUIRED_IQAMAH_PRAYERS: tuple[IqamahPrayer, ...] = (
 Language = Literal["en", "ms", "ar", "bm"]
 """Display language: English, Malay (ms), Arabic, or Malay alias (bm → ms labels)."""
 
+_MANUAL_MARKERS: tuple[str, ...] = (
+    "imsak",
+    "fajr",
+    "syuruq",
+    "dhuha",
+    "dhuhr",
+    "asr",
+    "maghrib",
+    "isha",
+)
+"""The eight day-local markers a manual pin may correct."""
+
 
 class Strict(BaseModel):
     """Shared file-model rules: reject unknown keys, allow alias or field name."""
@@ -72,8 +84,9 @@ class ManualDay(Strict):
     """One hand-pinned day: date plus any subset of the eight HH:MM markers.
 
     Pins may be partial: a pin corrects only its present markers, and the
-    resolve merges the rest per-marker (pin → provider → calc). At least
-    one marker is required — a date-only pin corrects nothing.
+    resolve merges the rest per-marker (pin → provider row; calc only when
+    no pin and no provider row cover the date). At least one marker is
+    required — a date-only pin corrects nothing.
     """
 
     date: date
@@ -89,8 +102,7 @@ class ManualDay(Strict):
     @model_validator(mode="after")
     def _at_least_one_marker(self) -> ManualDay:
         """A pin with no markers corrects nothing — reject it at load."""
-        markers = [name for name in type(self).model_fields if name != "date"]
-        if all(getattr(self, name) is None for name in markers):
+        if all(getattr(self, name) is None for name in _MANUAL_MARKERS):
             raise ValueError(f"manual_day {self.date} needs at least one marker")
         return self
 
@@ -156,9 +168,8 @@ class Schedule(Strict):
     def _manual_dates_unique(self) -> Schedule:
         """Manual pins are keyed by date: duplicates would serve divergently.
 
-        ``get_day`` returns the first pin for a date while ``last_known``
-        keeps the last, so two pins for one date serve different times
-        depending on the call path. Reject the file loudly instead.
+        Pins are unique by date, so ``get_pin`` has one candidate per day.
+        Reject the file loudly instead of serving divergent times.
         """
         dates = [pin.date for pin in self.manual_days]
         dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})

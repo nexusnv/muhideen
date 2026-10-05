@@ -72,13 +72,13 @@ def resolve_day(
 def merge_days(
     preferred: PrayerDay | None, fallback: PrayerDay | None
 ) -> PrayerDay | None:
-    """Merge two complete days per marker, preferring ``preferred``.
+    """Prefer ``preferred`` wholesale, else ``fallback``.
 
-    API (cached/JAKIM) markers supersede calc markers one by one. Rows are
-    complete today (the JAKIM parser rejects partial payloads and the DB
-    columns are NOT NULL), so a present ``preferred`` day wins wholesale —
-    the per-marker form is what future-proofs a partial-row world without a
-    schema change. Provenance follows ``preferred``.
+    Rows are complete today (the JAKIM parser rejects partial payloads),
+    so a present ``preferred`` day wins wholesale — equivalent to a
+    per-marker merge while rows stay complete. Per-marker pin completion
+    lives in ``FilePrayerRepo._complete_pin`` (pin over provider row),
+    not here. Provenance follows ``preferred``.
     """
     if preferred is None:
         return fallback

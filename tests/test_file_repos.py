@@ -274,7 +274,7 @@ def test_unordered_manual_pin_raises_config_error(tmp_path: Path):
     with pytest.raises(ConfigError):
         repo.last_known(PINNED, ZONE)
     with pytest.raises(ConfigError):
-        repo.validate_pins(ZONE)
+        repo.validate_pins(cfg.schedule.manual_days, ZONE)
 
 
 def _strip_pin_to(path: Path, keep: list[str]) -> None:
@@ -313,7 +313,7 @@ def test_partial_pin_without_buffer_row_is_config_error(tmp_path: Path):
     with pytest.raises(ConfigError):
         repo.last_known(PINNED, ZONE)
     with pytest.raises(ConfigError):
-        repo.validate_pins(ZONE)
+        repo.validate_pins(cfg.schedule.manual_days, ZONE)
 
 
 def test_playlist_anchor_normalizes_case_and_whitespace(tmp_path: Path):

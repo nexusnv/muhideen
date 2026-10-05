@@ -413,7 +413,9 @@ def create_app(deps: AppDeps) -> FastAPI:
                     if isinstance(deps.playlist_repo, FilePlaylistRepo):
                         deps.playlist_repo.list()
                     if isinstance(deps.prayer_repo, FilePrayerRepo):
-                        deps.prayer_repo.validate_pins(cfg.schedule.effective_zone)
+                        deps.prayer_repo.validate_pins(
+                            cfg.schedule.manual_days, cfg.schedule.effective_zone
+                        )
                 except ConfigError as exc:
                     logger.error("config reload failed; keeping last-good: %s", exc)
                     return
