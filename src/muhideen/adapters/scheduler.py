@@ -1,15 +1,16 @@
-"""Daily 02:00 JAKIM sync job + FR-1.1 retry chain (PRD.md:77).
+"""Daily 02:00 timetable sync job + FR-1.1 retry chain (PRD.md:77).
 
-One daily job (`jakim-sync`) fetches the configured zone's year and saves
+One daily job (`sync`) fetches the configured zone's year from the
+configured provider (JAKIM e-solat or an Aladhan-compatible API) and saves
 every returned day; on `SyncError` (nothing was saved — keep-cache,
 Decision 5) — including repository write failures converted at the
-`run_sync` save boundary, so a locked/full database enters the same
+`run_sync` save boundary, so a locked/full store enters the same
 retry chain instead of escaping the job — it schedules absolute retries
 against the **injected clock**: 5 min, then 15 min, then 1 h — after the
 third failed retry the chain continues on a 6 h long-pole
-(`jakim-sync-retry-long`, re-armed on each further failure) instead of
+(`sync-retry-long`, re-armed on each further failure) instead of
 going silent until the next 02:00 run. A non-transient `SyncError`
-(`transient=False`, e.g. a non-429 4xx zone rejection that waiting
+(`transient=False`, e.g. a non-429 4xx rejection that waiting
 cannot heal — 429 rate limits stay transient and keep retrying) never
 retries: it logs at error level and returns. `ConfigError`
 (first-boot setup incomplete) never retries: it logs and waits for the
@@ -38,7 +39,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
 from muhideen.core.errors import ConfigError, SyncError
-from muhideen.core.ports import Clock, JAKIMClient, PrayerRepo, SettingsRepo
+from muhideen.core.ports import Clock, PrayerRepo, ScheduleClient, SettingsRepo
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ def _add_job(
 
 def run_sync(
     *,
-    client: JAKIMClient,
+    client: ScheduleClient,
     prayer_repo: PrayerRepo,
     settings_repo: SettingsRepo,
     clock: Clock,
@@ -111,13 +112,13 @@ def run_sync(
     and conditional write are one atomic step) is converted to
     `SyncError` (with the original chained): `sync_job` only schedules
     retries for `SyncError`, so an uncaught backend error (locked/full
-    database) would otherwise escape the job and skip the whole 5m/15m/1h
+    store) would otherwise escape the job and skip the whole 5m/15m/1h
     chain. When `SyncError` propagates, days earlier in the loop have
     already been saved — a partial save the caller sees as a failed sync.
     Each save is an independent upsert, so the partial write is
     repaired by the next attempt, which rewrites the full year.
 
-    Manually pinned days take precedence over the sync (manual > JAKIM):
+    Manually pinned days take precedence over the sync (manual > provider):
     `save_day_unless_manual` leaves a stored row whose `source is MANUAL`
     byte-identical (returning False, not counted in the save count), so a
     manual PUT racing the loop can never be clobbered. Deleting the pin
@@ -126,7 +127,7 @@ def run_sync(
     settings = settings_repo.load()
     if settings.calc_only:
         return 0
-    days = client.fetch_year(settings.zone)
+    days = client.fetch_year(settings)
     saved = 0
     for day in days:
         try:
@@ -143,7 +144,7 @@ def run_sync(
 
 def sync_job(
     *,
-    client: JAKIMClient,
+    client: ScheduleClient,
     prayer_repo: PrayerRepo,
     settings_repo: SettingsRepo,
     clock: Clock,
@@ -160,15 +161,15 @@ def sync_job(
         )
     except ConfigError as exc:
         logger.warning(
-            "jakim sync skipped (setup incomplete): %s; no retry scheduled",
+            "sync skipped (setup incomplete): %s; no retry scheduled",
             exc,
         )
         return None
     except SyncError as exc:
         if not exc.transient:
             logger.error(
-                "jakim sync rejected (zone=%s): %s — check the zone code "
-                "and JAKIM availability; no retry scheduled",
+                "sync rejected (zone=%s): %s — check the zone code "
+                "and provider; no retry scheduled",
                 exc.zone,
                 exc,
             )
@@ -187,11 +188,10 @@ def sync_job(
                     attempt=MAX_RETRIES,
                 ),
                 DateTrigger(run_date=run_at, timezone=clock.now().tzinfo),
-                id="jakim-sync-retry-long",
+                id="sync-retry-long",
             )
             logger.warning(
-                "jakim sync still failing after %d attempts (zone=%s): %s — "
-                "will retry in 6h",
+                "sync still failing after %d attempts (zone=%s): %s — will retry in 6h",
                 attempt + 1,
                 exc.zone,
                 exc,
@@ -211,10 +211,10 @@ def sync_job(
                 attempt=next_attempt,
             ),
             DateTrigger(run_date=run_at, timezone=clock.now().tzinfo),
-            id=f"jakim-sync-retry-{next_attempt}",
+            id=f"sync-retry-{next_attempt}",
         )
         logger.warning(
-            "jakim sync failed (zone=%s, attempt=%d): %s",
+            "sync failed (zone=%s, attempt=%d): %s",
             exc.zone,
             next_attempt,
             exc,
@@ -224,12 +224,12 @@ def sync_job(
 
 def build_scheduler(
     *,
-    client: JAKIMClient,
+    client: ScheduleClient,
     prayer_repo: PrayerRepo,
     settings_repo: SettingsRepo,
     clock: Clock,
 ) -> BlockingScheduler:
-    """Build the daily 02:00 scheduler with one `jakim-sync` cron job.
+    """Build the daily 02:00 scheduler with one `sync` cron job.
 
     Returns the scheduler **not started** — 1A-7 starts it in a daemon
     thread. `ValueError` if the clock is naive (Decision 7: every instant
@@ -252,6 +252,6 @@ def build_scheduler(
             attempt=0,
         ),
         CronTrigger(hour=2, minute=0, timezone=tz),
-        id="jakim-sync",
+        id="sync",
     )
     return scheduler

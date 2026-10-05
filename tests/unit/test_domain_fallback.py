@@ -123,6 +123,13 @@ def test_is_stale_48h_boundary() -> None:
     assert is_stale(old_edge, now) is True
     calc_fresh = _day(source=ScheduleSource.CALC, fetched_at=now)
     assert is_stale(calc_fresh, now) is True
+    aladhan_fresh = _day(source=ScheduleSource.ALADHAN, fetched_at=now)
+    assert is_stale(aladhan_fresh, now) is False
+    aladhan_old = _day(
+        source=ScheduleSource.ALADHAN,
+        fetched_at=now - timedelta(hours=48, seconds=1),
+    )
+    assert is_stale(aladhan_old, now) is True
 
 
 @pytest.mark.unit

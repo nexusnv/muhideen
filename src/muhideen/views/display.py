@@ -185,6 +185,8 @@ def build_display_context(
         banners.append("TIME UNSYNCED")
     if day.source is ScheduleSource.CALC:
         banners.append("CALC — computed schedule")
+    elif day.source is ScheduleSource.ALADHAN:
+        banners.append("ALADHAN — synced schedule")
     elif day.source is ScheduleSource.MANUAL:
         banners.append("MANUAL — set by admin")
     adhan_date = event.adhan_at.date() if event.adhan_at else None

@@ -78,9 +78,10 @@ class PrayerState(StrEnum):
 
 
 class ScheduleSource(StrEnum):
-    """Source of a prayer day: JAKIM, CALC, or MANUAL."""
+    """Source of a prayer day: JAKIM, Aladhan-compatible API, CALC, or MANUAL."""
 
     JAKIM = "jakim"
+    ALADHAN = "aladhan"
     CALC = "calc"
     MANUAL = "manual"
 

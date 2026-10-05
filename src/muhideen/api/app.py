@@ -35,6 +35,7 @@ from starlette.responses import StreamingResponse
 from starlette.types import Send
 
 from muhideen.adapters.adhan_audio import ADHAN_FILENAME
+from muhideen.adapters.aladhan import AladhanClient
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
 from muhideen.adapters.config_watcher import ConfigWatcher
 from muhideen.adapters.file_config import (
@@ -61,8 +62,8 @@ from muhideen.api.dto import (
 from muhideen.core.errors import ConfigError, MuhideenError, ScheduleError
 from muhideen.core.ports import (
     Clock,
-    JAKIMClient,
     PrayerRepo,
+    ScheduleClient,
     SettingsRepo,
     TimeSyncProbe,
 )
@@ -154,7 +155,7 @@ class AppDeps:
     clock: Clock
     event_bus: SSEBus
     run_background: bool = False
-    jakim_client: JAKIMClient | None = None
+    sync_client: ScheduleClient | None = None
     time_sync: TimeSyncProbe | None = None
     playlist_repo: FilePlaylistRepo | None = None
     media_dir: Path | None = None
@@ -434,10 +435,10 @@ def create_app(deps: AppDeps) -> FastAPI:
             watcher.start()
         background: _Background | None = None
         if deps.run_background:
-            if deps.jakim_client is None:
-                raise ValueError("jakim_client is required for background wiring")
+            if deps.sync_client is None:
+                raise ValueError("sync_client is required for background wiring")
             scheduler = build_scheduler(
-                client=deps.jakim_client,
+                client=deps.sync_client,
                 prayer_repo=deps.prayer_repo,
                 settings_repo=deps.settings_repo,
                 clock=deps.clock,
@@ -805,13 +806,31 @@ def create_production_app(
         clock_tz = tz
     clock = SystemClock(clock_tz)
     event_bus = SSEBus()
+    sync_client: ScheduleClient
+    try:
+        schedule = load_config_file(cfg_path).schedule
+    except ConfigError:
+        schedule = None
+    if schedule is not None and schedule.sync_provider == "aladhan":
+        # Provider switch is boot config (like the timezone): the sync
+        # client is built once, so changing provider/base_url/method
+        # needs a restart — hot-reload covers zone/coords/offsets only.
+        sync_client = AladhanClient(
+            clock=clock,
+            base_url=schedule.aladhan_base_url,
+            method=schedule.aladhan_method,
+        )
+    else:
+        # JAKIM default, and the inert fallback when the file is invalid
+        # (sync skips on ConfigError until the file parses).
+        sync_client = HttpJAKIMClient(clock=clock)
     deps = AppDeps(
         settings_repo=FileSettingsRepo(cfg_path),
         prayer_repo=FilePrayerRepo(buffer_path, manual_days),
         clock=clock,
         event_bus=event_bus,
         run_background=run_background,
-        jakim_client=HttpJAKIMClient(clock=clock),
+        sync_client=sync_client,
         time_sync=SystemTimeSyncProbe(clock=clock),
         playlist_repo=FilePlaylistRepo(cfg_path),
         media_dir=Path(media_dir) if media_dir is not None else None,

@@ -89,6 +89,9 @@ class Schedule(Strict):
     dhuha_offset_min: Annotated[int, Field(ge=15, le=30)] = 28
     boundary_countdown: bool = False
     manual_days: list[ManualDay] = Field(default_factory=list[ManualDay])
+    sync_provider: Literal["jakim", "aladhan"] = "jakim"
+    aladhan_base_url: str = "https://api.aladhan.com/v1"
+    aladhan_method: Annotated[int, Field(ge=0, le=23)] = 17
 
     @model_validator(mode="after")
     def _manual_dates_unique(self) -> Schedule:
@@ -109,6 +112,21 @@ class Schedule(Strict):
         """Coordinates are paired-nullable: both set or both absent."""
         if (self.lat is None) != (self.lon is None):
             raise ValueError("lat and lon must be set together")
+        return self
+
+    @field_validator("aladhan_base_url")
+    @classmethod
+    def _aladhan_base_url_http(cls, value: str) -> str:
+        """Aladhan-compatible base URL: http(s) host, no trailing slash."""
+        if not re.match(r"^https?://[^/\s]+", value):
+            raise ValueError(f"aladhan base URL must be http(s): {value!r}")
+        return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def _aladhan_needs_coordinates(self) -> Schedule:
+        """The Aladhan provider resolves by coordinates, not zone codes."""
+        if self.sync_provider == "aladhan" and (self.lat is None or self.lon is None):
+            raise ValueError("aladhan provider needs lat and lon set together")
         return self
 
 

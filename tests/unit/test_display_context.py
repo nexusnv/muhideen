@@ -103,6 +103,14 @@ def test_manual_source_banner() -> None:
     assert not any("CALC" in b for b in ctx["banners"])
 
 
+def test_aladhan_source_banner() -> None:
+
+    day, event = _dtos(KL, source="aladhan")
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    assert "ALADHAN — synced schedule" in ctx["banners"]
+    assert not any("CALC" in b or "STALE" in b for b in ctx["banners"])
+
+
 def _theme_settings(**knobs):
     from muhideen.core.values import ThemeSettings
 

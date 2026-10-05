@@ -10,6 +10,11 @@ from muhideen.core.values import PrayerDay, ScheduleSource
 
 STALE_AFTER = timedelta(hours=48)
 
+FRESH_SOURCES: frozenset[ScheduleSource] = frozenset(
+    {ScheduleSource.JAKIM, ScheduleSource.ALADHAN}
+)
+"""Network-fetched sources: fresh rows are authoritative, never degraded."""
+
 
 @dataclass(frozen=True, slots=True)
 class FallbackResult:
@@ -35,7 +40,7 @@ def is_stale(day: PrayerDay, now: datetime) -> bool:
             fetched_at = fetched_at.replace(tzinfo=None)
     if (now - fetched_at) > STALE_AFTER:
         return True
-    return day.source is not ScheduleSource.JAKIM
+    return day.source not in FRESH_SOURCES
 
 
 def resolve_day(

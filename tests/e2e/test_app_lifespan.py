@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 import muhideen.api.app as app_module
 from muhideen.api.app import AppDeps, create_app, create_production_app
+from muhideen.core.values import Settings
 
 pytestmark = pytest.mark.e2e
 
@@ -46,11 +47,11 @@ class FakeClock:
         self._mono = self._mono + seconds
 
 
-class FakeJAKIMClient:
+class FakeScheduleClient:
     def __init__(self) -> None:
         self.calls = 0
 
-    def fetch_year(self, zone: str) -> list[Any]:
+    def fetch_year(self, settings: Settings) -> list[Any]:
         self.calls += 1
         return []
 
@@ -118,7 +119,7 @@ def test_background_lifespan_starts_and_stops_ticker_and_scheduler(
         tmp_path,
         FakeClock(),
         run_background=True,
-        jakim_client=FakeJAKIMClient(),  # type: ignore[arg-type]
+        sync_client=FakeScheduleClient(),  # type: ignore[arg-type]
     )
     app = create_app(deps)
     with TestClient(app) as client:
@@ -140,10 +141,10 @@ def test_create_app_rejects_naive_clock(tmp_path: Path) -> None:
         create_app(deps)
 
 
-def test_background_without_jakim_client_fails_fast(tmp_path: Path) -> None:
+def test_background_without_sync_client_fails_fast(tmp_path: Path) -> None:
     _, deps = _file_deps(tmp_path, FakeClock(), run_background=True)
     client = TestClient(create_app(deps))
-    with pytest.raises(ValueError, match="jakim_client"):
+    with pytest.raises(ValueError, match="sync_client"):
         client.__enter__()
 
 
@@ -163,7 +164,7 @@ def test_background_shutdown_skips_stop_when_scheduler_never_started(
         app_module, "build_scheduler", lambda **kwargs: _DeadScheduler()
     )
     _, deps = _file_deps(
-        tmp_path, FakeClock(), run_background=True, jakim_client=FakeJAKIMClient()
+        tmp_path, FakeClock(), run_background=True, sync_client=FakeScheduleClient()
     )
     with TestClient(create_app(deps)) as client:
         assert client.get("/api/version").status_code == 200

@@ -122,3 +122,52 @@ def test_displays_may_be_empty_or_missing():
     assert ConfigFile.model_validate(raw).displays == {}
     minimal = {"$schemaVersion": 1, "masjid": raw["masjid"]}
     assert ConfigFile.model_validate(minimal).displays == {}
+
+
+def test_sync_provider_defaults_jakim_with_aladhan_knobs():
+    raw = _example_raw()
+    cfg = ConfigFile.model_validate(raw)
+    assert cfg.schedule.sync_provider == "jakim"
+    assert cfg.schedule.aladhan_base_url == "https://api.aladhan.com/v1"
+    assert cfg.schedule.aladhan_method == 17
+
+
+def test_sync_provider_rejects_unknown():
+    raw = _example_raw()
+    raw["schedule"]["sync_provider"] = "muslimsalat"
+    with pytest.raises(ValidationError):
+        ConfigFile.model_validate(raw)
+
+
+def test_aladhan_base_url_must_be_http():
+    for bad in ("ftp://example.com/v1", "not-a-url", "https://"):
+        raw = _example_raw()
+        raw["schedule"]["aladhan_base_url"] = bad
+        with pytest.raises(ValidationError):
+            ConfigFile.model_validate(raw)
+
+
+def test_aladhan_base_url_trailing_slash_stripped():
+    raw = _example_raw()
+    raw["schedule"]["aladhan_base_url"] = "https://aladhan.api.islamic.network/v1/"
+    cfg = ConfigFile.model_validate(raw)
+    assert cfg.schedule.aladhan_base_url == "https://aladhan.api.islamic.network/v1"
+
+
+def test_aladhan_method_bounded():
+    for bad in (-1, 24):
+        raw = _example_raw()
+        raw["schedule"]["aladhan_method"] = bad
+        with pytest.raises(ValidationError):
+            ConfigFile.model_validate(raw)
+
+
+def test_aladhan_provider_requires_coordinates():
+    raw = _example_raw()
+    raw["schedule"]["sync_provider"] = "aladhan"
+    assert raw["schedule"]["lat"] is None
+    with pytest.raises(ValidationError, match="lat and lon"):
+        ConfigFile.model_validate(raw)
+    raw["schedule"]["lat"] = 3.139
+    raw["schedule"]["lon"] = 101.6869
+    assert ConfigFile.model_validate(raw).schedule.sync_provider == "aladhan"

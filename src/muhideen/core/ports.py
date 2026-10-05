@@ -62,11 +62,18 @@ class SettingsRepo(Protocol):
 
 
 @runtime_checkable
-class JAKIMClient(Protocol):
-    """Year-table fetcher for one JAKIM zone (network lives in adapters)."""
+class ScheduleClient(Protocol):
+    """Year-table fetcher for the configured zone (network lives in adapters).
 
-    def fetch_year(self, zone: str) -> list[PrayerDay]:
-        """One ``period=year`` fetch: the whole calendar year, ~365 rows."""
+    ``JAKIMClient`` was renamed when the second implementation landed:
+    JAKIM e-solat is one fetcher, Aladhan-compatible APIs are another.
+    The whole ``Settings`` goes in (not just the zone) so coordinate-based
+    providers read fresh lat/lon/asr-juristic/dhuha-offset on every sync —
+    constructor-injected coordinates would go stale under hot-reload.
+    """
+
+    def fetch_year(self, settings: Settings) -> list[PrayerDay]:
+        """One year fetch: the whole calendar year, ~365 rows."""
         ...
 
 

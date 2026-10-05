@@ -19,6 +19,15 @@ versioning follows [Semantic Versioning](https://semver.org/).
   notes: no DB→JSON importer ships — database installs must recreate
   settings by hand (see `docs/deployment.md`); `--zone`/`--db` flags are
   gone; `update.sh` snapshots only the JSON config.
+- Schedule providers: `JAKIMClient` is now the `ScheduleClient` port
+  (`fetch_year(settings)`) with two implementations — JAKIM e-solat and
+  a new Aladhan-compatible client (one adapter, configurable
+  `aladhan_base_url`, so `api.aladhan.com`, `aladhan.api.islamic.network`,
+  or any mirror works; `aladhan_method` defaults to 17/JAKIM, school
+  follows `asr_juristic`, Dhuha derives from Sunrise + `dhuha_offset_min`).
+  Switch via `schedule.sync_provider` (needs coordinates; changing
+  provider/host/method needs a restart). Synced Aladhan rows are fresh
+  provenance (`ALADHAN` banner, no `STALE`).
 
 - Calc backend swap (issues #35/#36): `al-falak==1.0.0` replaces `adhanpy==1.0.5` (same adhan port lineage, maintained, typed); per-method reference parameters (`MABIMS` fitted custom angles, `MWL`/`ISNA`/`Egyptian` built-ins with `ISNA` mapped to North America); `asr_juristic` setting (`shafi`/`hanafi`, default `shafi`) end-to-end with wizard method parity.
 

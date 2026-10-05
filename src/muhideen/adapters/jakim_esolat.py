@@ -27,7 +27,7 @@ import httpx
 
 from muhideen.core.errors import SyncError
 from muhideen.core.ports import Clock
-from muhideen.core.values import MarkerName, PrayerDay, ScheduleSource
+from muhideen.core.values import MarkerName, PrayerDay, ScheduleSource, Settings
 from muhideen.domain import ORDER, ensure_ordered
 
 logger = logging.getLogger(__name__)
@@ -219,6 +219,9 @@ def parse_takwim(
 class HttpJAKIMClient:
     """``fetch_year`` over the unofficial endpoint, per PRD §6.1.
 
+    One implementation of the ``ScheduleClient`` port (zone-keyed year
+    table; coordinates unused).
+
     Up to 4 attempts (3 backoff sleeps: 2s/4s/8s) around 5xx, transport
     failures, and invalid JSON; any 4xx (incl. 429) fails fast after the
     first request — no in-client burst (in-client 2/4/8s bursts keep the
@@ -241,8 +244,9 @@ class HttpJAKIMClient:
         self._sleep = sleep
         self._transport = transport
 
-    def fetch_year(self, zone: str) -> list[PrayerDay]:
+    def fetch_year(self, settings: Settings) -> list[PrayerDay]:
         """Fetch and fully validate one calendar year; ``SyncError`` on rejection."""
+        zone = settings.zone
         url = URL_TEMPLATE.format(zone=quote(zone, safe=""))
         last: Exception | None = None
         with httpx.Client(transport=self._transport) as client:

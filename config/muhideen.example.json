@@ -15,6 +15,9 @@
     "imsak_offset_min": 10,
     "dhuha_offset_min": 28,
     "boundary_countdown": false,
+    "sync_provider": "jakim",
+    "aladhan_base_url": "https://api.aladhan.com/v1",
+    "aladhan_method": 17,
     "manual_days": [
       {
         "date": "2026-04-01",

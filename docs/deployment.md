@@ -69,10 +69,39 @@ The display never renders an empty or healthy-looking page without a
 schedule. First boot must satisfy **one** of:
 
 * **JAKIM reachability** — the scheduler fetches the configured
-  zone's year into the prayer cache on boot; when the fetch fails, the
-  scheduler retries it (transient failures re-arm on a 6h long-pole —
+  zone's year into the prayer cache on its daily 02:00 run (no fetch at
+  boot — a fresh install serves calc/manual fallback until the first
+  successful sync); when the fetch fails, the scheduler retries it
+  (transient failures re-arm on a 6h long-pole —
   429 rate limits stay transient and retry; other, unrecoverable 4xx
   rejections never retry — recheck the zone code instead of waiting).
+
+## Schedule providers (JAKIM or Aladhan)
+
+`schedule.sync_provider` selects the sync source: `"jakim"` (default,
+e-solat year table by zone code) or `"aladhan"` (any Aladhan-compatible
+`/v1` host by coordinates). Aladhan knobs:
+
+```json
+"sync_provider": "aladhan",
+"aladhan_base_url": "https://aladhan.api.islamic.network/v1",
+"aladhan_method": 17,
+```
+
+* `aladhan_base_url` — `api.aladhan.com` and
+  `aladhan.api.islamic.network` are verified live mirrors of the same
+  core; any compatible host works (there is no `.ru` mirror — that host
+  does not resolve, so don't use it). Any path suffix is trimmed.
+* `aladhan_method` — Aladhan calculation-method id (`17` = JAKIM, the
+  default, keeps Malaysian numbers closest to e-solat).
+* School follows the existing `asr_juristic` (`shafi`→0, `hanafi`→1);
+  Dhuha derives as Sunrise + `dhuha_offset_min` (Aladhan serves no Dhuha
+  marker). `lat`/`lon` are required (rejected at load without them).
+* Synced rows carry `ALADHAN` provenance: fresh, no `STALE` banner (the
+  display shows an `ALADHAN — synced schedule` banner instead of `CALC`).
+* Provider, host, and method are boot config: changing them needs a
+  service restart (the sync client is built once, like the timezone).
+  Zone, coordinates, and offsets hot-reload as usual.
 * **Coordinates** — `lat`/`lon` settings let the built-in MABIMS
   calculator resolve each day locally with no network at all.
 

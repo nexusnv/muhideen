@@ -96,16 +96,17 @@ class RecordingBus:
         self.events.append(event)
 
 
-class FakeJAKIMClient:
+class FakeScheduleClient:
     """Returns preset rows stamped with the injected clock (like real parse)."""
 
     def __init__(self, days: list[PrayerDay], clock: FakeClock) -> None:
         self._days = days
         self._clock = clock
 
-    def fetch_year(self, zone: str) -> list[PrayerDay]:
+    def fetch_year(self, settings: Settings) -> list[PrayerDay]:
         return [
-            replace(day, zone=zone, fetched_at=self._clock.now()) for day in self._days
+            replace(day, zone=settings.zone, fetched_at=self._clock.now())
+            for day in self._days
         ]
 
 
@@ -159,7 +160,7 @@ def _harness() -> Harness:
 
 
 def _sync(harness: Harness) -> int:
-    client = FakeJAKIMClient([_day(TODAY)], clock=harness.clock)
+    client = FakeScheduleClient([_day(TODAY)], clock=harness.clock)
     return run_sync(
         client=client,
         prayer_repo=harness.repo,

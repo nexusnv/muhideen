@@ -375,7 +375,7 @@ def test_settings_allows_empty_rules_for_unconfigured_iqamah() -> None:
 
 @pytest.mark.unit
 def test_schedule_source_members() -> None:
-    assert {s.value for s in ScheduleSource} == {"jakim", "calc", "manual"}
+    assert {s.value for s in ScheduleSource} == {"jakim", "aladhan", "calc", "manual"}
 
 
 @pytest.mark.unit
