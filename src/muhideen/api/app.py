@@ -43,7 +43,6 @@ from muhideen.adapters.file_config import (
     FilePrayerRepo,
     FileSettingsRepo,
     load_config_file,
-    validate_manual_days,
 )
 from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
@@ -413,9 +412,8 @@ def create_app(deps: AppDeps) -> FastAPI:
                         deps.settings_repo.load()
                     if isinstance(deps.playlist_repo, FilePlaylistRepo):
                         deps.playlist_repo.list()
-                    validate_manual_days(
-                        cfg.schedule.manual_days, cfg.schedule.effective_zone
-                    )
+                    if isinstance(deps.prayer_repo, FilePrayerRepo):
+                        deps.prayer_repo.validate_pins(cfg.schedule.effective_zone)
                 except ConfigError as exc:
                     logger.error("config reload failed; keeping last-good: %s", exc)
                     return

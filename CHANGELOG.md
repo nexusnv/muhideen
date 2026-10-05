@@ -35,6 +35,11 @@ versioning follows [Semantic Versioning](https://semver.org/).
   `"jakim"`), and `schedule.zone` is an optional served-zone label
   (falls back to the fetch key, else `"local"`); synced rows are stamped
   with the label so the engine/buffer zone check keeps hitting.
+- Per-marker precedence manual → provider → calc: pins may be partial
+  (date + any subset of markers, completed against the stored row; loud
+  when uncompletable), the engine merges pin over cache over calc, and
+  calculation (`method` default `MABIMS`) stays the mandatory final
+  fallback whenever coordinates are set.
 
 - Calc backend swap (issues #35/#36): `al-falak==1.0.0` replaces `adhanpy==1.0.5` (same adhan port lineage, maintained, typed); per-method reference parameters (`MABIMS` fitted custom angles, `MWL`/`ISNA`/`Egyptian` built-ins with `ISNA` mapped to North America); `asr_juristic` setting (`shafi`/`hanafi`, default `shafi`) end-to-end with wizard method parity.
 

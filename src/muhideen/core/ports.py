@@ -21,6 +21,16 @@ class PrayerRepo(Protocol):
         """Return the saved day for ``day``/``zone``, else ``None``."""
         ...
 
+    def get_pin(self, day: date, zone: str) -> PrayerDay | None:
+        """Return the manual pin completed against the stored row, else None.
+
+        Partial pins complete per-marker against the stored provider row
+        (pin markers win); uncompletable partial pins raise ``ConfigError``
+        instead of silently dropping the correction. Complete pins ignore
+        the stored row. ``None`` means no pin for the date.
+        """
+        ...
+
     def save_day(self, prayer_day: PrayerDay) -> None:
         """Upsert one prayer day (insert or replace on date+zone conflict)."""
         ...

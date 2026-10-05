@@ -23,6 +23,9 @@ class FullPrayerRepo:
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
         raise NotImplementedError
 
+    def get_pin(self, day: date, zone: str) -> PrayerDay | None:
+        raise NotImplementedError
+
     def save_day(self, prayer_day: PrayerDay) -> None:
         raise NotImplementedError
 

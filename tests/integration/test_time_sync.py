@@ -97,6 +97,9 @@ class FakePrayerRepo:
     def __init__(self, rows: dict[tuple[date, str], PrayerDay]) -> None:
         self.rows = rows
 
+    def get_pin(self, day: date, zone: str) -> PrayerDay | None:
+        return None
+
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
         return self.rows.get((day, zone))
 

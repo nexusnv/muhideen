@@ -184,19 +184,29 @@ class Engine:
     def _resolve_day(
         self, requested: date, zone: str, now: datetime, settings: Settings
     ) -> FallbackResult:
-        """Walk cache, then calc, then last-known; miss only when all miss."""
+        """Walk pin, then cache, then calc, then last-known; miss only when all miss.
+
+        Per-marker precedence is manual → provider → calc: the pin
+        (completed against the stored row, partials included) wins its
+        present markers, the cached provider row supplies the rest, and
+        calc fills whatever remains. Whole-day sources keep their debate
+        settled by ``merge_days`` wholesale — identical outcome, one seam.
+        """
         # Lazy chain: calc and last-known are queried only when every
         # cheaper source already missed.
+        pin_day = self._prayer_repo.get_pin(requested, zone)
         cached = self._prayer_repo.get_day(requested, zone)
         calculated = (
-            self._calc_day(requested, zone, settings) if cached is None else None
+            self._calc_day(requested, zone, settings)
+            if pin_day is None and cached is None
+            else None
         )
         last_known = (
             self._prayer_repo.last_known(requested, zone)
-            if cached is None and calculated is None
+            if pin_day is None and cached is None and calculated is None
             else None
         )
-        merged = merge_days(cached, calculated)
+        merged = merge_days(pin_day, merge_days(cached, calculated))
         return resolve_fallback(requested, zone, now, merged, None, last_known)
 
     def _calc_day(self, day: date, zone: str, settings: Settings) -> PrayerDay | None:
@@ -222,9 +232,12 @@ class Engine:
         return computed
 
     def _tomorrow(self, day: date, zone: str, settings: Settings) -> PrayerDay | None:
-        """Fetch tomorrow from cache or calc; never from last-known."""
+        """Fetch tomorrow from pin, cache, or calc; never from last-known."""
         # `last_known` is deliberately never used for tomorrow: a past
         # template day must not seed tomorrow's Fajr.
+        pin_day = self._prayer_repo.get_pin(day, zone)
+        if pin_day is not None:
+            return pin_day
         cached = self._prayer_repo.get_day(day, zone)
         if cached is not None:
             return cached

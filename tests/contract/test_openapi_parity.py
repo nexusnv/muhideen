@@ -50,6 +50,9 @@ class _FakeSettingsRepo:
 
 
 class _FakePrayerRepo:
+    def get_pin(self, day: date, zone: str) -> PrayerDay | None:
+        return None
+
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
         raise NotImplementedError
 

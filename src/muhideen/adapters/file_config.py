@@ -271,24 +271,29 @@ _DAY_KEYS: tuple[str, ...] = (
 
 
 def _manual_to_day(pin: ManualDay, zone: str) -> PrayerDay:
-    """Stamp a config pin with the requested zone; ``ConfigError`` when unordered.
+    """Stamp a complete config pin with the requested zone.
 
-    An out-of-order hand-edit is a configuration error (HTTP 503), never
+    ``ConfigError`` on missing markers (partial pins complete against a
+    stored row instead — see ``_complete_pin``) or unordered times. An
+    out-of-order hand-edit is a configuration error (HTTP 503), never
     a sync failure: the lifespan revalidation and every read path map it
     through :class:`ConfigError` so the display keeps its error slate
     instead of a bare 500.
     """
+    missing = [key for key in _DAY_KEYS if getattr(pin, key) is None]
+    if missing:
+        raise ConfigError(f"manual_day {pin.date} missing markers: {missing}")
     day = PrayerDay(
         date=pin.date,
         zone=zone,
-        imsak=time.fromisoformat(pin.imsak),
-        fajr=time.fromisoformat(pin.fajr),
-        syuruq=time.fromisoformat(pin.syuruq),
-        dhuha=time.fromisoformat(pin.dhuha),
-        dhuhr=time.fromisoformat(pin.dhuhr),
-        asr=time.fromisoformat(pin.asr),
-        maghrib=time.fromisoformat(pin.maghrib),
-        isha=time.fromisoformat(pin.isha),
+        imsak=time.fromisoformat(str(pin.imsak)),
+        fajr=time.fromisoformat(str(pin.fajr)),
+        syuruq=time.fromisoformat(str(pin.syuruq)),
+        dhuha=time.fromisoformat(str(pin.dhuha)),
+        dhuhr=time.fromisoformat(str(pin.dhuhr)),
+        asr=time.fromisoformat(str(pin.asr)),
+        maghrib=time.fromisoformat(str(pin.maghrib)),
+        isha=time.fromisoformat(str(pin.isha)),
         source=ScheduleSource.MANUAL,
         fetched_at=datetime.now(tz=UTC),
     )
@@ -298,16 +303,38 @@ def _manual_to_day(pin: ManualDay, zone: str) -> PrayerDay:
         raise ConfigError(f"invalid manual_day {pin.date}: {exc}") from exc
 
 
-def validate_manual_days(pins: Sequence[ManualDay], zone: str) -> None:
-    """Materialize every manual pin; ``ConfigError`` on the first unordered day.
+def _complete_pin(pin: ManualDay, buffer_day: PrayerDay | None, zone: str) -> PrayerDay:
+    """Complete a pin per-marker against a stored day; ``ConfigError`` when stuck.
 
-    Ordering is zone-independent, so the lifespan revalidation calls this
-    with the configured zone *before* swapping the snapshot — a bad
-    hand-edit keeps the last-good pins serving with no publish instead of
-    poisoning the snapshot and 503ing the next request.
+    Present pin markers win; missing ones fall through to the stored
+    provider row (manual → provider per-marker precedence). A partial pin
+    with no stored row to complete against raises instead of silently
+    dropping the correction — the file is unresolvable until the pin is
+    completed or the row syncs. Complete pins ignore the stored row.
     """
-    for pin in pins:
-        _manual_to_day(pin, zone)
+    if buffer_day is None:
+        return _manual_to_day(pin, zone)
+    if all(getattr(pin, key) is not None for key in _DAY_KEYS):
+        return _manual_to_day(pin, zone)
+    times = {
+        key: (
+            time.fromisoformat(str(getattr(pin, key)))
+            if getattr(pin, key) is not None
+            else getattr(buffer_day, key)
+        )
+        for key in _DAY_KEYS
+    }
+    day = PrayerDay(
+        date=pin.date,
+        zone=zone,
+        source=ScheduleSource.MANUAL,
+        fetched_at=buffer_day.fetched_at,
+        **times,  # type: ignore[arg-type]
+    )
+    try:
+        return ensure_ordered(day)
+    except SyncError as exc:
+        raise ConfigError(f"invalid manual_day {pin.date}: {exc}") from exc
 
 
 def _day_to_entry(day: PrayerDay) -> dict[str, str]:
@@ -427,6 +454,20 @@ class FilePrayerRepo:
         """
         self._manual_days = tuple(manual_days)
 
+    def validate_pins(self, zone: str) -> None:
+        """Ordering-check every completable pin; ``ConfigError`` on violation.
+
+        Called by the lifespan revalidation *before* the snapshot swap, so
+        a bad hand-edit keeps the last-good pins serving with no publish.
+        Partial pins complete against the current buffer rows: one with no
+        row to complete against fails here (loud at edit time) instead of
+        silently dropping its correction at resolve time. Resolve-time
+        completion re-checks (the buffer can change under a valid file).
+        """
+        data = self._read_buffer()
+        for pin in self._manual_days:
+            _complete_pin(pin, self._buffer_day(data, pin.date, zone), zone)
+
     def _pin_for(self, day: date) -> ManualDay | None:
         """Return the config pin for ``day``, if one is hand-entered."""
         for pin in self._manual_days:
@@ -491,11 +532,28 @@ class FilePrayerRepo:
         )
 
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
-        """Return the manual pin first, else the buffered day, else None."""
-        pin = self._pin_for(day)
-        if pin is not None:
-            return _manual_to_day(pin, zone)
+        """Return the buffered day for date+zone, else None (pins excluded).
+
+        Manual pins live one layer up: the engine merges ``get_pin`` over
+        this row per-marker (pin → provider → calc), so this method stays
+        a pure buffer read.
+        """
         return self._buffer_day(self._read_buffer(), day, zone)
+
+    def get_pin(self, day: date, zone: str) -> PrayerDay | None:
+        """Return the manual pin completed against the stored row, else None.
+
+        Complete pins ignore the stored row; partial pins take present
+        markers from the pin and the rest from the stored provider row
+        (loud ``ConfigError`` when no row completes them — the correction
+        must never drop silently). ``None`` means no pin for the date.
+        """
+        pin = self._pin_for(day)
+        if pin is None:
+            return None
+        return _complete_pin(
+            pin, self._buffer_day(self._read_buffer(), day, zone), zone
+        )
 
     def save_day(self, prayer_day: PrayerDay) -> None:
         """Upsert one day into the buffer (manual pins are never written here)."""
@@ -506,9 +564,7 @@ class FilePrayerRepo:
                 dict(raw_days) if isinstance(raw_days, dict) else {}
             )
             days[prayer_day.date.isoformat()] = _day_to_entry(prayer_day)
-            self._write_buffer(
-                days, prayer_day.zone, prayer_day.fetched_at.isoformat()
-            )
+            self._write_buffer(days, prayer_day.zone, prayer_day.fetched_at.isoformat())
 
     def save_day_unless_manual(self, prayer_day: PrayerDay) -> bool:
         """Upsert unless a manual pin (or manual buffer row) holds the date."""
@@ -522,12 +578,17 @@ class FilePrayerRepo:
         return True
 
     def last_known(self, day: date, zone: str) -> PrayerDay | None:
-        """Newest manual pin or buffered day on or before ``day``, else None."""
+        """Newest manual pin or buffered day on or before ``day``, else None.
+
+        Pins complete against their date's stored row (same per-marker
+        precedence as ``get_pin``); uncompletable partial pins raise
+        ``ConfigError`` instead of silently vanishing from history.
+        """
+        data = self._read_buffer()
         best: PrayerDay | None = None
         for pin in self._manual_days:
             if pin.date <= day and (best is None or pin.date >= best.date):
-                best = _manual_to_day(pin, zone)
-        data = self._read_buffer()
+                best = _complete_pin(pin, self._buffer_day(data, pin.date, zone), zone)
         raw_days = data.get("days", {})
         if isinstance(raw_days, dict):
             top_zone, top_fetched = _top_defaults(data)
@@ -570,10 +631,7 @@ class FilePrayerRepo:
                 candidate = _entry_to_day(day, entry, top_zone, top_fetched)
             except (ValueError, KeyError) as exc:
                 raise _corrupt(self._buffer, day.isoformat(), exc) from exc
-            if (
-                candidate.source is not ScheduleSource.MANUAL
-                or candidate.zone != zone
-            ):
+            if candidate.source is not ScheduleSource.MANUAL or candidate.zone != zone:
                 return False
             days = dict(raw_days)
             del days[day.isoformat()]

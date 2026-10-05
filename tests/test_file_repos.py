@@ -120,7 +120,9 @@ def test_settings_save_round_trips_preserving_file_sections(tmp_path: Path):
 
 def test_missing_buffer_is_empty_cache(tmp_path: Path):
     repo, _ = _prayer_repo(tmp_path)
-    assert repo.get_day(PINNED, ZONE) is not None  # manual pin, no buffer needed
+    # Pins live behind get_pin now: get_day is a pure buffer read.
+    assert repo.get_day(PINNED, ZONE) is None
+    assert repo.get_pin(PINNED, ZONE) is not None
     assert repo.get_day(date(2026, 4, 9), ZONE) is None
     # Pins are installation-global (no zone of their own): they match any
     # requested zone, stamped with it — only buffer rows filter by zone.
@@ -130,14 +132,24 @@ def test_missing_buffer_is_empty_cache(tmp_path: Path):
     assert pin.zone == "XX99"
 
 
-def test_manual_day_overlays_buffer(tmp_path: Path):
+def test_pin_markers_win_over_buffer_row(tmp_path: Path):
+    """Per-marker precedence: the pin corrects, the buffer fills the rest."""
+    from dataclasses import replace as _replace
+
     repo, _ = _prayer_repo(tmp_path)
     assert repo.save_day_unless_manual(_jakim_day(PINNED)) is False
-    day = repo.get_day(PINNED, ZONE)
+    # Complete pin ignores the stored row wholesale...
+    day = repo.get_pin(PINNED, ZONE)
     assert day is not None
     assert day.source is ScheduleSource.MANUAL
     assert day.zone == ZONE
     assert day.fajr == time(5, 58)
+    # ...while get_day stays a pure buffer read (empty here).
+    assert repo.get_day(PINNED, ZONE) is None
+    # A stored row does not leak through the pin either.
+    repo.save_day(_replace(_jakim_day(PINNED), fajr=time(6, 30)))
+    assert repo.get_day(PINNED, ZONE).fajr == time(6, 30)
+    assert repo.get_pin(PINNED, ZONE).fajr == time(5, 58)
 
 
 def test_save_day_unless_manual_pinned_returns_false(tmp_path: Path):
@@ -182,7 +194,7 @@ def test_last_known_manual_pin_wins_tie_over_buffer(tmp_path: Path):
     # Force a buffer row onto the pinned date (save_day bypasses the
     # save_day_unless_manual guard) to create the tie.
     repo.save_day(_jakim_day(PINNED))
-    assert repo.get_day(PINNED, ZONE).source is ScheduleSource.MANUAL
+    assert repo.get_pin(PINNED, ZONE).source is ScheduleSource.MANUAL
     known = repo.last_known(PINNED, ZONE)
     assert known is not None
     assert known.date == PINNED
@@ -192,7 +204,7 @@ def test_last_known_manual_pin_wins_tie_over_buffer(tmp_path: Path):
 def test_delete_day_never_removes_config_pins(tmp_path: Path):
     repo, _ = _prayer_repo(tmp_path)
     assert repo.delete_day(PINNED, ZONE) is False
-    assert repo.get_day(PINNED, ZONE) is not None
+    assert repo.get_pin(PINNED, ZONE) is not None
     assert repo.delete_day(date(2026, 4, 9), ZONE) is False
 
 
@@ -251,8 +263,6 @@ def test_schema_violation_raises_config_error(tmp_path: Path):
 
 def test_unordered_manual_pin_raises_config_error(tmp_path: Path):
     """An out-of-order hand-edit is ConfigError (503), never SyncError (500)."""
-    from muhideen.adapters.file_config import validate_manual_days
-
     path = _copy_example(tmp_path)
     raw = json.loads(path.read_text())
     raw["schedule"]["manual_days"][0]["fajr"] = "14:00"
@@ -260,11 +270,50 @@ def test_unordered_manual_pin_raises_config_error(tmp_path: Path):
     cfg = load_config_file(path)
     repo = FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days)
     with pytest.raises(ConfigError):
-        repo.get_day(PINNED, ZONE)
+        repo.get_pin(PINNED, ZONE)
     with pytest.raises(ConfigError):
         repo.last_known(PINNED, ZONE)
     with pytest.raises(ConfigError):
-        validate_manual_days(cfg.schedule.manual_days, ZONE)
+        repo.validate_pins(ZONE)
+
+
+def _strip_pin_to(path: Path, keep: list[str]) -> None:
+    """Rewrite the example's pin to a partial one (only ``keep`` markers set)."""
+    raw = json.loads(path.read_text())
+    full = raw["schedule"]["manual_days"][0]
+    raw["schedule"]["manual_days"] = [
+        {"date": full["date"], **{key: full[key] for key in keep}}
+    ]
+    path.write_text(json.dumps(raw))
+
+
+def test_partial_pin_completes_against_buffer_row(tmp_path: Path):
+    """Pin markers win; the stored provider row fills the missing ones."""
+    path = _copy_example(tmp_path)
+    _strip_pin_to(path, ["maghrib"])
+    cfg = load_config_file(path)
+    repo = FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days)
+    repo.save_day(_jakim_day(PINNED))
+    day = repo.get_pin(PINNED, ZONE)
+    assert day is not None
+    assert day.source is ScheduleSource.MANUAL
+    assert day.maghrib == time(19, 15)  # pin's correction
+    assert day.fajr == time(5, 58)  # buffer's row
+    assert day.fetched_at == FETCHED  # provider age, honestly kept
+
+
+def test_partial_pin_without_buffer_row_is_config_error(tmp_path: Path):
+    """An uncompletable partial pin fails loud — never drops silently."""
+    path = _copy_example(tmp_path)
+    _strip_pin_to(path, ["maghrib"])
+    cfg = load_config_file(path)
+    repo = FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days)
+    with pytest.raises(ConfigError, match="missing markers"):
+        repo.get_pin(PINNED, ZONE)
+    with pytest.raises(ConfigError):
+        repo.last_known(PINNED, ZONE)
+    with pytest.raises(ConfigError):
+        repo.validate_pins(ZONE)
 
 
 def test_playlist_anchor_normalizes_case_and_whitespace(tmp_path: Path):

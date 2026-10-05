@@ -69,17 +69,30 @@ class Masjid(Strict):
 
 
 class ManualDay(Strict):
-    """One hand-pinned day: date plus the eight day-local HH:MM markers."""
+    """One hand-pinned day: date plus any subset of the eight HH:MM markers.
+
+    Pins may be partial: a pin corrects only its present markers, and the
+    resolve merges the rest per-marker (pin → provider → calc). At least
+    one marker is required — a date-only pin corrects nothing.
+    """
 
     date: date
-    imsak: TimeHHMM
-    fajr: TimeHHMM
-    syuruq: TimeHHMM
-    dhuha: TimeHHMM
-    dhuhr: TimeHHMM
-    asr: TimeHHMM
-    maghrib: TimeHHMM
-    isha: TimeHHMM
+    imsak: TimeHHMM | None = None
+    fajr: TimeHHMM | None = None
+    syuruq: TimeHHMM | None = None
+    dhuha: TimeHHMM | None = None
+    dhuhr: TimeHHMM | None = None
+    asr: TimeHHMM | None = None
+    maghrib: TimeHHMM | None = None
+    isha: TimeHHMM | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one_marker(self) -> ManualDay:
+        """A pin with no markers corrects nothing — reject it at load."""
+        markers = [name for name in type(self).model_fields if name != "date"]
+        if all(getattr(self, name) is None for name in markers):
+            raise ValueError(f"manual_day {self.date} needs at least one marker")
+        return self
 
 
 class JakimSource(Strict):

@@ -124,6 +124,12 @@ display, buffer key): unset falls back to the JAKIM fetch key, else
   coordinates are set. Coordinates are recommended but not required.
 * **Coordinates** — `lat`/`lon` settings let the built-in MABIMS
   calculator resolve each day locally with no network at all.
+* **Calculation is the mandatory fallback** — every resolve ends at the
+  on-device calculator (`method` defaults to `MABIMS`, `asr_juristic` to
+  `shafi`) whenever the higher sources miss a marker: the full
+  per-marker precedence is manual pin → provider row → calc. Calc runs
+  whenever coordinates are set; without them the chain ends at the
+  last-known row or an honest empty slate.
 
 Otherwise — empty config, no coordinates, JAKIM unreachable — the
 outcome is a documented slate, never a Clock: `GET /display` renders the
@@ -151,13 +157,17 @@ reloads into the route slate (see `docs/api-contract.md`).
 * **Bridging (December).** Pin each needed January date by hand: add
   an entry to `schedule.manual_days` in `config/muhideen.json` (or
   `/etc/muhideen/muhideen.json` on systemd installs) with the date plus
-  the 8 `HH:MM` markers — times must be strictly increasing, duplicate
-  dates are rejected. The service hot-reloads the file (~1s, validated
+  any subset of the 8 `HH:MM` markers (at least one) — the merged day
+  must stay strictly increasing, duplicate dates are rejected. Present
+  pin markers override everything; missing markers fall through
+  per-marker (pin → provider → calc), so a one-marker correction needs
+  no full retype. The service hot-reloads the file (~1s, validated
   before swap; a bad edit keeps the last-good pins serving).
   The response surface echoes the pinned day with `"source": "manual"`
-  and `"stale": true`, and the display carries the MANUAL banner. Pins
-  outrank every automatic source (manual > JAKIM > calc) and the daily
-  02:00 sync never overwrites them.
+  and `"stale": true`, and the display carries the `manual` pill. Pins
+  outrank every automatic source (manual > provider > calc) and the daily
+  02:00 sync never overwrites them. A partial pin with no synced row to
+  complete against fails loudly until the row syncs.
 * **Auto-recovery (January).** The first successful daily sync in the
   new year fetches that year's full table, so unpinned January dates
   resolve automatically again — no action needed.

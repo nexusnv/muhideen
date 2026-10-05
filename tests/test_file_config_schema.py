@@ -117,6 +117,23 @@ def test_duplicate_manual_day_dates_rejected():
         ConfigFile.model_validate(raw)
 
 
+def test_dateless_markers_pin_rejected():
+    """A pin with no markers corrects nothing — rejected at load."""
+    raw = _example_raw()
+    raw["schedule"]["manual_days"] = [{"date": "2026-04-01"}]
+    with pytest.raises(ValidationError, match="at least one marker"):
+        ConfigFile.model_validate(raw)
+
+
+def test_partial_pin_validates():
+    """A pin with a subset of markers is a valid partial correction."""
+    raw = _example_raw()
+    raw["schedule"]["manual_days"] = [{"date": "2026-04-01", "maghrib": "19:15"}]
+    cfg = ConfigFile.model_validate(raw)
+    assert cfg.schedule.manual_days[0].maghrib == "19:15"
+    assert cfg.schedule.manual_days[0].fajr is None
+
+
 def test_displays_may_be_empty_or_missing():
     raw = _example_raw()
     raw["displays"] = {}
