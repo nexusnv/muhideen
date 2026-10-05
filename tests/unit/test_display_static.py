@@ -80,6 +80,8 @@ def test_state_region_selectors_present() -> None:
     for selector in (
         "#hero-clock[hidden]",
         "#banners",
+        "#badges",
+        ".badge",
         ".prayer-row.current",
         ".colon",
         "colon-blink",
@@ -107,6 +109,7 @@ def test_state_template_ids_present() -> None:
         "hidden data-now",
         "data-dim-until",
         'id="banners"',
+        'id="badges"',
         'id="adhan-audio"',
         'id="dim-skip"',
     ):
@@ -175,6 +178,7 @@ def test_theme_template_tokens_present() -> None:
         "dim_until_iso",
         "adhan_audio_url",
         "banners",
+        "badges",
     ):
         assert token in html
     for token in (

@@ -97,8 +97,10 @@ e-solat year table by zone code) or `"aladhan"` (any Aladhan-compatible
 * School follows the existing `asr_juristic` (`shafi`→0, `hanafi`→1);
   Dhuha derives as Sunrise + `dhuha_offset_min` (Aladhan serves no Dhuha
   marker). `lat`/`lon` are required (rejected at load without them).
-* Synced rows carry `ALADHAN` provenance: fresh, no `STALE` banner (the
-  display shows an `ALADHAN — synced schedule` banner instead of `CALC`).
+* Synced rows carry `ALADHAN` provenance: fresh, so no badges render
+  (the display shows provenance only as tiny `offline` / `calculated` /
+  `manual` legend pills when degraded; `calc_only` installs chose that
+  mode explicitly and render none).
 * Provider, host, and method are boot config: changing them needs a
   service restart (the sync client is built once, like the timezone).
   Zone, coordinates, and offsets hot-reload as usual.

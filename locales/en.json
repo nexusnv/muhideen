@@ -14,9 +14,9 @@
   },
   "display": {
     "pre_note": "Preparing for {name}",
-    "banner_stale": "STALE — showing fallback schedule",
     "banner_unsynced": "TIME UNSYNCED",
-    "banner_calc": "CALC — computed schedule",
-    "banner_manual": "MANUAL — set by admin"
+    "badge_offline": "offline",
+    "badge_calculated": "calculated",
+    "badge_manual": "manual"
   }
 }

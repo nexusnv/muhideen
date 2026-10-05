@@ -10,7 +10,7 @@ pytestmark = pytest.mark.unit
 KL = ZoneInfo("Asia/Kuala_Lumpur")
 
 
-def _dtos(tz, source="jakim"):
+def _dtos(tz, source="jakim", event_stale=False):
     from muhideen.api.dto import NextEventDTO, PrayerDayDTO
 
     day = PrayerDayDTO(
@@ -36,7 +36,7 @@ def _dtos(tz, source="jakim"):
         adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=tz),
         iqamah_at=None,
         dim_until=None,
-        stale=False,
+        stale=event_stale,
         next_boundary=None,
         boundary_at=None,
         time_synced=True,
@@ -99,16 +99,36 @@ def test_manual_source_banner() -> None:
 
     day, event = _dtos(KL, source="manual")
     ctx = _ctx(day=day, event=event, settings=_settings())
-    assert "MANUAL — set by admin" in ctx["banners"]
-    assert not any("CALC" in b for b in ctx["banners"])
+    assert ctx["badges"] == ["manual"]
+    assert ctx["banners"] == []
 
 
-def test_aladhan_source_banner() -> None:
+def test_aladhan_source_has_no_badges() -> None:
 
     day, event = _dtos(KL, source="aladhan")
     ctx = _ctx(day=day, event=event, settings=_settings())
-    assert "ALADHAN — synced schedule" in ctx["banners"]
-    assert not any("CALC" in b or "STALE" in b for b in ctx["banners"])
+    assert ctx["badges"] == []
+    assert ctx["banners"] == []
+
+
+def test_calc_source_renders_offline_and_calculated_badges() -> None:
+
+    day, event = _dtos(KL, source="calc", event_stale=True)
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    assert ctx["badges"] == ["offline", "calculated"]
+    assert ctx["banners"] == []
+
+
+def test_calc_only_suppresses_source_badges() -> None:
+    from dataclasses import replace
+
+    settings = replace(_settings(), calc_only=True)
+    day, event = _dtos(KL, source="calc", event_stale=True)
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert ctx["badges"] == []
+    day, event = _dtos(KL, source="manual", event_stale=True)
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert ctx["badges"] == ["manual"]
 
 
 def _theme_settings(**knobs):

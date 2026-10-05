@@ -179,16 +179,20 @@ def build_display_context(
             event.next_boundary is not None and event.next_boundary == key
         )
     banners: list[str] = []
-    if event.stale:
-        banners.append("STALE — showing fallback schedule")
     if not event.time_synced:
         banners.append("TIME UNSYNCED")
-    if day.source is ScheduleSource.CALC:
-        banners.append("CALC — computed schedule")
-    elif day.source is ScheduleSource.ALADHAN:
-        banners.append("ALADHAN — synced schedule")
-    elif day.source is ScheduleSource.MANUAL:
-        banners.append("MANUAL — set by admin")
+    # Source provenance renders as small legend badges, not the warning
+    # bar: the bar is reserved for genuine health warnings (clock sync).
+    # An installation running calc_only chose offline/computed operation
+    # explicitly, so degraded-source badges would nag about a known fact.
+    badges: list[str] = []
+    if not settings.calc_only:
+        if event.stale:
+            badges.append("offline")
+        if day.source is ScheduleSource.CALC:
+            badges.append("calculated")
+    if day.source is ScheduleSource.MANUAL:
+        badges.append("manual")
     adhan_date = event.adhan_at.date() if event.adhan_at else None
     theme = settings.theme
     hijri_long = _hijri_long(day.hijri_date)
@@ -251,6 +255,7 @@ def build_display_context(
         "cards": cards,
         "bounds": bounds,
         "banners": banners,
+        "badges": badges,
         "next_boundary": event.next_boundary,
         "boundary_at": event.boundary_at.isoformat() if event.boundary_at else None,
         "now_iso": event.now.isoformat(),
