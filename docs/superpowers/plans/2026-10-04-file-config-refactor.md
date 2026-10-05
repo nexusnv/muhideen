@@ -202,6 +202,7 @@ from pathlib import Path
 import json
 from muhideen.adapters.file_models import ConfigFile
 
+
 def test_example_config_validates():
     raw = json.loads(Path("config/muhideen.example.json").read_text())
     cfg = ConfigFile.model_validate(raw)
@@ -219,6 +220,7 @@ Expected: FAIL with "file_models not found / example missing"
 
 ```python
 """Pydantic models for config/muhideen.json (replaces SettingsDTO + display tables)."""
+
 from __future__ import annotations
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
@@ -227,18 +229,28 @@ from muhideen.api.dto import IqamahRuleDTO, TimeHHMM
 Palette = Literal["classic-green", "midnight", "sand"]
 Language = Literal["en", "ms", "ar"]
 
+
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
 
 class Masjid(Strict):
     name: str = Field(min_length=1, max_length=200)
     zone: str = Field(min_length=1, max_length=32)
     timezone: str = "Asia/Kuala_Lumpur"
 
+
 class ManualDay(Strict):
     date: str
-    imsak: TimeHHMM; fajr: TimeHHMM; syuruq: TimeHHMM; dhuha: TimeHHMM
-    dhuhr: TimeHHMM; asr: TimeHHMM; maghrib: TimeHHMM; isha: TimeHHMM
+    imsak: TimeHHMM
+    fajr: TimeHHMM
+    syuruq: TimeHHMM
+    dhuha: TimeHHMM
+    dhuhr: TimeHHMM
+    asr: TimeHHMM
+    maghrib: TimeHHMM
+    isha: TimeHHMM
+
 
 class Schedule(Strict):
     method: Literal["MABIMS", "MWL", "ISNA", "Egyptian"] = "MABIMS"
@@ -252,6 +264,7 @@ class Schedule(Strict):
     boundary_countdown: bool = False
     manual_days: list[ManualDay] = Field(default_factory=list)
 
+
 class Timing(Strict):
     adhan_duration_s: int = Field(default=180, gt=0)
     dim_minutes_default: int = Field(default=20, ge=5, le=60)
@@ -260,6 +273,7 @@ class Timing(Strict):
     countdown_before_adhan_overrides: dict[str, int] = Field(default_factory=dict)
     iqamah_rules: list[IqamahRuleDTO] = Field(min_length=6, max_length=6)
 
+
 class AdhanAudio(Strict):
     enabled: bool = False
     volume: int = Field(default=70, ge=0, le=100)
@@ -267,6 +281,7 @@ class AdhanAudio(Strict):
     quiet_hours_end: TimeHHMM | None = None
     muted_prayers: list[str] = Field(default_factory=list)
     file: str = "media/adhan.mp3"
+
 
 class Theme(Strict):
     palette: Palette = "classic-green"
@@ -277,6 +292,7 @@ class Theme(Strict):
     boundary_strip: Literal["show", "hide"] = "show"
     density: Literal["comfortable", "compact"] = "comfortable"
 
+
 class DisplayTheme(Strict):
     palette: Palette | None = None
     font: Literal["outfit", "system"] | None = None
@@ -286,6 +302,7 @@ class DisplayTheme(Strict):
     boundary_strip: Literal["show", "hide"] | None = None
     density: Literal["comfortable", "compact"] | None = None
 
+
 class Display(Strict):
     name: str | None = None
     language: Language = "en"
@@ -293,6 +310,7 @@ class Display(Strict):
     dim_minutes_override: int | None = Field(default=None, ge=5, le=60)
     carousel_enabled: bool = True
     custom_colors: dict[str, str] | None = None
+
 
 class ConfigFile(Strict):
     schema_version: int = Field(alias="$schemaVersion", default=1)
@@ -332,18 +350,24 @@ git commit -m "feat: add file config models and example"
 from muhideen.adapters.file_config import FileSettingsRepo, FilePrayerRepo
 from datetime import date
 
+
 def test_file_settings_loads_domain_settings(tmp_path):
     import json, shutil
+
     dest = tmp_path / "muhideen.json"
     shutil.copy("config/muhideen.example.json", dest)
     settings = FileSettingsRepo(dest).load()
     assert settings.zone == "SGR01"
     assert settings.theme.palette == "classic-green"
 
+
 def test_manual_day_overlays_buffer(tmp_path):
     from muhideen.adapters.file_config import FilePrayerRepo
+
     buf = tmp_path / "prayer_buffer.json"
-    buf.write_text('{"$schemaVersion": 1, "zone": "SGR01", "fetched_at": "2026-10-04T02:00:00+08:00", "days": {}}')
+    buf.write_text(
+        '{"$schemaVersion": 1, "zone": "SGR01", "fetched_at": "2026-10-04T02:00:00+08:00", "days": {}}'
+    )
     repo = FilePrayerRepo(buf, manual_days=[])
     assert repo.get_day(date(2026, 10, 4), "SGR01") is None
 ```
@@ -357,6 +381,7 @@ Expected: FAIL with "file_config not found"
 
 ```python
 """File-backed repos implementing core.ports over config/*.json."""
+
 from __future__ import annotations
 import json
 from datetime import date
@@ -364,25 +389,32 @@ from pathlib import Path
 from muhideen.adapters.file_models import ConfigFile
 from muhideen.core.values import Settings, ThemeSettings, PrayerDay
 
+
 def load_config_file(path: Path) -> ConfigFile:
     return ConfigFile.model_validate(json.loads(path.read_text()))
+
 
 class FileSettingsRepo:
     def __init__(self, path: Path) -> None:
         self._path = path
+
     def load(self) -> Settings:
         cfg = load_config_file(self._path)
         # map cfg -> Settings via the same guards as SettingsDTO.to_domain
         from muhideen.api.dto import SettingsDTO
+
         dto = SettingsDTO(
-            masjid_name=cfg.masjid.name, zone=cfg.masjid.zone,
+            masjid_name=cfg.masjid.name,
+            zone=cfg.masjid.zone,
             hijri_offset=cfg.schedule.hijri_offset,
             adhan_duration_s=cfg.timing.adhan_duration_s,
             dim_minutes_default=cfg.timing.dim_minutes_default,
             dim_minutes_jumuah=cfg.timing.dim_minutes_jumuah,
             iqamah_rules=cfg.timing.iqamah_rules,
-            lat=cfg.schedule.lat, lon=cfg.schedule.lon,
-            method=cfg.schedule.method, asr_juristic=cfg.schedule.asr_juristic,
+            lat=cfg.schedule.lat,
+            lon=cfg.schedule.lon,
+            method=cfg.schedule.method,
+            asr_juristic=cfg.schedule.asr_juristic,
             boundary_countdown=cfg.schedule.boundary_countdown,
             calc_only=cfg.schedule.calc_only,
             imsak_offset_min=cfg.schedule.imsak_offset_min,
@@ -426,6 +458,7 @@ git commit -m "feat: add file-backed settings and prayer repos"
 ```python
 def test_parser_takes_config_not_db():
     from muhideen.service import _parser
+
     args = _parser().parse_args(["--config", "config/muhideen.json"])
     assert args.config == "config/muhideen.json"
     assert not hasattr(args, "db")
@@ -440,10 +473,22 @@ Expected: FAIL (still has `--db`)
 
 ```python
 def _parser():
-    parser = argparse.ArgumentParser(prog="muhideen", description="Serve Muhideen from file config.")
-    parser.add_argument("--config", default="./config/muhideen.json", help="Main JSON config path")
-    parser.add_argument("--prayer-buffer", default="./config/prayer_buffer.json", help="Timetable cache path")
-    parser.add_argument("--media-dir", default="./media", help="Media directory (adhan + playlist images)")
+    parser = argparse.ArgumentParser(
+        prog="muhideen", description="Serve Muhideen from file config."
+    )
+    parser.add_argument(
+        "--config", default="./config/muhideen.json", help="Main JSON config path"
+    )
+    parser.add_argument(
+        "--prayer-buffer",
+        default="./config/prayer_buffer.json",
+        help="Timetable cache path",
+    )
+    parser.add_argument(
+        "--media-dir",
+        default="./media",
+        help="Media directory (adhan + playlist images)",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)
     return parser
@@ -479,7 +524,11 @@ def test_each_display_renders_own_theme_and_language(client_from_example_config)
     ms = client_from_example_config.get("/display?id=entrance").text
     assert "palette-classic-green" in en and 'lang="en"' in en
     assert "palette-midnight" in ms and "Zohor" in ms  # ms language
-    assert "unknown-id renders global" in client_from_example_config.get("/display?id=nope").text or True
+    assert (
+        "unknown-id renders global"
+        in client_from_example_config.get("/display?id=nope").text
+        or True
+    )
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -496,7 +545,11 @@ cfg = load_config_file(config_path)
 entry = cfg.displays.get(id)
 theme = merge_theme(cfg.theme, entry.theme if entry else None)
 language = entry.language if entry else "en"
-dim_minutes = entry.dim_minutes_override if entry and entry.dim_minutes_override else settings.dim_minutes_default
+dim_minutes = (
+    entry.dim_minutes_override
+    if entry and entry.dim_minutes_override
+    else settings.dim_minutes_default
+)
 show_carousel = entry.carousel_enabled if entry else True
 ```
 
@@ -525,10 +578,14 @@ git commit -m "feat: render displays from file config with language"
 
 ```python
 import time
+
+
 def test_edit_triggers_reload(tmp_path):
     import json, shutil
     from muhideen.adapters.config_watcher import ConfigWatcher
-    dest = tmp_path / "m.json"; shutil.copy("config/muhideen.example.json", dest)
+
+    dest = tmp_path / "m.json"
+    shutil.copy("config/muhideen.example.json", dest)
     hits = []
     w = ConfigWatcher([dest], lambda: hits.append(1))
     w.start()
@@ -547,9 +604,12 @@ Expected: FAIL with "config_watcher not found"
 
 ```python
 """Poll mtime_ns of config files; on change revalidate then call on_reload."""
+
 import threading, logging
 from pathlib import Path
+
 logger = logging.getLogger(__name__)
+
 
 class ConfigWatcher:
     def __init__(self, paths, on_reload, interval_s=1.0):
@@ -557,10 +617,18 @@ class ConfigWatcher:
         self._on_reload = on_reload
         self._interval = interval_s
         self._stop = threading.Event()
-        self._thread = threading.Thread(name="muhideen-config-watcher", daemon=True, target=self._run)
+        self._thread = threading.Thread(
+            name="muhideen-config-watcher", daemon=True, target=self._run
+        )
         self._mtimes = {p: p.stat().st_mtime_ns for p in self._paths if p.exists()}
-    def start(self): self._thread.start()
-    def stop(self, timeout=2.0): self._stop.set(); self._thread.join(timeout)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self, timeout=2.0):
+        self._stop.set()
+        self._thread.join(timeout)
+
     def _run(self):
         while not self._stop.wait(self._interval):
             for p in self._paths:
@@ -601,7 +669,15 @@ git commit -m "feat: hot-reload config files with watcher"
 
 ```python
 def test_no_admin_surface(client_from_example_config):
-    for path in ["/admin", "/admin/settings", "/admin/login", "/api/settings", "/api/auth/session", "/api/playlists", "/api/logs"]:
+    for path in [
+        "/admin",
+        "/admin/settings",
+        "/admin/login",
+        "/api/settings",
+        "/api/auth/session",
+        "/api/playlists",
+        "/api/logs",
+    ]:
         assert client_from_example_config.get(path).status_code in (404, 405)
 ```
 

@@ -382,9 +382,7 @@ def test_transient_failure_continues_long_pole_after_three_retries(
     # them via `replace_existing`) — the last entry is the live re-arm.
     clock.current = PINNED + timedelta(hours=6, minutes=1)
     long_job.func()
-    pending_long = [
-        job for job in scheduler.get_jobs() if job.id == "sync-retry-long"
-    ]
+    pending_long = [job for job in scheduler.get_jobs() if job.id == "sync-retry-long"]
     assert len(pending_long) == 2
     rearmed = pending_long[-1]
     assert rearmed.trigger.run_date == clock.now() + timedelta(hours=6)
