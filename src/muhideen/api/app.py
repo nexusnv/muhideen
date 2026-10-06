@@ -34,7 +34,11 @@ from pydantic import AfterValidator
 from starlette.responses import StreamingResponse
 from starlette.types import Send
 
-from muhideen.adapters.adhan_audio import ADHAN_FILENAME
+from muhideen.adapters.adhan_audio import (
+    ADHAN_FILENAME,
+    _strip_legacy_media_prefix,
+    resolve_adhan_path,
+)
 from muhideen.adapters.aladhan import AladhanClient
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
 from muhideen.adapters.config_watcher import ConfigWatcher
@@ -85,19 +89,21 @@ _TEMPLATES = Jinja2Templates(
 )
 
 
-def _adhan_audio_url(media_dir: Path) -> str:
-    """Public URL for the canonical adhan file.
+def _adhan_audio_url(media_dir: Path, rel_path: str = ADHAN_FILENAME) -> str:
+    """Public URL for the configured adhan file.
 
     Inside the static root the file keeps its ``/static/...`` URL;
     anywhere else (both deploy targets: compose ``/media``, systemd
     ``/var/lib/muhideen/media``) it is served from the ``/media`` mount
-    below — never the dead ``/static/uploads`` fallback.
+    below — never the dead ``/static/uploads`` fallback. A legacy
+    ``media/`` prefix on the setting is stripped: it is media-relative.
     """
+    rel = _strip_legacy_media_prefix(rel_path.replace("\\", "/"))
     try:
-        rel = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
+        base = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
     except ValueError:
-        return f"/media/{ADHAN_FILENAME}"
-    return f"/static/{rel.as_posix()}/{ADHAN_FILENAME}"
+        return f"/media/{rel}"
+    return f"/static/{(base / rel).as_posix()}"
 
 
 def _media_inside_static(media_dir: Path) -> bool:
@@ -726,9 +732,18 @@ def create_app(deps: AppDeps) -> FastAPI:
                 settings.quiet_hours_start,
                 settings.quiet_hours_end,
             )
-            and (media_dir / ADHAN_FILENAME).exists()
         ):
-            adhan_url = _adhan_audio_url(media_dir)
+            try:
+                adhan_path = resolve_adhan_path(settings.adhan_audio_file, media_dir)
+            except ConfigError:
+                return _TEMPLATES.TemplateResponse(
+                    request,
+                    "error.html",
+                    {"code": 503, "message": "Setup required"},
+                    status_code=503,
+                )
+            if adhan_path.exists():
+                adhan_url = _adhan_audio_url(media_dir, settings.adhan_audio_file)
         try:
             ctx = build_display_context(
                 day=day_dto,

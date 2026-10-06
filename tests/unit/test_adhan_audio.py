@@ -53,6 +53,9 @@ def test_adhan_audio_url_helper_default_and_custom(tmp_path) -> None:
     # Outside the static root (both deploy targets) the file is served
     # from the /media mount, never the dead /static/uploads fallback.
     assert _adhan_audio_url(tmp_path / "elsewhere") == f"/media/{ADHAN_FILENAME}"
+    assert _adhan_audio_url(tmp_path / "elsewhere", "custom/x.mp3") == (
+        "/media/custom/x.mp3"
+    )
 
 
 def test_sniff_rejects_short_blobs() -> None:
