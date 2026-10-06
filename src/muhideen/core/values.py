@@ -333,6 +333,9 @@ class Settings:
     quiet_hours_start: str | None = None
     quiet_hours_end: str | None = None
     adhan_muted_prayers: list[str] = field(default_factory=list[str], hash=False)
+    adhan_audio_file: str = "adhan.mp3"
+    aladhan_base_url: str = "https://api.aladhan.com/v1"
+    aladhan_method: int = 17
 
     def __post_init__(self) -> None:
         """Enforce offset/coordinate guards and non-empty rule coverage."""
@@ -389,6 +392,14 @@ class Settings:
                 )
         if not 0 <= self.adhan_volume <= 100:
             raise ValueError(f"adhan_volume out of range 0-100: {self.adhan_volume}")
+        if not self.adhan_audio_file:
+            raise ValueError("adhan_audio_file must be non-empty")
+        if not re.match(r"^https?://[^/\s]+", self.aladhan_base_url):
+            raise ValueError(
+                f"aladhan base URL must be http(s): {self.aladhan_base_url!r}"
+            )
+        if not 0 <= self.aladhan_method <= 23:
+            raise ValueError(f"aladhan_method out of range 0-23: {self.aladhan_method}")
         if (self.quiet_hours_start is None) != (self.quiet_hours_end is None):
             raise ValueError("quiet hours need both start and end")
         for bound in (self.quiet_hours_start, self.quiet_hours_end):
