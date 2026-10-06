@@ -12,9 +12,18 @@ from pathlib import Path
 CSS = Path(__file__).resolve().parent.parent / "src" / "muhideen" / "static" / "app.css"
 
 TOKENS = [
-    "--green", "--green-line", "--green-strip", "--white", "--ink",
-    "--glow", "--cell-line", "--muted-fg",
-    "--grad-a", "--grad-b", "--grad-c", "--accent",
+    "--green",
+    "--green-line",
+    "--green-strip",
+    "--white",
+    "--ink",
+    "--glow",
+    "--cell-line",
+    "--muted-fg",
+    "--grad-a",
+    "--grad-b",
+    "--grad-c",
+    "--accent",
 ]
 
 
@@ -29,7 +38,7 @@ def test_root_defines_classic_tokens() -> None:
     assert "--green:#075743" in block.replace(" ", "")
     assert "--white:#f8fbf9" in block.replace(" ", "")
     for token in TOKENS:
-        assert token in block
+        assert re.search(re.escape(token) + r"\s*:", block), f":root missing {token}"
 
 
 def test_palettes_override_every_token() -> None:
@@ -37,10 +46,12 @@ def test_palettes_override_every_token() -> None:
     for palette in ("body.palette-midnight", "body.palette-sand"):
         block = _block(css, palette)
         for token in TOKENS:
-            assert token in block, f"{palette} missing {token}"
+            assert re.search(re.escape(token) + r"\s*:", block), (
+                f"{palette} missing {token}"
+            )
 
 
-def test_rules_consume_tokens_not_hardcoded_hex() -> None:
+def test_rules_consume_tokens() -> None:
     css = CSS.read_text()
     for var in ("--green-line", "--green-strip", "--cell-line", "--muted-fg", "--glow"):
         assert f"var({var})" in css
@@ -51,7 +62,7 @@ def test_font_face_and_font_rules() -> None:
     css = CSS.read_text()
     assert "@font-face" in css
     assert "Outfit-400.woff2" in css
-    assert "font-display: swap" in css.replace("font-display:swap", "font-display: swap")
+    assert re.search(r"font-display\s*:\s*swap", css)
     _block(css, "body.font-outfit")
     _block(css, "body.font-system")
 
@@ -60,3 +71,5 @@ def test_density_compact_rules() -> None:
     css = CSS.read_text()
     assert "body.density-compact .prayer-row" in css
     assert "body.density-compact .prayer-screen" in css
+    assert re.search(r"min-height\s*:", _block(css, "body.density-compact .prayer-row"))
+    assert re.search(r"padding\s*:", _block(css, "body.density-compact .prayer-screen"))
