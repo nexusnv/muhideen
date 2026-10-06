@@ -16,7 +16,7 @@ pointer (``Settings.boundary_countdown``, default off).
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime
 from typing import Annotated, Literal, cast
 
 from pydantic import (
@@ -28,29 +28,14 @@ from pydantic import (
 )
 
 from muhideen.core.values import (
-    THEME_DEFAULTS,
-    AsrJuristic,
-    IqamahRule,
-    MarkerName,
     NextEvent,
     PrayerDay,
     ScheduleSource,
-    Settings,
-    ThemeBoundaryStrip,
-    ThemeClockFormat,
-    ThemeCountdownStyle,
-    ThemeDensity,
-    ThemeFont,
-    ThemeHijriForm,
-    ThemePalette,
-    ThemeSettings,
 )
 
 StateLiteral = Literal["NORMAL", "PRE_ADHAN", "ADHAN", "IQAMAH_COUNTDOWN", "SALAH_DIM"]
 PrayerLiteral = Literal["fajr", "dhuhr", "asr", "maghrib", "isha", "jumuah"]
 BoundaryLiteral = Literal["imsak", "syuruq", "dhuha"]
-MethodLiteral = Literal["MABIMS", "MWL", "ISNA", "Egyptian"]
-IqamahModeLiteral = Literal["delay", "fixed"]
 TimeHHMM = Annotated[str, StringConstraints(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")]
 
 __all__ = [
@@ -58,18 +43,13 @@ __all__ = [
     "BoundaryTimesDTO",
     "ConfigUpdateEventDTO",
     "ContractDTO",
-    "IqamahModeLiteral",
-    "IqamahRuleDTO",
-    "MethodLiteral",
     "NextEventDTO",
     "PrayerDayDTO",
     "PrayerLiteral",
     "PrayerTimesDTO",
-    "SettingsDTO",
     "SSE_PAYLOAD_MODELS",
     "StateEventDTO",
     "StateLiteral",
-    "ThemeDTO",
     "TickEventDTO",
     "TimeHHMM",
     "VersionDTO",
@@ -257,182 +237,3 @@ class VersionDTO(ContractDTO):
     version: str
     api: Literal["v1"]
 
-
-class IqamahRuleDTO(ContractDTO):
-    """One iqamah rule: Prayer Time Marker only, delay or fixed clock time."""
-
-    prayer: PrayerLiteral
-    mode: IqamahModeLiteral
-    delay_minutes: Annotated[int, Field(ge=0, le=60)]
-    fixed_time: TimeHHMM | None
-
-    @classmethod
-    def from_domain(cls, rule: IqamahRule) -> IqamahRuleDTO:
-        """Map one domain rule to its wire shape (time as HH:MM)."""
-        return cls(
-            prayer=cast(PrayerLiteral, rule.prayer.value),
-            mode=rule.mode,
-            delay_minutes=rule.delay_minutes,
-            fixed_time=(
-                rule.fixed_time.strftime("%H:%M")
-                if rule.fixed_time is not None
-                else None
-            ),
-        )
-
-    def to_domain(self) -> IqamahRule:
-        """Map the wire rule back to the domain value object."""
-        return IqamahRule(
-            prayer=MarkerName(self.prayer),
-            mode=self.mode,
-            delay_minutes=self.delay_minutes,
-            fixed_time=(
-                time.fromisoformat(self.fixed_time)
-                if self.fixed_time is not None
-                else None
-            ),
-        )
-
-
-class ThemeDTO(ContractDTO):
-    """Closed-enum display knobs: every value outside the enum is 422."""
-
-    palette: ThemePalette = cast(ThemePalette, THEME_DEFAULTS["palette"])
-    font: ThemeFont = cast(ThemeFont, THEME_DEFAULTS["font"])
-    countdown_style: ThemeCountdownStyle = cast(
-        ThemeCountdownStyle, THEME_DEFAULTS["countdown_style"]
-    )
-    clock_format: ThemeClockFormat = cast(
-        ThemeClockFormat, THEME_DEFAULTS["clock_format"]
-    )
-    hijri_form: ThemeHijriForm = cast(ThemeHijriForm, THEME_DEFAULTS["hijri_form"])
-    boundary_strip: ThemeBoundaryStrip = cast(
-        ThemeBoundaryStrip, THEME_DEFAULTS["boundary_strip"]
-    )
-    density: ThemeDensity = cast(ThemeDensity, THEME_DEFAULTS["density"])
-
-    @classmethod
-    def from_domain(cls, theme: ThemeSettings) -> ThemeDTO:
-        """Map installed theme knobs to the wire shape."""
-        return cls(
-            palette=theme.palette,
-            font=theme.font,
-            countdown_style=theme.countdown_style,
-            clock_format=theme.clock_format,
-            hijri_form=theme.hijri_form,
-            boundary_strip=theme.boundary_strip,
-            density=theme.density,
-        )
-
-    def to_domain(self) -> ThemeSettings:
-        """Map the wire knobs back to the validated value object."""
-        return ThemeSettings(
-            palette=self.palette,
-            font=self.font,
-            countdown_style=self.countdown_style,
-            clock_format=self.clock_format,
-            hijri_form=self.hijri_form,
-            boundary_strip=self.boundary_strip,
-            density=self.density,
-        )
-
-
-class SettingsDTO(ContractDTO):
-    """Full-replace settings body and response (file-config read surface).
-
-    All fields required except the pre-adhan countdown knobs, the
-    adhan-audio knobs, and the theme knobs, which default so older
-    wizard bodies still validate (additive contract change).
-    """
-
-    masjid_name: Annotated[str, Field(min_length=1, max_length=200)]
-    zone: Annotated[str, Field(min_length=1, max_length=32)]
-    hijri_offset: Annotated[int, Field(ge=-2, le=2)]
-    adhan_duration_s: Annotated[int, Field(gt=0)]
-    dim_minutes_default: Annotated[int, Field(ge=5, le=60)]
-    dim_minutes_jumuah: Annotated[int, Field(ge=5, le=60)]
-    iqamah_rules: Annotated[list[IqamahRuleDTO], Field(min_length=1)]
-    lat: Annotated[float | None, Field(ge=-90, le=90)]
-    lon: Annotated[float | None, Field(ge=-180, le=180)]
-    method: MethodLiteral
-    asr_juristic: AsrJuristic = "shafi"
-    boundary_countdown: bool
-    calc_only: bool
-    imsak_offset_min: Annotated[int, Field(ge=0, le=10)]
-    dhuha_offset_min: Annotated[int, Field(ge=15, le=30)]
-    countdown_before_adhan_min: Annotated[int, Field(ge=0, le=90)] = 5
-    countdown_before_adhan_overrides: dict[str, Annotated[int, Field(ge=0, le=90)]] = (
-        Field(default_factory=dict)
-    )
-    theme: ThemeDTO = Field(default_factory=ThemeDTO)
-    timezone: str = "Asia/Kuala_Lumpur"
-    adhan_audio_enabled: bool = False
-    adhan_volume: Annotated[int, Field(ge=0, le=100)] = 70
-    quiet_hours_start: TimeHHMM | None = None
-    quiet_hours_end: TimeHHMM | None = None
-    adhan_muted_prayers: list[str] = Field(default_factory=list)
-
-    @classmethod
-    def from_domain(cls, settings: Settings) -> SettingsDTO:
-        """Map installed settings to the full-replace wire shape."""
-        return cls(
-            masjid_name=settings.masjid_name,
-            zone=settings.zone,
-            hijri_offset=settings.hijri_offset,
-            adhan_duration_s=settings.adhan_duration_s,
-            dim_minutes_default=settings.dim_minutes_default,
-            dim_minutes_jumuah=settings.dim_minutes_jumuah,
-            iqamah_rules=[
-                IqamahRuleDTO.from_domain(rule) for rule in settings.iqamah_rules
-            ],
-            lat=settings.lat,
-            lon=settings.lon,
-            method=cast(MethodLiteral, settings.method),
-            asr_juristic=settings.asr_juristic,
-            boundary_countdown=settings.boundary_countdown,
-            calc_only=settings.calc_only,
-            imsak_offset_min=settings.imsak_offset_min,
-            dhuha_offset_min=settings.dhuha_offset_min,
-            countdown_before_adhan_min=settings.countdown_before_adhan_min,
-            countdown_before_adhan_overrides=dict(
-                settings.countdown_before_adhan_overrides
-            ),
-            theme=ThemeDTO.from_domain(settings.theme),
-            timezone=settings.timezone,
-            adhan_audio_enabled=settings.adhan_audio_enabled,
-            adhan_volume=settings.adhan_volume,
-            quiet_hours_start=settings.quiet_hours_start,
-            quiet_hours_end=settings.quiet_hours_end,
-            adhan_muted_prayers=list(settings.adhan_muted_prayers),
-        )
-
-    def to_domain(self) -> Settings:
-        """Map the wire settings back to the validated domain object."""
-        return Settings(
-            masjid_name=self.masjid_name,
-            zone=self.zone,
-            hijri_offset=self.hijri_offset,
-            adhan_duration_s=self.adhan_duration_s,
-            dim_minutes_default=self.dim_minutes_default,
-            dim_minutes_jumuah=self.dim_minutes_jumuah,
-            iqamah_rules=tuple(rule.to_domain() for rule in self.iqamah_rules),
-            lat=self.lat,
-            lon=self.lon,
-            method=self.method,
-            asr_juristic=self.asr_juristic,
-            boundary_countdown=self.boundary_countdown,
-            calc_only=self.calc_only,
-            imsak_offset_min=self.imsak_offset_min,
-            dhuha_offset_min=self.dhuha_offset_min,
-            countdown_before_adhan_min=self.countdown_before_adhan_min,
-            countdown_before_adhan_overrides=dict(
-                self.countdown_before_adhan_overrides
-            ),
-            theme=self.theme.to_domain(),
-            timezone=self.timezone,
-            adhan_audio_enabled=self.adhan_audio_enabled,
-            adhan_volume=self.adhan_volume,
-            quiet_hours_start=self.quiet_hours_start,
-            quiet_hours_end=self.quiet_hours_end,
-            adhan_muted_prayers=list(self.adhan_muted_prayers),
-        )
