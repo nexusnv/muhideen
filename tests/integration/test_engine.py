@@ -54,9 +54,17 @@ class FakeSettingsRepo:
 class FakePrayerRepo:
     """Row store keyed by (date, zone) with a logged last_known path."""
 
-    def __init__(self, rows: dict[tuple[date, str], PrayerDay] | None = None) -> None:
+    def __init__(
+        self,
+        rows: dict[tuple[date, str], PrayerDay] | None = None,
+        pins: dict[tuple[date, str], PrayerDay] | None = None,
+    ) -> None:
         self.rows: dict[tuple[date, str], PrayerDay] = rows or {}
+        self.pins: dict[tuple[date, str], PrayerDay] = pins or {}
         self.last_known_calls: list[tuple[date, str]] = []
+
+    def get_pin(self, day: date, zone: str) -> PrayerDay | None:
+        return self.pins.get((day, zone))
 
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
         return self.rows.get((day, zone))
@@ -188,11 +196,15 @@ def _harness(
     *,
     settings: Settings | None = None,
     rows: tuple[PrayerDay, ...] = (),
+    pins: tuple[PrayerDay, ...] = (),
     calc: FakeCalc | None = None,
     now: datetime = NOW,
 ) -> Harness:
     settings_repo = FakeSettingsRepo(settings or _settings())
-    prayer_repo = FakePrayerRepo({(row.date, row.zone): row for row in rows})
+    prayer_repo = FakePrayerRepo(
+        {(row.date, row.zone): row for row in rows},
+        {(pin.date, pin.zone): pin for pin in pins},
+    )
     clock = FakeClock(now)
     bus = RecordingBus()
     engine = Engine(
@@ -218,6 +230,33 @@ def test_cache_miss_uses_calc_and_normalises_zone(returned_zone: str) -> None:
     assert result.stale is True
     assert calc.calls == [(DAY, 3.1, 101.6, "MABIMS", 10, 28, "shafi")]
     assert harness.repo.last_known_calls == []
+
+
+def test_pin_beats_cache_and_skips_calc() -> None:
+    """Manual → provider → calc: the pin wins wholesale, calc never runs."""
+    calc = FakeCalc()
+    pin = _day(DAY, source=ScheduleSource.MANUAL, fajr=time(6, 5))
+    cached = _day(DAY, fajr=time(5, 50))
+    harness = _harness(
+        settings=_settings(lat=3.1, lon=101.6), rows=(cached,), pins=(pin,), calc=calc
+    )
+    result = harness.engine.resolve_day(DAY, ZONE, NOW)
+    assert result.day.fajr == time(6, 5)
+    assert result.day.dhuhr == time(12, 15)
+    assert result.day.source is ScheduleSource.MANUAL
+    assert calc.calls == []
+
+
+def test_cache_beats_calc_without_pin() -> None:
+    cached = _day(DAY, fajr=time(5, 50))
+    calc = FakeCalc()
+    harness = _harness(
+        settings=_settings(lat=3.1, lon=101.6), rows=(cached,), calc=calc
+    )
+    result = harness.engine.resolve_day(DAY, ZONE, NOW)
+    assert result.day.fajr == time(5, 50)
+    assert result.day.source is ScheduleSource.JAKIM
+    assert calc.calls == []
 
 
 def test_resolve_day_unknown_zone_raises_schedule_error() -> None:
@@ -538,3 +577,16 @@ def test_calc_receives_settings_asr_juristic() -> None:
     )
     harness.engine.resolve_day(date(2026, 9, 23), ZONE, harness.clock.now())
     assert calc.calls[0][6] == "hanafi"
+
+
+def test_tomorrow_prefers_pin_over_cache() -> None:
+    """Tomorrow keeps pin visibility: a pinned tomorrow wins wholesale."""
+    pin = _day(date(2026, 9, 24), source=ScheduleSource.MANUAL, fajr=time(6, 5))
+    cached = _day(date(2026, 9, 24), fajr=time(5, 50))
+    harness = _harness(rows=(cached,), pins=(pin,))
+    tomorrow = harness.engine._tomorrow(
+        date(2026, 9, 24), ZONE, harness.settings.load()
+    )
+    assert tomorrow is not None
+    assert tomorrow.fajr == time(6, 5)
+    assert tomorrow.source is ScheduleSource.MANUAL

@@ -101,6 +101,8 @@ def build_display_context(
     show_carousel: bool = True,
     adhan_audio_url: str | None = None,
     adhan_volume: int = 70,
+    language: str = "en",
+    custom_colors: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Map resolved DTOs to the display template context (no time reads).
 
@@ -110,7 +112,10 @@ def build_display_context(
     display's effective dim (per-display pin, else group pin, else the
     global default); ``show_carousel`` carries the display's group
     carousel flag (group pin, else default-on); the caller resolves the
-    precedence, the builder only renders it.
+    precedence, the builder only renders it. ``language`` selects the
+    primary prayer name (``en``→0, ``ar``→1, ``ms``/``bm``→2) while
+    keeping all three labels for compat; ``custom_colors`` passes the
+    optional ``{background, foreground, accent}`` map to the template.
     """
     times = {
         "fajr": day.prayers.fajr,
@@ -124,6 +129,8 @@ def build_display_context(
     labels = (
         PRAYER_LABELS["jumuah"] if next_key == "jumuah" else PRAYER_LABELS[next_key]
     )
+    lang_index = {"en": 0, "ar": 1, "ms": 2, "bm": 2}.get(language, 0)
+    html_lang = "ms" if language == "bm" else language
     cards: list[dict[str, object]] = []
     for key in PRAYER_ORDER:
         is_jumuah_card = key == "dhuhr" and next_key == "jumuah"
@@ -139,6 +146,7 @@ def build_display_context(
                 "en": en,
                 "ar": ar,
                 "bm": bm,
+                "name": (en, ar, bm)[lang_index],
                 "time": times[key],
                 "time12": time12,
                 "period": period,
@@ -163,6 +171,7 @@ def build_display_context(
         bound["en"] = en
         bound["ar"] = ar
         bound["bm"] = bm
+        bound["name"] = (en, ar, bm)[lang_index]
         time12, period = twelve_h(str(bound["time"]))
         bound["time12"] = time12
         bound["period"] = period
@@ -170,14 +179,21 @@ def build_display_context(
             event.next_boundary is not None and event.next_boundary == key
         )
     banners: list[str] = []
-    if event.stale:
-        banners.append("STALE — showing fallback schedule")
     if not event.time_synced:
         banners.append("TIME UNSYNCED")
-    if day.source is ScheduleSource.CALC:
-        banners.append("CALC — computed schedule")
-    elif day.source is ScheduleSource.MANUAL:
-        banners.append("MANUAL — set by admin")
+    # Source provenance renders as small legend badges, not the warning
+    # bar: the bar is reserved for genuine health warnings (clock sync).
+    # Explicit offline installs (calc_only, or provider "none") chose
+    # that operation mode, so degraded-source badges would nag about a
+    # known fact.
+    badges: list[str] = []
+    if not settings.calc_only and settings.sync_provider != "none":
+        if event.stale:
+            badges.append("offline")
+        if day.source is ScheduleSource.CALC:
+            badges.append("calculated")
+    if day.source is ScheduleSource.MANUAL:
+        badges.append("manual")
     adhan_date = event.adhan_at.date() if event.adhan_at else None
     theme = settings.theme
     hijri_long = _hijri_long(day.hijri_date)
@@ -195,7 +211,10 @@ def build_display_context(
     # countdown window (domain owns the rule; views never recompute it) —
     # so NORMAL renders a blank countdown area by design.
     if event.state == "PRE_ADHAN":
-        countdown_label, countdown_target = f"{labels[0]} call to prayer in", adhan_iso
+        countdown_label, countdown_target = (
+            f"{labels[lang_index]} call to prayer in",
+            adhan_iso,
+        )
     elif event.state in ("IQAMAH_COUNTDOWN", "ADHAN"):
         countdown_label, countdown_target = "Iqomah in", iqamah_iso
     else:
@@ -205,6 +224,8 @@ def build_display_context(
     return {
         "masjid_name": settings.masjid_name,
         "zone": settings.zone,
+        "language": html_lang,
+        "custom_colors": dict(custom_colors) if custom_colors else None,
         "gregorian": day.date.isoformat(),
         "gregorian_long": gregorian_long,
         "hijri": day.hijri_date or "—",
@@ -229,18 +250,22 @@ def build_display_context(
         "next_name_en": labels[0],
         "next_name_ar": labels[1],
         "next_name_bm": labels[2],
+        "next_name": labels[lang_index],
         "next_time": event.adhan_at.strftime("%H:%M") if event.adhan_at else "",
         "next_tomorrow": adhan_date is not None and adhan_date > day.date,
         "cards": cards,
         "bounds": bounds,
         "banners": banners,
+        "badges": badges,
         "next_boundary": event.next_boundary,
         "boundary_at": event.boundary_at.isoformat() if event.boundary_at else None,
         "now_iso": event.now.isoformat(),
         "state": event.state,
         "next_key": next_key,
         "adhan_iso": adhan_iso,
-        "pre_note": f"Preparing for {labels[0]}" if event.state == "PRE_ADHAN" else "",
+        "pre_note": (
+            f"Preparing for {labels[lang_index]}" if event.state == "PRE_ADHAN" else ""
+        ),
         "countdown_label": countdown_label,
         "countdown_target": countdown_target,
         "iqamah_iso": iqamah_iso,

@@ -50,6 +50,30 @@ def test_adhan_audio_url_helper_default_and_custom(tmp_path) -> None:
     assert _adhan_audio_url(_STATIC_DIR / "uploads") == "/static/uploads/adhan.mp3"
     custom = _STATIC_DIR / "uploads" / "custom-subdir"
     assert _adhan_audio_url(custom) == f"/static/uploads/custom-subdir/{ADHAN_FILENAME}"
-    assert (
-        _adhan_audio_url(tmp_path / "elsewhere") == f"/static/uploads/{ADHAN_FILENAME}"
-    )
+    # Outside the static root (both deploy targets) the file is served
+    # from the /media mount, never the dead /static/uploads fallback.
+    assert _adhan_audio_url(tmp_path / "elsewhere") == f"/media/{ADHAN_FILENAME}"
+
+
+def test_sniff_rejects_short_blobs() -> None:
+    from muhideen.adapters.adhan_audio import _is_mp3
+
+    assert _is_mp3(b"ID") is False
+    assert _is_mp3(b"ID3") is False
+
+
+def test_store_failure_leaves_no_tmp_litter(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed write removes its tmp file before re-raising."""
+    import os
+
+    from muhideen.adapters.adhan_audio import store_adhan_audio
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", _boom)
+    with pytest.raises(OSError, match="disk full"):
+        store_adhan_audio(VALID_MP3, tmp_path)
+    assert list(tmp_path.glob("*.tmp")) == []

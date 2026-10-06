@@ -1,11 +1,13 @@
 """Device entrypoint: spawn `.venv/bin/muhideen` — ≤10s boot + render path (1A-8).
 
-No network, no Chromium: the tmp db is seeded with lat/lon settings so
+No network, no Chromium: the tmp config is patched with lat/lon settings so
 `/api/next-event` resolves through the pure MABIMS calc path (PRD §5.1).
 """
 
 from __future__ import annotations
 
+import json
+import shutil
 import signal
 import socket
 import subprocess
@@ -19,15 +21,15 @@ from types import ModuleType, SimpleNamespace
 import httpx
 import pytest
 
-from muhideen.adapters.migrate import migrate
-from muhideen.adapters.sqlite_repo import Database, SqliteSettingsRepo
 from muhideen.api.dto import VersionDTO
-from muhideen.core.values import Settings
 
 pytestmark = pytest.mark.device
 
 KL = timezone(timedelta(hours=8))
 ZONE = "SGR01"
+EXAMPLE = (
+    Path(__file__).resolve().parent.parent.parent / "config" / "muhideen.example.json"
+)
 
 
 def _free_port() -> int:
@@ -37,26 +39,28 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _seed_db(db_path: Path) -> None:
-    """Migrate + persist lat/lon settings so calc runs without network."""
-    database = Database(db_path)
-    migrate(database)
-    SqliteSettingsRepo(database).save(
-        Settings(
-            masjid_name="Masjid Test",
-            zone=ZONE,
-            hijri_offset=0,
-            lat=3.07,
-            lon=101.69,
-        )
-    )
+def _seed_config(config_path: Path) -> None:
+    """Copy the example config + persist lat/lon so calc runs without network."""
+    shutil.copy(EXAMPLE, config_path)
+    raw = json.loads(config_path.read_text())
+    raw["schedule"]["lat"] = 3.07
+    raw["schedule"]["lon"] = 101.69
+    config_path.write_text(json.dumps(raw, indent=2) + "\n")
 
 
-def _spawn(db_path: Path, port: int) -> subprocess.Popen[bytes]:
+def _spawn(config_path: Path, buffer_path: Path, port: int) -> subprocess.Popen[bytes]:
     binary = Path(sys.executable).with_name("muhideen")
     assert binary.exists(), f"console script missing: {binary} (run uv sync)"
     return subprocess.Popen(
-        [str(binary), "--db", str(db_path), "--port", str(port)],
+        [
+            str(binary),
+            "--config",
+            str(config_path),
+            "--prayer-buffer",
+            str(buffer_path),
+            "--port",
+            str(port),
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
@@ -65,10 +69,10 @@ def _spawn(db_path: Path, port: int) -> subprocess.Popen[bytes]:
 @pytest.fixture
 def server(tmp_path: Path) -> Iterator[SimpleNamespace]:
     """Spawn the console script; ready means GET /api/version answers 200."""
-    db_path = tmp_path / "muhideen.db"
-    _seed_db(db_path)
+    config_path = tmp_path / "muhideen.json"
+    _seed_config(config_path)
     port = _free_port()
-    proc = _spawn(db_path, port)
+    proc = _spawn(config_path, tmp_path / "prayer_buffer.json", port)
     url = f"http://127.0.0.1:{port}"
     started = time.monotonic()
     deadline = started + 10.0  # PRD.md:5.1 boot budget
@@ -98,15 +102,16 @@ def server(tmp_path: Path) -> Iterator[SimpleNamespace]:
 
 
 class _ServeSpy:
-    """Records `create_production_app(db)` and `uvicorn.run` kwargs (decision 3)."""
+    """Records `create_production_app(config, ...)` and `uvicorn.run` kwargs."""
 
     def __init__(self, service: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
         self.seen: dict[str, object] = {}
         monkeypatch.setattr(service, "create_production_app", self._app)
         monkeypatch.setattr(service, "uvicorn", SimpleNamespace(run=self._run))
 
-    def _app(self, db: str) -> object:
-        self.seen["db"] = db
+    def _app(self, config: str, **kwargs: object) -> object:
+        self.seen["config"] = config
+        self.seen["factory_kwargs"] = kwargs
         return object()
 
     def _run(self, app: object, **kwargs: object) -> None:
@@ -116,16 +121,20 @@ class _ServeSpy:
 def test_main_defaults_bind_loopback_and_port(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Zero-arg `muhideen` serves ./muhideen.db on 127.0.0.1:8000 (decision 3)."""
+    """Zero-arg `muhideen` serves ./config/muhideen.json on 127.0.0.1:8000."""
     from muhideen import service
 
     spy = _ServeSpy(service, monkeypatch)
     service.main([])
-    assert spy.seen["db"] == "./muhideen.db"
+    assert spy.seen["config"] == "./config/muhideen.json"
+    assert spy.seen["factory_kwargs"] == {
+        "prayer_buffer": "./config/prayer_buffer.json",
+        "media_dir": "./media",
+    }
     assert spy.seen["run"] == {"host": "127.0.0.1", "port": 8000, "workers": 1}
 
 
-def test_main_argv_overrides_host_port_and_db(
+def test_main_argv_overrides_host_port_and_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -133,9 +142,28 @@ def test_main_argv_overrides_host_port_and_db(
     from muhideen import service
 
     spy = _ServeSpy(service, monkeypatch)
-    db = str(tmp_path / "state.db")
-    service.main(["--host", "0.0.0.0", "--port", "9000", "--db", db])
-    assert spy.seen["db"] == db
+    config = str(tmp_path / "muhideen.json")
+    buffer = str(tmp_path / "prayer_buffer.json")
+    media = str(tmp_path / "media")
+    service.main(
+        [
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "9000",
+            "--config",
+            config,
+            "--prayer-buffer",
+            buffer,
+            "--media-dir",
+            media,
+        ]
+    )
+    assert spy.seen["config"] == config
+    assert spy.seen["factory_kwargs"] == {
+        "prayer_buffer": buffer,
+        "media_dir": media,
+    }
     assert spy.seen["run"] == {"host": "0.0.0.0", "port": 9000, "workers": 1}
 
 

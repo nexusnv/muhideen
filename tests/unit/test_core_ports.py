@@ -9,9 +9,9 @@ from muhideen.core.ports import (
     CalcEngine,
     Clock,
     EventBus,
-    JAKIMClient,
     MediaStore,
     PrayerRepo,
+    ScheduleClient,
     SettingsRepo,
     TimeSyncProbe,
     UserRepo,
@@ -21,6 +21,9 @@ from muhideen.core.values import AsrJuristic, PrayerDay, Settings
 
 class FullPrayerRepo:
     def get_day(self, day: date, zone: str) -> PrayerDay | None:
+        raise NotImplementedError
+
+    def get_pin(self, day: date, zone: str) -> PrayerDay | None:
         raise NotImplementedError
 
     def save_day(self, prayer_day: PrayerDay) -> None:
@@ -76,12 +79,12 @@ class PartialSettingsRepo:
         raise NotImplementedError
 
 
-class FullJAKIMClient:
-    def fetch_year(self, zone: str) -> list[PrayerDay]:
+class FullScheduleClient:
+    def fetch_year(self, settings: Settings) -> list[PrayerDay]:
         raise NotImplementedError
 
 
-class PartialJAKIMClient:
+class PartialScheduleClient:
     def save_day(self, prayer_day: PrayerDay) -> None:
         raise NotImplementedError
 
@@ -168,7 +171,7 @@ class PartialUserRepo:
 ALL_PROTOCOLS = (
     PrayerRepo,
     SettingsRepo,
-    JAKIMClient,
+    ScheduleClient,
     CalcEngine,
     Clock,
     TimeSyncProbe,
@@ -184,7 +187,7 @@ ALL_PROTOCOLS = (
     [
         (FullPrayerRepo(), PrayerRepo),
         (FullSettingsRepo(), SettingsRepo),
-        (FullJAKIMClient(), JAKIMClient),
+        (FullScheduleClient(), ScheduleClient),
         (FullCalcEngine(), CalcEngine),
         (FullClock(), Clock),
         (FullTimeSyncProbe(), TimeSyncProbe),
@@ -205,7 +208,7 @@ def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
         (MissingLastKnownRepo(), PrayerRepo),
         (MissingUnlessManualRepo(), PrayerRepo),
         (PartialSettingsRepo(), SettingsRepo),
-        (PartialJAKIMClient(), JAKIMClient),
+        (PartialScheduleClient(), ScheduleClient),
         (PartialCalcEngine(), CalcEngine),
         (PartialClock(), Clock),
         (PartialTimeSyncProbe(), TimeSyncProbe),

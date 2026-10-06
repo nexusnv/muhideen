@@ -10,6 +10,11 @@ from muhideen.core.values import PrayerDay, ScheduleSource
 
 STALE_AFTER = timedelta(hours=48)
 
+FRESH_SOURCES: frozenset[ScheduleSource] = frozenset(
+    {ScheduleSource.JAKIM, ScheduleSource.ALADHAN}
+)
+"""Network-fetched sources: fresh rows are authoritative, never degraded."""
+
 
 @dataclass(frozen=True, slots=True)
 class FallbackResult:
@@ -35,7 +40,7 @@ def is_stale(day: PrayerDay, now: datetime) -> bool:
             fetched_at = fetched_at.replace(tzinfo=None)
     if (now - fetched_at) > STALE_AFTER:
         return True
-    return day.source is not ScheduleSource.JAKIM
+    return day.source not in FRESH_SOURCES
 
 
 def resolve_day(
@@ -67,13 +72,13 @@ def resolve_day(
 def merge_days(
     preferred: PrayerDay | None, fallback: PrayerDay | None
 ) -> PrayerDay | None:
-    """Merge two complete days per marker, preferring ``preferred``.
+    """Prefer ``preferred`` wholesale, else ``fallback``.
 
-    API (cached/JAKIM) markers supersede calc markers one by one. Rows are
-    complete today (the JAKIM parser rejects partial payloads and the DB
-    columns are NOT NULL), so a present ``preferred`` day wins wholesale —
-    the per-marker form is what future-proofs a partial-row world without a
-    schema change. Provenance follows ``preferred``.
+    Rows are complete today (the JAKIM parser rejects partial payloads),
+    so a present ``preferred`` day wins wholesale — equivalent to a
+    per-marker merge while rows stay complete. Per-marker pin completion
+    lives in ``FilePrayerRepo._complete_pin`` (pin over provider row),
+    not here. Provenance follows ``preferred``.
     """
     if preferred is None:
         return fallback

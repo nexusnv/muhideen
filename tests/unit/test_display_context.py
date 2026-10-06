@@ -10,7 +10,7 @@ pytestmark = pytest.mark.unit
 KL = ZoneInfo("Asia/Kuala_Lumpur")
 
 
-def _dtos(tz, source="jakim"):
+def _dtos(tz, source="jakim", event_stale=False):
     from muhideen.api.dto import NextEventDTO, PrayerDayDTO
 
     day = PrayerDayDTO(
@@ -36,7 +36,7 @@ def _dtos(tz, source="jakim"):
         adhan_at=datetime(2025, 10, 20, 12, 15, tzinfo=tz),
         iqamah_at=None,
         dim_until=None,
-        stale=False,
+        stale=event_stale,
         next_boundary=None,
         boundary_at=None,
         time_synced=True,
@@ -99,8 +99,45 @@ def test_manual_source_banner() -> None:
 
     day, event = _dtos(KL, source="manual")
     ctx = _ctx(day=day, event=event, settings=_settings())
-    assert "MANUAL — set by admin" in ctx["banners"]
-    assert not any("CALC" in b for b in ctx["banners"])
+    assert ctx["badges"] == ["manual"]
+    assert ctx["banners"] == []
+
+
+def test_aladhan_source_has_no_badges() -> None:
+
+    day, event = _dtos(KL, source="aladhan")
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    assert ctx["badges"] == []
+    assert ctx["banners"] == []
+
+
+def test_calc_source_renders_offline_and_calculated_badges() -> None:
+
+    day, event = _dtos(KL, source="calc", event_stale=True)
+    ctx = _ctx(day=day, event=event, settings=_settings())
+    assert ctx["badges"] == ["offline", "calculated"]
+    assert ctx["banners"] == []
+
+
+def test_calc_only_suppresses_source_badges() -> None:
+    from dataclasses import replace
+
+    settings = replace(_settings(), calc_only=True)
+    day, event = _dtos(KL, source="calc", event_stale=True)
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert ctx["badges"] == []
+    day, event = _dtos(KL, source="manual", event_stale=True)
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert ctx["badges"] == ["manual"]
+
+
+def test_none_provider_suppresses_source_badges() -> None:
+    from dataclasses import replace
+
+    settings = replace(_settings(), sync_provider="none")
+    day, event = _dtos(KL, source="calc", event_stale=True)
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert ctx["badges"] == []
 
 
 def _theme_settings(**knobs):
@@ -350,3 +387,39 @@ def test_countdown_label_target_matrix() -> None:
     dim_ctx = _ctx(day=day, event=dim, settings=settings)
     assert dim_ctx["countdown_label"] == ""
     assert dim_ctx["countdown_target"] == ""
+
+
+def test_missing_iqamah_label_is_config_error() -> None:
+    from muhideen.core.errors import ConfigError
+    from muhideen.views.display import build_display_context as _build
+
+    day, event = _dtos(KL)
+    with pytest.raises(ConfigError, match="missing iqamah label"):
+        _build(day=day, event=event, settings=_settings(), iqamah={})
+
+
+def test_disabled_imsak_hides_the_imsak_bound() -> None:
+    from dataclasses import replace
+
+    day, event = _dtos(KL)
+    settings = replace(_settings(), imsak_offset_min=0)
+    ctx = _ctx(day=day, event=event, settings=settings)
+    assert [bound["key"] for bound in ctx["bounds"]] == ["syuruq", "dhuha"]
+    shown = _ctx(day=day, event=event, settings=_settings())
+    assert [bound["key"] for bound in shown["bounds"]] == [
+        "imsak",
+        "syuruq",
+        "dhuha",
+    ]
+
+
+def test_unsynced_time_renders_the_banner() -> None:
+    day, event = _dtos(KL)
+    synced = _ctx(day=day, event=event, settings=_settings())
+    assert "TIME UNSYNCED" not in synced["banners"]
+    unsynced = _ctx(
+        day=day,
+        event=event.model_copy(update={"time_synced": False}),
+        settings=_settings(),
+    )
+    assert "TIME UNSYNCED" in unsynced["banners"]

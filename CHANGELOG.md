@@ -8,6 +8,38 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- File-config refactor (no database): the admin UI, auth, SQLite repos,
+  migrations, seed, and backup/logs/QR routes are deleted. One hand-edited
+  `config/muhideen.json` (validated by `file_models.py`, hot-reloaded in
+  ~1s with last-good fallback) plus the machine-written
+  `prayer_buffer.json` cache and a plain `media/` tree replace them. The
+  kept surface is read-only: `prayer-day`, `next-event`, `events` (SSE),
+  `version`, and `/display`. Operator media is served at `/media/*`;
+  `/docs` stays public by decision (read-only schemas only). Upgrade
+  notes: no DB→JSON importer ships — database installs must recreate
+  settings by hand (see `docs/deployment.md`); `--zone`/`--db` flags are
+  gone; `update.sh` snapshots only the JSON config.
+- Schedule providers: `JAKIMClient` is now the `ScheduleClient` port
+  (`fetch_year(settings)`) with two implementations — JAKIM e-solat and
+  a new Aladhan-compatible client (one adapter, nested `schedule.aladhan`
+  `{base_url, method}` block, so `api.aladhan.com`,
+  `aladhan.api.islamic.network`, or any mirror works; `method` defaults to
+  17/JAKIM, school
+  follows `asr_juristic`, Dhuha derives from Sunrise + `dhuha_offset_min`).
+  Switch via `schedule.sync_provider` (required — `"jakim"`, `"aladhan"`,
+  or `"none"` for explicit offline; needs coordinates except manual-only;
+  changing provider/host/method needs a restart). Synced Aladhan rows are fresh
+  provenance (`ALADHAN` banner, no `STALE`).
+- Zone codes leave the profile: `masjid` holds only `name` + `timezone`;
+  `schedule.jakim.zone` carries codes like `SWK08` (required for
+  `"jakim"`), and `schedule.zone` is an optional served-zone label
+  (falls back to the fetch key, else `"local"`); synced rows are stamped
+  with the label so the engine/buffer zone check keeps hitting.
+- Per-marker precedence manual → provider → calc: pins may be partial
+  (date + any subset of markers, completed against the stored row; loud
+  when uncompletable), the engine prefers pin over cache over calc, and
+  calculation (`method` default `MABIMS`) stays the final fallback when
+  no pin and no provider row cover the date and coordinates are set.
 
 - Calc backend swap (issues #35/#36): `al-falak==1.0.0` replaces `adhanpy==1.0.5` (same adhan port lineage, maintained, typed); per-method reference parameters (`MABIMS` fitted custom angles, `MWL`/`ISNA`/`Egyptian` built-ins with `ISNA` mapped to North America); `asr_juristic` setting (`shafi`/`hanafi`, default `shafi`) end-to-end with wizard method parity.
 

@@ -11,9 +11,9 @@ from muhideen.core.ports import (
     CalcEngine,
     Clock,
     EventBus,
-    JAKIMClient,
     MediaStore,
     PrayerRepo,
+    ScheduleClient,
     SettingsRepo,
 )
 from muhideen.core.values import (
@@ -27,6 +27,7 @@ from muhideen.core.values import (
     PrayerState,
     ScheduleSource,
     Settings,
+    SyncProvider,
     marker_kind,
 )
 
@@ -39,7 +40,6 @@ __all__ = [
     "ContractError",
     "EventBus",
     "IqamahRule",
-    "JAKIMClient",
     "MarkerKind",
     "MarkerName",
     "MediaStore",
@@ -48,10 +48,12 @@ __all__ = [
     "PrayerDay",
     "PrayerState",
     "PrayerRepo",
+    "ScheduleClient",
     "ScheduleError",
     "ScheduleSource",
     "Settings",
     "SettingsRepo",
     "SyncError",
+    "SyncProvider",
     "marker_kind",
 ]

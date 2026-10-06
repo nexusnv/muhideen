@@ -512,3 +512,33 @@ def test_playlist_value_shapes() -> None:
         PlaylistItem(image_path="", duration_s=10, sort_order=0)
     with pytest.raises(ValueError, match="non-empty id"):
         _playlist("")
+
+
+def test_stage_id_rejects_unknown_occupant() -> None:
+    from muhideen.domain.stage import stage_id
+
+    with pytest.raises(AssertionError, match="unknown stage occupant"):
+        stage_id("bogus")  # type: ignore[arg-type]
+
+
+def test_pre_adhan_window_takes_countdown_stage() -> None:
+    from muhideen.domain.stage import CountdownOccupant, resolve_stage
+
+    now = _at(12, 12)
+    occupant = resolve_stage(now, _day(), _settings(), _dhuhr_event(now), ())
+    assert occupant == CountdownOccupant(kind="adhan", prayer=MarkerName.DHUHR)
+
+
+def test_exhausted_repeat_playlist_releases_the_stage() -> None:
+    from muhideen.domain.stage import ClockOccupant, resolve_stage
+
+    spent = _playlist(
+        "spent",
+        start="09:00",
+        end="10:00",
+        cycle_mode="repeat",
+        max_cycles=1,
+    )
+    now = _at(9, 30)
+    occupant = resolve_stage(now, _day(), _settings(), _dhuhr_event(now), (spent,))
+    assert occupant == ClockOccupant()

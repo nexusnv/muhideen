@@ -14,37 +14,9 @@
   },
   "display": {
     "pre_note": "Preparing for {name}",
-    "banner_stale": "STALE — showing fallback schedule",
     "banner_unsynced": "TIME UNSYNCED",
-    "banner_calc": "CALC — computed schedule",
-    "banner_manual": "MANUAL — set by admin"
-  },
-  "admin_login": {
-    "title": "Login",
-    "button": "Login",
-    "password": "Password",
-    "wrong": "Wrong password",
-    "limited": "Too many attempts, wait a minute",
-    "net": "Network error"
-  },
-  "admin_setup": {
-    "title": "Setup",
-    "name": "Masjid name",
-    "next": "Next",
-    "done": "Done",
-    "back": "Back",
-    "confirm": "Confirm password",
-    "check": "Check input",
-    "setupFail": "Setup failed",
-    "invalid": "Invalid settings (422)",
-    "close_note": "Setup closes after the first admin is created."
-  },
-  "admin_settings": {
-    "title": "Settings",
-    "calc_only": "Offline calculation only",
-    "boundary": "Boundary countdown",
-    "save": "Save",
-    "saved": "Saved — live reload",
-    "qr_toggle": "Show connect QR"
+    "badge_offline": "offline",
+    "badge_calculated": "calculated",
+    "badge_manual": "manual"
   }
 }

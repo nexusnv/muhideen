@@ -184,9 +184,20 @@ class Engine:
     def _resolve_day(
         self, requested: date, zone: str, now: datetime, settings: Settings
     ) -> FallbackResult:
-        """Walk cache, then calc, then last-known; miss only when all miss."""
-        # Lazy chain: calc and last-known are queried only when every
-        # cheaper source already missed.
+        """Walk pin, then cache, then calc, then last-known; miss only when all miss.
+
+        Precedence is manual pin (completed against the provider row,
+        partials included) over provider row over calc. Calc is consulted
+        only when no pin and no cached row cover the date — a partial pin
+        without a provider row fails loud instead of falling through to
+        calc. Whole-day sources keep their debate settled by
+        ``merge_days`` wholesale — identical outcome, one seam.
+        """
+        # Lazy chain: each cheaper source is queried once; a present pin
+        # already carries its provider row, so the buffer is not re-read.
+        pin_day = self._prayer_repo.get_pin(requested, zone)
+        if pin_day is not None:
+            return resolve_fallback(requested, zone, now, pin_day, None, None)
         cached = self._prayer_repo.get_day(requested, zone)
         calculated = (
             self._calc_day(requested, zone, settings) if cached is None else None
@@ -222,9 +233,12 @@ class Engine:
         return computed
 
     def _tomorrow(self, day: date, zone: str, settings: Settings) -> PrayerDay | None:
-        """Fetch tomorrow from cache or calc; never from last-known."""
+        """Fetch tomorrow from pin, cache, or calc; never from last-known."""
         # `last_known` is deliberately never used for tomorrow: a past
         # template day must not seed tomorrow's Fajr.
+        pin_day = self._prayer_repo.get_pin(day, zone)
+        if pin_day is not None:
+            return pin_day
         cached = self._prayer_repo.get_day(day, zone)
         if cached is not None:
             return cached

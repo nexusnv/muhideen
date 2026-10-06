@@ -14,15 +14,15 @@ cd "$ROOT_DIR"
 
 CHECK=0
 MUHIDEEN_DRY_RUN=0
-DB="/var/lib/muhideen/muhideen.db"
+CONFIG="/etc/muhideen/muhideen.json"
 HEALTH_URL="http://127.0.0.1:8000/api/version"
 
 usage() {
   cat <<'EOF'
-usage: update.sh [--check] [--dry-run] [--db PATH]
-  --check    print current tag, newest local tag and /api/version; mutate nothing
-  --dry-run  print each mutating command instead of running it
-  --db PATH  database to back up (default /var/lib/muhideen/muhideen.db)
+usage: update.sh [--check] [--dry-run] [--config PATH]
+  --check       print current tag, newest local tag and /api/version; mutate nothing
+  --dry-run     print each mutating command instead of running it
+  --config PATH config file to back up (default /etc/muhideen/muhideen.json)
 EOF
 }
 
@@ -30,9 +30,9 @@ while (( $# )); do
   case "$1" in
     --check) CHECK=1; shift ;;
     --dry-run) MUHIDEEN_DRY_RUN=1; shift ;;
-    --db)
-      (( $# >= 2 )) || die "--db requires a value"
-      DB="$2"
+    --config)
+      (( $# >= 2 )) || die "--config requires a value"
+      CONFIG="$2"
       shift 2
       ;;
     -h|--help) usage; exit 0 ;;
@@ -60,12 +60,25 @@ fi
 current="$(current_tag)"
 ts="$(date +%Y%m%dT%H%M%S)"
 backup_root="${MUHIDEEN_BACKUP_DIR:-$ROOT_DIR/backups}"
-backup_path="${backup_root}/${current}-${ts}.db"
+backup_path="${backup_root}/${current}-${ts}.json"
 
-maybe_run mkdir -p "$backup_root"
-maybe_run "$ROOT_DIR/.venv/bin/python" -c \
-  'import sys; from pathlib import Path; from muhideen.adapters.sqlite_repo import Database, backup_to; backup_to(Database(sys.argv[1]), Path(sys.argv[2]))' \
-  "$DB" "$backup_path"
+# File-config state: snapshot the hand-edited config file before the tag
+# checkout so a bad update can be recovered by copying it back.
+# Scope note: only muhideen.json is snapshotted here. prayer_buffer.json
+# is a regenerable sync cache (the scheduler refetches it), and media/
+# (adhan audio, playlist images under /var/lib/muhideen/media) lives
+# outside the repo and is never touched by the checkout — back up media
+# separately if you need a full-media rollback.
+# A missing config file is not fatal: DB-era boxes predate the JSON file
+# entirely (see docs/deployment.md "Upgrading from a database install"),
+# and there is simply nothing to snapshot yet. In --dry-run the cp is
+# still traced so the order proof (backup before fetch/checkout) holds.
+if [[ -f "$CONFIG" || "${MUHIDEEN_DRY_RUN:-0}" == "1" ]]; then
+  maybe_run mkdir -p "$backup_root"
+  maybe_run cp "$CONFIG" "$backup_path"
+else
+  note "config: $CONFIG missing — nothing to back up (fresh or pre-file-config install; continuing)"
+fi
 
 maybe_run git fetch --tags
 

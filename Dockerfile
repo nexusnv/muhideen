@@ -2,8 +2,8 @@
 #
 # Reproducible offline-capable build: dependencies resolve from the locked
 # set (uv.lock) with --locked, so the image pins exactly what CI tested.
-# Runtime state (SQLite + uploads) lives in a mounted volume, never in
-# the image layers.
+# Runtime state (file config + timetable cache + media) lives in mounted
+# volumes, never in the image layers.
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
@@ -16,24 +16,26 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --locked --no-dev --no-install-project
 
 # Application source (wheel build context is the sdist/wheel path; here we
-# install the project itself so `muhideen` / `muhideen-seed` entrypoints land).
+# install the project itself so the `muhideen` entrypoint lands).
 COPY src ./src
 RUN uv sync --locked --no-dev
 
 # Drop privileges (mirrors the old systemd `User=muhideen`): a compromise
 # through the LAN-exposed API must not yield root inside the container or
-# unrestricted access to the mounted state volume. The venv binary runs
+# unrestricted access to the mounted volumes. The venv binary runs
 # directly (no `uv run` at runtime, so no cache/lockfile writes as the
-# unprivileged user). Named volumes initialize from the image's /data,
-# preserving this ownership on first mount.
+# unprivileged user). Bind mounts from compose provide /config and /media;
+# the mkdir/chown below only covers named-volume first mounts — host bind
+# mounts keep their host ownership (see the permissions note in compose.yml).
 RUN useradd --system --create-home --home-dir /home/muhideen \
       --shell /usr/sbin/nologin muhideen \
-  && mkdir -p /data \
-  && chown -R muhideen:muhideen /app /data /home/muhideen
+  && mkdir -p /config /media \
+  && chown -R muhideen:muhideen /app /config /media /home/muhideen
 USER muhideen
 
-# Runtime: single worker over HTTP; state mounted at /data by compose.
-# Seed/configure via `muhideen-seed` (first boot) or the admin wizard.
+# Runtime: single worker over HTTP; config mounted at /config, media at
+# /media by compose. Edit the mounted muhideen.json — the watcher reloads
+# it live (~1s), no login and no rebuild.
 EXPOSE 8000
-VOLUME ["/data"]
-CMD ["/app/.venv/bin/muhideen", "--host", "0.0.0.0", "--port", "8000", "--db", "/data/muhideen.db"]
+VOLUME ["/config", "/media"]
+CMD ["/app/.venv/bin/muhideen", "--host", "0.0.0.0", "--port", "8000", "--config", "/config/muhideen.json", "--prayer-buffer", "/config/prayer_buffer.json", "--media-dir", "/media"]

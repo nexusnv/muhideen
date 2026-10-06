@@ -123,3 +123,23 @@ def test_anchor_mode_ignores_clock_bounds() -> None:
     )
     assert start == datetime(2025, 10, 22, 17, 5, tzinfo=TZ)
     assert stop == datetime(2025, 10, 22, 18, 35, tzinfo=TZ)
+
+
+def test_swapped_anchor_offsets_rejected() -> None:
+    from muhideen.domain.playlist_window import parse_window
+
+    with pytest.raises(ValueError, match="anchor stop offset"):
+        parse_window(
+            _playlist(
+                anchor_marker=MarkerName.FAJR,
+                anchor_start_offset_min=10,
+                anchor_stop_offset_min=5,
+            )
+        )
+
+
+def test_bad_window_end_wrapped() -> None:
+    from muhideen.domain.playlist_window import parse_window
+
+    with pytest.raises(ValueError, match="window_end"):
+        parse_window(_playlist(window_start="09:00", window_end="xx"))

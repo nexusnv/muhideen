@@ -1,8 +1,8 @@
 """E2E SSE stream: frames, filtering, keep-alive, teardown (slice 1A-7).
 
 Frame semantics are driven over the app's async body generator directly
-(real repos over tmp SQLite + real SSEBus + real engine built exactly like
-create_app) on a private event loop, because the installed
+(file-config repos over tmp JSON + real SSEBus + real engine built exactly
+like create_app) on a private event loop, because the installed
 TestClient/ASGITransport buffers infinite streams, so an ASGI streaming read
 never yields headers. Two live-server tests (uvicorn over real TCP) cover
 what a facade cannot: a genuine client disconnect unsubscribes, and open
@@ -242,31 +242,50 @@ def test_published_tick_stage_matches_domain_resolution(
     assert data["stage"] == stage_id(resolve_stage(now, day, settings, current, []))
 
 
+def _set_config_playlists(
+    config_path: object, playlists: list[dict[str, object]]
+) -> None:
+    """Replace the config file's playlists array (raw JSON surgery, no validation)."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    path = _Path(str(config_path))  # type: ignore[arg-type]
+    raw = _json.loads(path.read_text())
+    raw["playlists"] = playlists
+    path.write_text(_json.dumps(raw, indent=2) + "\n")
+
+
+def _playlist_entry(playlist_id: str, **overrides: object) -> dict[str, object]:
+    """One always-open playlist entry in file-config shape."""
+    entry: dict[str, object] = {
+        "id": playlist_id,
+        "title": playlist_id.title(),
+        "active": True,
+        "window_start": None,
+        "window_end": None,
+        "anchor_marker": None,
+        "anchor_start_offset_min": 0,
+        "anchor_stop_offset_min": 0,
+        "cycle_mode": "indefinite",
+        "max_cycles": None,
+        "items": [{"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}],
+    }
+    entry.update(overrides)
+    return entry
+
+
 def test_published_tick_stage_matches_open_window_playlist(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
-    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
-    from muhideen.core.values import Playlist, PlaylistItem
-
     _seed_settings(surface, lat=3.07, lon=101.69)
-    repo = SqlitePlaylistRepo(surface.db)
-    repo.save(
-        Playlist(
-            id="open",
-            title="Open",
-            active=True,
-            window_start=None,
-            window_end=None,
-            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
-        )
-    )
+    _set_config_playlists(surface.config_path, [_playlist_entry("open")])
     gen = _Driver(
         app_module._event_stream(
             _engine(surface),
             surface.clock,
             surface.bus,
             surface.settings_repo,
-            repo,
+            surface.playlist_repo,
         )
     )
     try:
@@ -283,32 +302,19 @@ def test_published_tick_stage_matches_open_window_playlist(
 def test_published_tick_stage_surfaces_error_on_corrupt_playlist(
     surface: SimpleNamespace, client: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from muhideen.adapters.playlist_repo import SqlitePlaylistRepo
-    from muhideen.core.values import Playlist, PlaylistItem
-
     _seed_settings(surface, lat=3.07, lon=101.69)
-    repo = SqlitePlaylistRepo(surface.db)
-    repo.save(
-        Playlist(
-            id="broken",
-            title="Broken",
-            active=True,
-            window_start=None,
-            window_end=None,
-            items=(PlaylistItem(image_path="a.jpg", duration_s=10, sort_order=0),),
-        )
+    # No file equivalent of a half-written DB row: a hand-edit with an
+    # unknown anchor marker fails the playlist read with ConfigError.
+    _set_config_playlists(
+        surface.config_path, [_playlist_entry("broken", anchor_marker="bogus")]
     )
-    with surface.db.write() as conn:
-        conn.execute(
-            "UPDATE playlists SET anchor_marker = 'bogus' WHERE id = 'broken'",
-        )
     gen = _Driver(
         app_module._event_stream(
             _engine(surface),
             surface.clock,
             surface.bus,
             surface.settings_repo,
-            repo,
+            surface.playlist_repo,
         )
     )
     with caplog.at_level(logging.ERROR):
@@ -372,11 +378,11 @@ def test_ticker_tick_failure_drops_open_stream_to_route_slate(
     stream wakes instead of sitting silent on a frozen healthy view (the
     60s poll only starts after disconnect): its recompute raises, the SSE
     drops, and the display falls back to poll + reload into the route
-    slate (503 here — settings are gone entirely). Drives
+    slate (503 here — the config file is gone entirely). Drives
     `engine.tick()` exactly like the background ticker does, never a
     manual `bus.publish`.
     """
-    from muhideen.core.errors import SettingsNotInitializedError
+    from muhideen.core.errors import ConfigError
 
     _seed_settings(surface, lat=3.07, lon=101.69)
     # Fail fast on regression: without the bare tick the stream would idle
@@ -385,13 +391,12 @@ def test_ticker_tick_failure_drops_open_stream_to_route_slate(
     gen = _stream(surface)
     try:
         assert _parse(next(gen))[0] == "state"
-        with surface.db.write() as conn:
-            conn.execute("DELETE FROM settings")
-        with pytest.raises(SettingsNotInitializedError):
+        surface.config_path.unlink()
+        with pytest.raises(ConfigError):
             _engine(surface).tick()
         # The bare tick woke the stream: its recompute raises (dropping
         # the SSE) instead of leaving the display on a healthy frame.
-        with pytest.raises(SettingsNotInitializedError):
+        with pytest.raises(ConfigError):
             next(gen)
     finally:
         gen.close()
@@ -493,9 +498,10 @@ def test_unsubscribe_on_disconnect(
     assert surface.bus.subscriber_count == 0
 
 
-def test_events_before_setup_is_503(
+def test_events_without_config_file_is_503(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
+    surface.config_path.unlink()
     response = client.get("/api/events")
     assert response.status_code == 503
 
@@ -503,10 +509,10 @@ def test_events_before_setup_is_503(
 def test_offline_first_no_coordinates_slates_display_and_next_event(
     surface: SimpleNamespace, client: TestClient
 ) -> None:
-    """Offline-first pin: fresh DB + no coords + unreachable JAKIM slates.
+    """Offline-first pin: no coords + unreachable JAKIM slates.
 
     Settings exist but carry no coordinates, and nothing was ever synced
-    (empty prayer cache — the e2e equivalent of JAKIM being unreachable at
+    (empty prayer buffer — the e2e equivalent of JAKIM being unreachable at
     first boot, since no JAKIM client is wired into the test surface), so
     no schedule resolves: `/display` renders a slate and `/api/next-event`
     surfaces the failure instead of a healthy payload. Both answer 404, not

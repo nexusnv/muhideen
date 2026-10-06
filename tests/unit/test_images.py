@@ -173,3 +173,24 @@ def test_store_distinct_names_do_not_collide(tmp_path: Path) -> None:
     second = store_image(raw, tmp_path)
     assert first != second
     assert first.is_file() and second.is_file()
+
+
+def test_for_jpeg_flattens_alpha_and_converts_modes() -> None:
+    from muhideen.adapters.images import _for_jpeg
+
+    flat = _for_jpeg(Image.new("RGBA", (8, 8), (10, 20, 30, 128)))
+    assert flat.mode == "RGB"
+    assert _for_jpeg(Image.new("L", (8, 8), 128)).mode == "RGB"
+    rgb = Image.new("RGB", (8, 8), (1, 2, 3))
+    assert _for_jpeg(rgb) is rgb
+
+
+def test_store_rejects_oversize_pixel_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import muhideen.adapters.images as images_module
+    from muhideen.adapters.images import store_image
+
+    monkeypatch.setattr(images_module, "MAX_IMAGE_PIXELS", 100)
+    with pytest.raises(ValueError, match="pixel limit"):
+        store_image(_jpeg_bytes(64, 64), tmp_path)

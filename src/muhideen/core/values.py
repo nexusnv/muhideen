@@ -78,11 +78,16 @@ class PrayerState(StrEnum):
 
 
 class ScheduleSource(StrEnum):
-    """Source of a prayer day: JAKIM, CALC, or MANUAL."""
+    """Source of a prayer day: JAKIM, Aladhan-compatible API, CALC, or MANUAL."""
 
     JAKIM = "jakim"
+    ALADHAN = "aladhan"
     CALC = "calc"
     MANUAL = "manual"
+
+
+SyncProvider = Literal["jakim", "aladhan", "none"]
+"""Sync source choice: a REST provider, or explicit offline (no fetch ever)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +308,8 @@ class Settings:
     masjid_name: str
     zone: str
     hijri_offset: int
+    jakim_zone: str | None = None
+    sync_provider: SyncProvider = "jakim"
     adhan_duration_s: int = 180
     dim_minutes_default: int = 20
     dim_minutes_jumuah: int = 45

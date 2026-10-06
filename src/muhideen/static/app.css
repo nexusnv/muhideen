@@ -30,9 +30,17 @@ body {
 #banners { padding: clamp(8px, 1vw, 16px) clamp(24px, 2.45vw, 42px) 0; }
 .banner { background: #e0b73c; color: #0a3527; font-weight: 700; text-align: center; padding: 1vh; font-size: clamp(16px, 1.8vw, 28px); }
 
+/* Provenance legend: tiny muted pills, never the warning bar. */
+#badges { display: flex; gap: 8px; justify-content: center; padding-top: 6px; }
+.badge { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; padding: 2px 10px; border-radius: 999px; border: 1px solid currentColor; opacity: .7; }
+.badge-offline { color: #e0b73c; }
+.badge-calculated { color: #9db4c0; }
+.badge-manual { color: #7fc8a9; }
+
 /* Salah dim: same layout, darkened; long-press restores (admin). */
 body.state-salah_dim .prayer-screen,
-body.state-salah_dim #banners { filter: brightness(.07); }
+body.state-salah_dim #banners,
+body.state-salah_dim #badges { filter: brightness(.07); }
 
 /* Screen layout: left timetable and right information column. */
 .prayer-screen {

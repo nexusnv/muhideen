@@ -16,8 +16,8 @@ import httpx
 import pytest
 
 from muhideen.core.errors import SyncError
-from muhideen.core.ports import JAKIMClient
-from muhideen.core.values import PrayerDay, ScheduleSource
+from muhideen.core.ports import ScheduleClient
+from muhideen.core.values import PrayerDay, ScheduleSource, Settings
 
 pytestmark = pytest.mark.integration
 
@@ -26,6 +26,16 @@ TZ = ZoneInfo("Asia/Kuala_Lumpur")
 PINNED = datetime(2026, 9, 23, 12, 0, tzinfo=TZ)
 
 Handler = Callable[[httpx.Request], httpx.Response]
+
+
+def _settings(**overrides: Any) -> Settings:
+    base: dict[str, Any] = {
+        "masjid_name": "Masjid Test",
+        "zone": "SGR01",
+        "hijri_offset": 0,
+    }
+    base.update(overrides)
+    return Settings(**base)
 
 
 class FakeClock:
@@ -250,7 +260,7 @@ def test_transient_500_then_success_records_backoff_sleeps() -> None:
         return httpx.Response(200, content=body)
 
     sleeps: list[float] = []
-    days = _client(handler, sleeps).fetch_year("SGR01")
+    days = _client(handler, sleeps).fetch_year(_settings())
     assert len(days) == 365
     assert sleeps == [2.0, 4.0]
     assert calls["n"] == 3
@@ -272,7 +282,7 @@ def test_exhausted_failures_raise_sync_error_after_three_retries(
 
     sleeps: list[float] = []
     with pytest.raises(SyncError):
-        _client(handler, sleeps).fetch_year("SGR01")
+        _client(handler, sleeps).fetch_year(_settings())
     assert sleeps == [2.0, 4.0, 8.0]
     assert calls["n"] == 4
 
@@ -291,7 +301,7 @@ def test_4xx_fails_fast_without_in_client_retry(bad_status: int) -> None:
 
     sleeps: list[float] = []
     with pytest.raises(SyncError):
-        _client(handler, sleeps).fetch_year("SGR01")
+        _client(handler, sleeps).fetch_year(_settings())
     assert sleeps == []
     assert calls["n"] == 1
 
@@ -309,7 +319,7 @@ def test_non_429_4xx_marks_unrecoverable(bad_status: int) -> None:
 
     sleeps: list[float] = []
     with pytest.raises(SyncError) as excinfo:
-        _client(handler, sleeps).fetch_year("SGR01")
+        _client(handler, sleeps).fetch_year(_settings())
     assert excinfo.value.transient is False
     assert sleeps == []
     assert calls["n"] == 1
@@ -328,7 +338,7 @@ def test_429_stays_transient_without_in_client_retry() -> None:
 
     sleeps: list[float] = []
     with pytest.raises(SyncError) as excinfo:
-        _client(handler, sleeps).fetch_year("SGR01")
+        _client(handler, sleeps).fetch_year(_settings())
     assert excinfo.value.transient is True
     assert sleeps == []
     assert calls["n"] == 1
@@ -346,7 +356,7 @@ def test_parse_rejection_after_200_does_not_retry() -> None:
 
     sleeps: list[float] = []
     with pytest.raises(SyncError):
-        _client(handler, sleeps).fetch_year("SGR01")
+        _client(handler, sleeps).fetch_year(_settings())
     assert sleeps == []
     assert calls["n"] == 1
 
@@ -364,7 +374,7 @@ def test_failure_logs_zone_and_status(caplog: pytest.LogCaptureFixture) -> None:
         caplog.at_level(logging.WARNING, logger="muhideen.adapters.jakim_esolat"),
         pytest.raises(SyncError),
     ):
-        client.fetch_year("SGR01")
+        client.fetch_year(_settings())
     records = [r for r in caplog.records if r.name == "muhideen.adapters.jakim_esolat"]
     assert len(records) == 4
     assert "zone=SGR01" in records[0].getMessage()
@@ -374,7 +384,22 @@ def test_failure_logs_zone_and_status(caplog: pytest.LogCaptureFixture) -> None:
 # --- port ------------------------------------------------------------------
 
 
+def test_fetch_key_and_label_split() -> None:
+    """Upstream validates the fetch key; rows carry the installation label."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "zone=SGR01" in str(request.url)
+        return httpx.Response(200, content=_payload_bytes())
+
+    sleeps: list[float] = []
+    days = _client(handler, sleeps).fetch_year(
+        _settings(zone="surau-alhuda", jakim_zone="SGR01")
+    )
+    assert len(days) == 365
+    assert {day.zone for day in days} == {"surau-alhuda"}
+
+
 def test_http_jakim_client_satisfies_port() -> None:
     from muhideen.adapters.jakim_esolat import HttpJAKIMClient
 
-    assert isinstance(HttpJAKIMClient(clock=FakeClock(PINNED)), JAKIMClient)
+    assert isinstance(HttpJAKIMClient(clock=FakeClock(PINNED)), ScheduleClient)
