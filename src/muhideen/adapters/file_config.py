@@ -6,8 +6,7 @@
 ``manual_days`` pins over a JSON buffer cache, and :class:`FilePlaylistRepo`
 maps the playlist section. Every ``ValueError`` from domain construction
 (and every ``SyncError`` from pin ordering) becomes :class:`ConfigError`
-at this boundary, mirroring the former
-database-backed repos (read fresh on every call, validated on load).
+at this boundary (read fresh on every call, validated on load).
 """
 
 from __future__ import annotations
@@ -451,7 +450,7 @@ class FilePrayerRepo:
     """``PrayerRepo`` over config manual pins plus a JSON buffer cache.
 
     Manual pins (from ``config.schedule.manual_days``) always win over
-    buffer rows for their date. ``delete_day`` mirrors the sqlite port —
+    buffer rows for their date. ``delete_day`` mirrors the port contract —
     with one file-world caveat: pins live in the hand-edited config file,
     which this repo never writes, so deleting a pinned date returns False
     (remove the pin from the config instead); only a ``manual``-sourced

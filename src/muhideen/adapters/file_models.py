@@ -1,4 +1,4 @@
-"""Pydantic models for config/muhideen.json (replaces SettingsDTO + display tables)."""
+"""Pydantic models for config/muhideen.json (file-config surface)."""
 
 from __future__ import annotations
 

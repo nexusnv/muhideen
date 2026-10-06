@@ -60,10 +60,10 @@ class PrayerRepo(Protocol):
 
 @runtime_checkable
 class SettingsRepo(Protocol):
-    """Installed configuration: load raises when setup has not run."""
+    """Installed configuration over the hand-edited JSON file."""
 
     def load(self) -> Settings:
-        """Load settings; raise ``SettingsNotInitializedError`` before setup."""
+        """Load settings; ``ConfigError`` on missing or invalid file."""
         ...
 
     def save(self, settings: Settings) -> None:

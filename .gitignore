@@ -12,9 +12,6 @@ coverage.xml
 .mypy_cache/
 .pyright/
 .import_linter_cache/
-*.db
-*.sqlite3
-media/uploads/
 # Live file-config state (never committed): the hand-edited install config
 # and the machine-written timetable cache. Only the example is tracked.
 # Without these entries the updater's dirty-tree gate trips on every
