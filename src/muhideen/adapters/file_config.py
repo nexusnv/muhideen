@@ -158,9 +158,11 @@ def _settings_from_config(cfg: ConfigFile) -> Settings:
 class FileSettingsRepo:
     """``SettingsRepo`` over the JSON config file.
 
-    ``save`` round-trips through the current file content: only the mapped
-    scalar sections are replaced, so hand-edited ``displays``, ``playlists``,
-    ``manual_days``, and the adhan audio ``file`` survive untouched.
+    ``save`` round-trips through the current file content: the mapped
+    settings sections are replaced (masjid, schedule incl.
+    zone/provider/aladhan, timing, adhan audio incl. file, theme);
+    hand-edited ``displays``, ``playlists``, and ``manual_days`` survive
+    untouched.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -191,9 +193,8 @@ class FileSettingsRepo:
         if not isinstance(raw_data, dict):
             raise ConfigError(f"{self._path}: config root must be an object")
         data = cast(dict[str, Any], raw_data)
-        # Raw-dict surgery: only the mapped scalar sections are replaced, so
-        # hand-edited displays/playlists/manual_days (and the adhan audio
-        # file) survive byte-for-byte.
+        # Raw-dict surgery: only the mapped settings sections are replaced,
+        # so hand-edited displays/playlists/manual_days survive byte-for-byte.
         data["masjid"] = {
             "name": settings.masjid_name,
             "timezone": settings.timezone,
@@ -217,6 +218,29 @@ class FileSettingsRepo:
                 "boundary_countdown": settings.boundary_countdown,
             }
         )
+        # The served label doubles as the JAKIM fetch key when no explicit
+        # fetch key is set ("local" is never a fetch key). Hand-built
+        # Settings (e.g. zone-only seeds) predate the split; without this
+        # the jakim provider would fail its own file validation.
+        fetch_key = settings.jakim_zone
+        if fetch_key is None and settings.zone != "local":
+            fetch_key = settings.zone
+        if settings.zone == fetch_key or (
+            fetch_key is None and settings.zone == "local"
+        ):
+            schedule["zone"] = None
+        else:
+            schedule["zone"] = settings.zone
+        schedule["sync_provider"] = settings.sync_provider
+        jakim_raw = schedule.get("jakim")
+        if not isinstance(jakim_raw, dict):
+            raise ConfigError(f"{self._path}: config missing schedule/audio sections")
+        jakim_raw["zone"] = fetch_key
+        aladhan_raw = schedule.get("aladhan")
+        if not isinstance(aladhan_raw, dict):
+            raise ConfigError(f"{self._path}: config missing schedule/audio sections")
+        aladhan_raw["base_url"] = settings.aladhan_base_url
+        aladhan_raw["method"] = settings.aladhan_method
         data["timing"] = {
             "adhan_duration_s": settings.adhan_duration_s,
             "dim_minutes_default": settings.dim_minutes_default,
@@ -246,6 +270,7 @@ class FileSettingsRepo:
                 "quiet_hours_start": settings.quiet_hours_start,
                 "quiet_hours_end": settings.quiet_hours_end,
                 "muted_prayers": list(settings.adhan_muted_prayers),
+                "file": settings.adhan_audio_file,
             }
         )
         data["theme"] = {

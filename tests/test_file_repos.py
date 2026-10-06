@@ -711,3 +711,36 @@ def test_settings_load_maps_adhan_file_and_aladhan(tmp_path: Path):
     settings = repo.load()
     assert settings.adhan_audio_file == "custom/x.mp3"
     assert settings.aladhan_method == 2
+
+
+def test_settings_save_round_trips_zone_provider_aladhan_and_file(tmp_path: Path):
+    repo, _ = _settings_repo(tmp_path)
+    settings = repo.load()
+    changed = replace(
+        settings,
+        sync_provider="aladhan",
+        zone="my-masjid",
+        jakim_zone="SGR01",
+        lat=3.07,
+        lon=101.69,
+        aladhan_base_url="https://aladhan.api.islamic.network/v1",
+        aladhan_method=2,
+        adhan_audio_file="custom/adhan2.mp3",
+    )
+    repo.save(changed)
+    reloaded = repo.load()
+    assert reloaded.sync_provider == "aladhan"
+    assert reloaded.zone == "my-masjid"
+    assert reloaded.jakim_zone == "SGR01"
+    assert reloaded.aladhan_base_url == "https://aladhan.api.islamic.network/v1"
+    assert reloaded.aladhan_method == 2
+    assert reloaded.adhan_audio_file == "custom/adhan2.mp3"
+
+
+def test_settings_save_clears_zone_override_when_matching_fetch_key(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    settings = replace(repo.load(), zone="SGR01", jakim_zone="SGR01")
+    repo.save(settings)
+    raw = json.loads(path.read_text())
+    assert raw["schedule"]["zone"] is None
+    assert repo.load().zone == "SGR01"
