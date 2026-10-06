@@ -47,41 +47,13 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path == "/api/version":
             self._send_json(_read("version.json"))
-        elif path == "/api/settings":
-            self._send_json(_read("settings.json"))
-        elif path == "/api/auth/session":
-            self._send_json(_read("session.json"))
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self) -> None:
-        path = urlparse(self.path).path
-        if path == "/api/displays/heartbeat":
-            length = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(length)
-            self._send_json(_read("heartbeat-response.json"))
-        elif path in (
-            "/api/auth/setup",
-            "/api/auth/login",
-            "/api/auth/logout",
-        ):
-            length = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(length)
-            self._send_json(_read("auth-response.json"))
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_PUT(self) -> None:
-        path = urlparse(self.path).path
-        if path == "/api/settings":
-            length = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(length)
-            self._send_json(_read("settings.json"))
-        else:
-            self.send_response(404)
-            self.end_headers()
+        self.send_response(404)
+        self.end_headers()
 
 
 def main() -> None:

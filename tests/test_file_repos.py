@@ -443,9 +443,12 @@ def test_atomic_write_skips_dir_fsync_when_unsupported(
     """Platforms without directory fsync still persist the payload."""
     from muhideen.adapters.file_config import _atomic_write_json
 
-    def _no_dir_fd(*args: object, **kwargs: object) -> int:
-        raise OSError("no directory fsync here")
+    def _no_dir_fd(path: object, flags: int, *args: object, **kwargs: object) -> int:
+        if flags & os.O_DIRECTORY:
+            raise OSError("no directory fsync here")
+        return real_open(path, flags, *args, **kwargs)
 
+    real_open = os.open
     monkeypatch.setattr(os, "open", _no_dir_fd)
     target = tmp_path / "buffer.json"
     _atomic_write_json(target, {"days": {}})
@@ -700,3 +703,130 @@ def test_unordered_buffer_row_is_corrupt_everywhere(tmp_path: Path):
         repo.validate_buffer()
     with pytest.raises(ConfigError, match="corrupt buffer day"):
         repo.delete_day(PINNED, ZONE)
+
+
+def test_settings_load_maps_adhan_file_and_aladhan(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["adhan_audio"]["file"] = "custom/x.mp3"
+    raw["schedule"]["aladhan"]["method"] = 2
+    path.write_text(json.dumps(raw, indent=2) + "\n")
+    settings = repo.load()
+    assert settings.adhan_audio_file == "custom/x.mp3"
+    assert settings.aladhan_method == 2
+
+
+def test_settings_save_round_trips_zone_provider_aladhan_and_file(tmp_path: Path):
+    repo, _ = _settings_repo(tmp_path)
+    settings = repo.load()
+    changed = replace(
+        settings,
+        sync_provider="aladhan",
+        zone="my-masjid",
+        jakim_zone="SGR01",
+        lat=3.07,
+        lon=101.69,
+        aladhan_base_url="https://aladhan.api.islamic.network/v1",
+        aladhan_method=2,
+        adhan_audio_file="custom/adhan2.mp3",
+    )
+    repo.save(changed)
+    reloaded = repo.load()
+    assert reloaded.sync_provider == "aladhan"
+    assert reloaded.zone == "my-masjid"
+    assert reloaded.jakim_zone == "SGR01"
+    assert reloaded.aladhan_base_url == "https://aladhan.api.islamic.network/v1"
+    assert reloaded.aladhan_method == 2
+    assert reloaded.adhan_audio_file == "custom/adhan2.mp3"
+
+
+def test_settings_save_clears_zone_override_when_matching_fetch_key(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    settings = replace(repo.load(), zone="SGR01", jakim_zone="SGR01")
+    repo.save(settings)
+    raw = json.loads(path.read_text())
+    assert raw["schedule"]["zone"] is None
+    assert repo.load().zone == "SGR01"
+
+
+def test_settings_save_keeps_jakim_key_none_for_non_jakim_provider(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    settings = replace(
+        repo.load(),
+        sync_provider="aladhan",
+        zone="my-label",
+        jakim_zone=None,
+        lat=3.07,
+        lon=101.69,
+    )
+    repo.save(settings)
+    raw = json.loads(path.read_text())
+    assert raw["schedule"]["jakim"]["zone"] is None
+    reloaded = repo.load()
+    assert reloaded.jakim_zone is None and reloaded.zone == "my-label"
+
+
+def test_settings_save_materializes_missing_sections(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    raw = json.loads(path.read_text())
+    del raw["schedule"]["aladhan"]
+    del raw["adhan_audio"]
+    path.write_text(json.dumps(raw, indent=2) + "\n")
+    settings = repo.load()
+    repo.save(settings)
+    reloaded = repo.load()
+    assert reloaded.aladhan_base_url == settings.aladhan_base_url
+    assert reloaded.adhan_audio_file == settings.adhan_audio_file
+    raw = json.loads(path.read_text())
+    assert raw["schedule"]["aladhan"]["base_url"] == settings.aladhan_base_url
+    assert raw["adhan_audio"]["file"] == settings.adhan_audio_file
+
+
+def test_atomic_write_json_concurrent_writers_keep_valid_json(tmp_path: Path):
+    import threading
+
+    from muhideen.adapters.file_config import _atomic_write_json
+
+    path = tmp_path / "config.json"
+    path.write_text("{}\n")
+    payloads = [{"worker": worker, "pad": "x" * 2000} for worker in range(8)]
+    errors: list[Exception] = []
+
+    def write_many(payload: dict) -> None:
+        try:
+            for _ in range(50):
+                _atomic_write_json(path, payload)
+        except Exception as exc:  # pragma: no cover - failure path asserts below
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=write_many, args=(payload,)) for payload in payloads
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    # The winner must be one complete payload, never a torn mix, and no
+    # tmp file may be left behind.
+    assert json.loads(path.read_text()) in payloads
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_settings_save_materializes_missing_jakim_for_non_jakim(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    raw = json.loads(path.read_text())
+    del raw["schedule"]["jakim"]
+    raw["schedule"]["sync_provider"] = "none"
+    path.write_text(json.dumps(raw, indent=2) + "\n")
+    settings = repo.load()
+    assert settings.sync_provider == "none"
+    repo.save(settings)
+    # The section must exist in the JSON itself: Schedule.jakim has a
+    # default factory, so a reload-only check would pass even if save left
+    # the section deleted.
+    raw = json.loads(path.read_text())
+    assert raw["schedule"]["jakim"] == {"zone": None}
+    reloaded = repo.load()
+    assert reloaded.sync_provider == "none"
+    assert reloaded.jakim_zone is None

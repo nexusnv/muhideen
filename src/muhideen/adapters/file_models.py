@@ -1,4 +1,4 @@
-"""Pydantic models for config/muhideen.json (replaces SettingsDTO + display tables)."""
+"""Pydantic models for config/muhideen.json (file-config surface)."""
 
 from __future__ import annotations
 
@@ -132,8 +132,15 @@ class AladhanSource(Strict):
     @field_validator("base_url")
     @classmethod
     def _base_url_http(cls, value: str) -> str:
-        """Base URL is an http(s) host; any path suffix is trimmed."""
-        if not re.match(r"^https?://[^/\s]+", value):
+        """Base URL is an http(s) host; any path suffix is trimmed.
+
+        Query/fragment components are rejected: the client appends the
+        calendar path to this raw value, so ``?``/``#`` would send
+        timetable sync to the wrong endpoint.
+        """
+        if re.search(r"\s", value) or not re.match(
+            r"^https?://[^/\s?#]+(?:/[^?\s#]*)?$", value
+        ):
             raise ValueError(f"aladhan base URL must be http(s): {value!r}")
         return value.rstrip("/")
 
@@ -265,6 +272,20 @@ class AdhanAudio(Strict):
         """Quiet hours need both bounds or neither."""
         if (self.quiet_hours_start is None) != (self.quiet_hours_end is None):
             raise ValueError("quiet hours need both start and end")
+        return self
+
+    @model_validator(mode="after")
+    def _file_relative_contained_when_enabled(self) -> AdhanAudio:
+        """Adhan file is media-root-relative when audio is enabled.
+
+        Disabled audio ignores the file setting so a stale/invalid path
+        cannot brick the display (resolve/URL helpers still reject always;
+        they are only reached when enabled).
+        """
+        if self.enabled:
+            from muhideen.core.values import normalize_adhan_rel
+
+            normalize_adhan_rel(self.file)
         return self
 
 

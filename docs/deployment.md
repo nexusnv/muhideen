@@ -118,6 +118,23 @@ display, buffer key): unset falls back to the JAKIM fetch key, else
 * Provider, host, and method are boot config: changing them needs a
   service restart (the sync client is built once, like the timezone).
   Zone label, coordinates, and offsets hot-reload as usual.
+* `FileSettingsRepo.save()` semantics (no caller wires it yet — the surface
+  is read-only): `save()` persists the full settings block truthfully
+  (`sync_provider`, served-zone override, `jakim.zone`, `aladhan`
+  host/method, plus the adhan `file`). Hot-reload applies masjid name,
+  zone label, coordinates, offsets, timing, theme, and adhan knobs live
+  (~1s, validated before swap). Boot config needs a service restart:
+  `sync_provider`, `aladhan` host/method (the sync client is built once),
+  and `timezone` (the clock is fixed at boot — the watcher logs a
+  restart-required warning). Switching the served-zone label orphans the
+  old zone's buffer rows until the next successful sync resolves the new
+  label (calc/last-known bridge the gap; never a blank display).
+* `adhan_audio.file` — media-dir-relative path (e.g. `"adhan.mp3"`;
+  the shipped `"media/adhan.mp3"` keeps working via a legacy-prefix strip),
+  resolved strictly inside the media dir. Absolute paths and `..` escapes
+  are config errors (503 slate); a missing file is silent (no adhan URL,
+  display renders without audio). The playback URL is stable
+  (`/media/<path>`). Swapping the audio bytes needs no restart.
 * **Fully offline** — `"sync_provider": "none"` (or the legacy
   `calc_only: true` switch): the scheduler never fetches, the display
   renders no source badges, and times resolve from coordinates via the
@@ -318,7 +335,7 @@ docker compose restart muhideen
 State lives in the bind-mounted files (config + timetable cache +
 media); the image itself is stateless. Port and tag come from
 `MUHIDEEN_PORT` / `MUHIDEEN_VERSION`. Adhan audio dropped into `media/`
-is served at `/media/adhan.mp3`; playlist `image_path` files are
+is served at the configured `adhan_audio.file` (default `/media/adhan.mp3`); playlist `image_path` files are
 addressable under `/media/` (template carousel rendering is a future
 slice). `/docs`, `/redoc`, and `/openapi.json` are public by decision —
 they expose only the read-only public schemas; the contract tests pin

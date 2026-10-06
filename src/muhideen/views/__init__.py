@@ -1,1 +1,1 @@
-"""Display and admin view templates (frontend owns this package)."""
+"""Display view templates (frontend owns this package)."""

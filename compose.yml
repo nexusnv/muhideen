@@ -31,7 +31,8 @@ services:
       # (Without this the boot log warns and the timetable never caches —
       # the sync retries forever on EACCES.)
       - ./config:/config
-      # Adhan audio served to the displays at /media/adhan.mp3, plus
+      # Adhan audio served to the displays at the configured adhan_audio.file
+      # (default /media/adhan.mp3), plus
       # playlist image files referenced by the config (carousel rendering
       # is a future slice — see docs/deployment.md).
       - ./media:/media

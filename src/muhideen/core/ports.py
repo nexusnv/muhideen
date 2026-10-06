@@ -39,7 +39,7 @@ class PrayerRepo(Protocol):
         """Upsert unless a manual pin holds the date; True when written.
 
         The read of the stored row and the conditional write are one
-        atomic step: a concurrent manual PUT between a separate check
+        atomic step: a concurrent manual pin edit between a separate check
         and write must never be clobbered by the daily sync.
         """
         ...
@@ -60,10 +60,10 @@ class PrayerRepo(Protocol):
 
 @runtime_checkable
 class SettingsRepo(Protocol):
-    """Installed configuration: load raises when setup has not run."""
+    """Installed configuration over the hand-edited JSON file."""
 
     def load(self) -> Settings:
-        """Load settings; raise ``SettingsNotInitializedError`` before setup."""
+        """Load settings; ``ConfigError`` on missing or invalid file."""
         ...
 
     def save(self, settings: Settings) -> None:
@@ -125,32 +125,6 @@ class EventBus(Protocol):
 
     def publish(self, event: str, changed: Sequence[str] = ()) -> None:
         """Publish ``event``; ``changed`` carries config-update groups."""
-        ...
-
-
-@runtime_checkable
-class MediaStore(Protocol):
-    """Enabled media assets for the display carousel (future media slice)."""
-
-    def list_enabled(self) -> list[str]:
-        """Return identifiers of enabled media in display order."""
-        ...
-
-
-@runtime_checkable
-class UserRepo(Protocol):
-    """Single-admin credential store with hashed passwords."""
-
-    def has_users(self) -> bool:
-        """Return True once the initial admin has been created."""
-        ...
-
-    def create_user(self, username: str, password: str) -> bool:
-        """Create a user; return False when the username already exists."""
-        ...
-
-    def verify(self, username: str, password: str) -> bool:
-        """Return True when the password verifies; False otherwise."""
         ...
 
 

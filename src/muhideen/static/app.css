@@ -37,7 +37,7 @@ body {
 .badge-calculated { color: #9db4c0; }
 .badge-manual { color: #7fc8a9; }
 
-/* Salah dim: same layout, darkened; long-press restores (admin). */
+/* Salah dim: same layout, darkened; long-press restores. */
 body.state-salah_dim .prayer-screen,
 body.state-salah_dim #banners,
 body.state-salah_dim #badges { filter: brightness(.07); }

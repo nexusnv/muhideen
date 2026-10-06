@@ -121,7 +121,7 @@ def run_sync(
     Manually pinned days take precedence over the sync (manual > provider):
     `save_day_unless_manual` leaves a stored row whose `source is MANUAL`
     byte-identical (returning False, not counted in the save count), so a
-    manual PUT racing the loop can never be clobbered. Deleting the pin
+    manual pin edit racing the loop can never be clobbered. Deleting the pin
     re-exposes the date to the next sync.
     """
     settings = settings_repo.load()

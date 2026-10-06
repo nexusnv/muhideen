@@ -206,7 +206,13 @@ def test_effective_zone_prefers_label_then_fetch_key():
 
 
 def test_aladhan_base_url_must_be_http():
-    for bad in ("ftp://example.com/v1", "not-a-url", "https://"):
+    for bad in (
+        "ftp://example.com/v1",
+        "not-a-url",
+        "https://",
+        "https://api.aladhan.com/v1?method=17",
+        "https://api.aladhan.com/v1#frag",
+    ):
         raw = _example_raw()
         raw["schedule"]["aladhan"]["base_url"] = bad
         with pytest.raises(ValidationError):
@@ -336,3 +342,24 @@ def test_playlist_items_capped_at_fifty():
         ConfigFile.model_validate(raw)
     valid = _example_raw()
     assert PlaylistFile.model_validate(valid["playlists"][0]).id == "announcements"
+
+
+def test_adhan_file_rejects_absolute_and_traversal() -> None:
+    import copy
+
+    base = {
+        "$schemaVersion": 1,
+        "masjid": {"name": "M", "timezone": "Asia/Kuala_Lumpur"},
+        "schedule": {"sync_provider": "none"},
+    }
+    bads = ("/etc/passwd", "/media/adhan.mp3", "../secret.mp3", "a/../../b.mp3")
+    for bad in bads:
+        cfg = copy.deepcopy(base)
+        cfg["adhan_audio"] = {"enabled": True, "file": bad}
+        with pytest.raises(ValidationError):
+            ConfigFile.model_validate(cfg)
+        # Disabled audio ignores the file setting so a stale path cannot
+        # brick the display; resolve still rejects (only called when enabled).
+        allowed = copy.deepcopy(base)
+        allowed["adhan_audio"] = {"enabled": False, "file": bad}
+        assert ConfigFile.model_validate(allowed).adhan_audio.file == bad

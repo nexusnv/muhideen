@@ -6,16 +6,17 @@
 ``manual_days`` pins over a JSON buffer cache, and :class:`FilePlaylistRepo`
 maps the playlist section. Every ``ValueError`` from domain construction
 (and every ``SyncError`` from pin ordering) becomes :class:`ConfigError`
-at this boundary, mirroring the former
-database-backed repos (read fresh on every call, validated on load).
+at this boundary (read fresh on every call, validated on load).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any, cast
@@ -66,18 +67,26 @@ def load_config_file(path: str | Path) -> ConfigFile:
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     """Write JSON via tmp+rename so readers see the old or new file, never torn.
 
-    The tmp name is pid-unique so concurrent writers cannot share it; the
-    payload is flushed and fsynced (plus a directory fsync where the OS
-    allows) so a crash loses at most the update, never the file itself.
-    Callers needing read-modify-write atomicity must still hold a lock —
-    see :class:`FilePrayerRepo`.
+    The tmp file is mkstemp-unique per write, so concurrent writers — even
+    threads sharing one pid — can never share (and truncate/replace away)
+    each other's tmp file; the payload is flushed and fsynced (plus a
+    directory fsync where the OS allows) so a crash loses at most the
+    update, never the file itself. Callers needing read-modify-write
+    atomicity must still hold a lock — see :class:`FilePrayerRepo`.
     """
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    with open(tmp, "w") as handle:
-        handle.write(json.dumps(payload, indent=2) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(tmp, path)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f"{path.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(payload, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise
     try:
         dir_fd = os.open(path.parent, os.O_DIRECTORY)
     except OSError:
@@ -140,6 +149,9 @@ def _settings_from_config(cfg: ConfigFile) -> Settings:
         quiet_hours_start=audio.quiet_hours_start,
         quiet_hours_end=audio.quiet_hours_end,
         adhan_muted_prayers=list(audio.muted_prayers),
+        adhan_audio_file=audio.file,
+        aladhan_base_url=cfg.schedule.aladhan.base_url,
+        aladhan_method=cfg.schedule.aladhan.method,
         theme=ThemeSettings(
             palette=cfg.theme.palette,
             font=cfg.theme.font,
@@ -155,9 +167,11 @@ def _settings_from_config(cfg: ConfigFile) -> Settings:
 class FileSettingsRepo:
     """``SettingsRepo`` over the JSON config file.
 
-    ``save`` round-trips through the current file content: only the mapped
-    scalar sections are replaced, so hand-edited ``displays``, ``playlists``,
-    ``manual_days``, and the adhan audio ``file`` survive untouched.
+    ``save`` round-trips through the current file content: the mapped
+    settings sections are replaced (masjid, schedule incl.
+    zone/provider/aladhan, timing, adhan audio incl. file, theme);
+    hand-edited ``displays``, ``playlists``, and ``manual_days`` survive
+    untouched.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -188,18 +202,22 @@ class FileSettingsRepo:
         if not isinstance(raw_data, dict):
             raise ConfigError(f"{self._path}: config root must be an object")
         data = cast(dict[str, Any], raw_data)
-        # Raw-dict surgery: only the mapped scalar sections are replaced, so
-        # hand-edited displays/playlists/manual_days (and the adhan audio
-        # file) survive byte-for-byte.
+        # Raw-dict surgery: only the mapped settings sections are replaced,
+        # so hand-edited displays/playlists/manual_days survive byte-for-byte.
         data["masjid"] = {
             "name": settings.masjid_name,
             "timezone": settings.timezone,
         }
         schedule_raw = data.get("schedule")
         audio_raw = data.get("adhan_audio")
-        if not isinstance(schedule_raw, dict) or not isinstance(audio_raw, dict):
+        if not isinstance(schedule_raw, dict) or (
+            audio_raw is not None and not isinstance(audio_raw, dict)
+        ):
             raise ConfigError(f"{self._path}: config missing schedule/audio sections")
         schedule = cast(dict[str, Any], schedule_raw)
+        if audio_raw is None:
+            audio_raw = {}
+            data["adhan_audio"] = audio_raw
         audio = cast(dict[str, Any], audio_raw)
         schedule.update(
             {
@@ -214,6 +232,39 @@ class FileSettingsRepo:
                 "boundary_countdown": settings.boundary_countdown,
             }
         )
+        # The served label doubles as the JAKIM fetch key when no explicit
+        # fetch key is set ("local" is never a fetch key). Hand-built
+        # Settings (e.g. zone-only seeds) predate the split; without this
+        # the jakim provider would fail its own file validation.
+        fetch_key = settings.jakim_zone
+        if (
+            settings.sync_provider == "jakim"
+            and fetch_key is None
+            and settings.zone != "local"
+        ):
+            fetch_key = settings.zone
+        if settings.zone == fetch_key or (
+            fetch_key is None and settings.zone == "local"
+        ):
+            schedule["zone"] = None
+        else:
+            schedule["zone"] = settings.zone
+        schedule["sync_provider"] = settings.sync_provider
+        jakim_raw = schedule.get("jakim")
+        if jakim_raw is None:
+            jakim_raw = {}
+            schedule["jakim"] = jakim_raw
+        if not isinstance(jakim_raw, dict):
+            raise ConfigError(f"{self._path}: config missing schedule.jakim section")
+        jakim_raw["zone"] = fetch_key
+        aladhan_raw = schedule.get("aladhan")
+        if aladhan_raw is None:
+            aladhan_raw = {}
+            schedule["aladhan"] = aladhan_raw
+        if not isinstance(aladhan_raw, dict):
+            raise ConfigError(f"{self._path}: config missing schedule.aladhan section")
+        aladhan_raw["base_url"] = settings.aladhan_base_url
+        aladhan_raw["method"] = settings.aladhan_method
         data["timing"] = {
             "adhan_duration_s": settings.adhan_duration_s,
             "dim_minutes_default": settings.dim_minutes_default,
@@ -243,6 +294,7 @@ class FileSettingsRepo:
                 "quiet_hours_start": settings.quiet_hours_start,
                 "quiet_hours_end": settings.quiet_hours_end,
                 "muted_prayers": list(settings.adhan_muted_prayers),
+                "file": settings.adhan_audio_file,
             }
         )
         data["theme"] = {
@@ -408,7 +460,7 @@ class FilePrayerRepo:
     """``PrayerRepo`` over config manual pins plus a JSON buffer cache.
 
     Manual pins (from ``config.schedule.manual_days``) always win over
-    buffer rows for their date. ``delete_day`` mirrors the sqlite port —
+    buffer rows for their date. ``delete_day`` mirrors the port contract —
     with one file-world caveat: pins live in the hand-edited config file,
     which this repo never writes, so deleting a pinned date returns False
     (remove the pin from the config instead); only a ``manual``-sourced

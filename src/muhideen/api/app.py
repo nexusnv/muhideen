@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Annotated, Protocol, cast
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -34,7 +35,10 @@ from pydantic import AfterValidator
 from starlette.responses import StreamingResponse
 from starlette.types import Send
 
-from muhideen.adapters.adhan_audio import ADHAN_FILENAME
+from muhideen.adapters.adhan_audio import (
+    ADHAN_FILENAME,
+    resolve_adhan_path,
+)
 from muhideen.adapters.aladhan import AladhanClient
 from muhideen.adapters.calc_mabims import MabimsCalcEngine
 from muhideen.adapters.config_watcher import ConfigWatcher
@@ -66,7 +70,13 @@ from muhideen.core.ports import (
     SettingsRepo,
     TimeSyncProbe,
 )
-from muhideen.core.values import NextEvent, Playlist, PrayerDay, Settings
+from muhideen.core.values import (
+    NextEvent,
+    Playlist,
+    PrayerDay,
+    Settings,
+    normalize_adhan_rel,
+)
 from muhideen.domain.iqamah import card_iqamah_labels
 from muhideen.domain.stage import StageOccupant, resolve_stage, stage_id
 from muhideen.engine import Engine
@@ -85,19 +95,37 @@ _TEMPLATES = Jinja2Templates(
 )
 
 
-def _adhan_audio_url(media_dir: Path) -> str:
-    """Public URL for the canonical adhan file.
+def _adhan_audio_url(media_dir: Path, rel_path: str = ADHAN_FILENAME) -> str:
+    """Public URL for the configured adhan file.
 
     Inside the static root the file keeps its ``/static/...`` URL;
     anywhere else (both deploy targets: compose ``/media``, systemd
     ``/var/lib/muhideen/media``) it is served from the ``/media`` mount
-    below — never the dead ``/static/uploads`` fallback.
+    below — never a stale hardcoded-name fallback. A legacy
+    ``media/`` prefix on the setting is stripped: it is media-relative.
+
+    The input must already be :func:`resolve_adhan_path`-valid; empty,
+    whitespace-only, directory-like, absolute, URL-structural, escaping,
+    or symlink-escaping values raise :class:`ConfigError`.
     """
     try:
-        rel = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
+        rel = normalize_adhan_rel(rel_path)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+    # Symlink containment: resolve rejects media-internal symlinks pointing
+    # outside the root; the URL helper must agree so a future caller using
+    # only this helper cannot mint a servable /media URL for an outside file.
+    # The display already calls resolve first (for is_file), so this is a
+    # second cheap check on the same path.
+    resolve_adhan_path(rel_path, media_dir)
+    # Percent-encode the path (``/`` preserved): Uvicorn/Starlette decode
+    # % escapes before StaticFiles resolves, so emitting ``%`` raw would
+    # address a different file than resolve checked.
+    try:
+        base = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
     except ValueError:
-        return f"/media/{ADHAN_FILENAME}"
-    return f"/static/{rel.as_posix()}/{ADHAN_FILENAME}"
+        return f"/media/{quote(rel, safe='/')}"
+    return f"/static/{quote((base / rel).as_posix(), safe='/')}"
 
 
 def _media_inside_static(media_dir: Path) -> bool:
@@ -726,9 +754,18 @@ def create_app(deps: AppDeps) -> FastAPI:
                 settings.quiet_hours_start,
                 settings.quiet_hours_end,
             )
-            and (media_dir / ADHAN_FILENAME).exists()
         ):
-            adhan_url = _adhan_audio_url(media_dir)
+            try:
+                adhan_path = resolve_adhan_path(settings.adhan_audio_file, media_dir)
+                if adhan_path.is_file():
+                    adhan_url = _adhan_audio_url(media_dir, settings.adhan_audio_file)
+            except ConfigError:
+                return _TEMPLATES.TemplateResponse(
+                    request,
+                    "error.html",
+                    {"code": 503, "message": "Setup required"},
+                    status_code=503,
+                )
         try:
             ctx = build_display_context(
                 day=day_dto,
