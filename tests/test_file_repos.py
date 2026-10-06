@@ -443,9 +443,12 @@ def test_atomic_write_skips_dir_fsync_when_unsupported(
     """Platforms without directory fsync still persist the payload."""
     from muhideen.adapters.file_config import _atomic_write_json
 
-    def _no_dir_fd(*args: object, **kwargs: object) -> int:
-        raise OSError("no directory fsync here")
+    def _no_dir_fd(path: object, flags: int, *args: object, **kwargs: object) -> int:
+        if flags & os.O_DIRECTORY:
+            raise OSError("no directory fsync here")
+        return real_open(path, flags, *args, **kwargs)
 
+    real_open = os.open
     monkeypatch.setattr(os, "open", _no_dir_fd)
     target = tmp_path / "buffer.json"
     _atomic_write_json(target, {"days": {}})
@@ -779,6 +782,37 @@ def test_settings_save_materializes_missing_sections(tmp_path: Path):
     assert raw["adhan_audio"]["file"] == settings.adhan_audio_file
 
 
+def test_atomic_write_json_concurrent_writers_keep_valid_json(tmp_path: Path):
+    import threading
+
+    from muhideen.adapters.file_config import _atomic_write_json
+
+    path = tmp_path / "config.json"
+    path.write_text("{}\n")
+    payloads = [{"worker": worker, "pad": "x" * 2000} for worker in range(8)]
+    errors: list[Exception] = []
+
+    def write_many(payload: dict) -> None:
+        try:
+            for _ in range(50):
+                _atomic_write_json(path, payload)
+        except Exception as exc:  # pragma: no cover - failure path asserts below
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=write_many, args=(payload,)) for payload in payloads
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    # The winner must be one complete payload, never a torn mix, and no
+    # tmp file may be left behind.
+    assert json.loads(path.read_text()) in payloads
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
 def test_settings_save_materializes_missing_jakim_for_non_jakim(tmp_path: Path):
     repo, path = _settings_repo(tmp_path)
     raw = json.loads(path.read_text())
@@ -788,6 +822,11 @@ def test_settings_save_materializes_missing_jakim_for_non_jakim(tmp_path: Path):
     settings = repo.load()
     assert settings.sync_provider == "none"
     repo.save(settings)
+    # The section must exist in the JSON itself: Schedule.jakim has a
+    # default factory, so a reload-only check would pass even if save left
+    # the section deleted.
+    raw = json.loads(path.read_text())
+    assert raw["schedule"]["jakim"] == {"zone": None}
     reloaded = repo.load()
     assert reloaded.sync_provider == "none"
     assert reloaded.jakim_zone is None

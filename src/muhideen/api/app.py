@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Annotated, Protocol, cast
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -117,11 +118,14 @@ def _adhan_audio_url(media_dir: Path, rel_path: str = ADHAN_FILENAME) -> str:
     # The display already calls resolve first (for is_file), so this is a
     # second cheap check on the same path.
     resolve_adhan_path(rel_path, media_dir)
+    # Percent-encode the path (``/`` preserved): Uvicorn/Starlette decode
+    # % escapes before StaticFiles resolves, so emitting ``%`` raw would
+    # address a different file than resolve checked.
     try:
         base = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
     except ValueError:
-        return f"/media/{rel}"
-    return f"/static/{(base / rel).as_posix()}"
+        return f"/media/{quote(rel, safe='/')}"
+    return f"/static/{quote((base / rel).as_posix(), safe='/')}"
 
 
 def _media_inside_static(media_dir: Path) -> bool:

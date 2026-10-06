@@ -132,8 +132,15 @@ class AladhanSource(Strict):
     @field_validator("base_url")
     @classmethod
     def _base_url_http(cls, value: str) -> str:
-        """Base URL is an http(s) host; any path suffix is trimmed."""
-        if re.search(r"\s", value) or not re.match(r"^https?://[^/\s]+(/\S*)?$", value):
+        """Base URL is an http(s) host; any path suffix is trimmed.
+
+        Query/fragment components are rejected: the client appends the
+        calendar path to this raw value, so ``?``/``#`` would send
+        timetable sync to the wrong endpoint.
+        """
+        if re.search(r"\s", value) or not re.match(
+            r"^https?://[^/\s?#]+(?:/[^?\s#]*)?$", value
+        ):
             raise ValueError(f"aladhan base URL must be http(s): {value!r}")
         return value.rstrip("/")
 

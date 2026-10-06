@@ -825,13 +825,18 @@ def test_settings_carries_adhan_file_and_aladhan_host() -> None:
 
 
 def test_settings_rejects_bad_aladhan_host_and_method() -> None:
-    with pytest.raises(ValueError, match="aladhan base URL"):
-        Settings(
-            masjid_name="M",
-            zone="SGR01",
-            hijri_offset=0,
-            aladhan_base_url="ftp://host/v1",
-        )
+    for bad in (
+        "ftp://host/v1",
+        "https://api.aladhan.com/v1?method=17",
+        "https://api.aladhan.com/v1#frag",
+    ):
+        with pytest.raises(ValueError, match="aladhan base URL"):
+            Settings(
+                masjid_name="M",
+                zone="SGR01",
+                hijri_offset=0,
+                aladhan_base_url=bad,
+            )
     with pytest.raises(ValueError, match="aladhan_method"):
         Settings(masjid_name="M", zone="SGR01", hijri_offset=0, aladhan_method=99)
 

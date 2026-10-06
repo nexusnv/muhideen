@@ -450,8 +450,11 @@ class Settings:
         stripped_base_url = self.aladhan_base_url.rstrip("/")
         if stripped_base_url != self.aladhan_base_url:
             object.__setattr__(self, "aladhan_base_url", stripped_base_url)
+        # Query/fragment components are rejected: the client appends the
+        # calendar path to this raw value, so ``?``/``#`` would send
+        # timetable sync to the wrong endpoint.
         if re.search(r"\s", self.aladhan_base_url) or not re.match(
-            r"^https?://[^/\s]+(/\S*)?$", self.aladhan_base_url
+            r"^https?://[^/\s?#]+(?:/[^?\s#]*)?$", self.aladhan_base_url
         ):
             raise ValueError(
                 f"aladhan base URL must be http(s): {self.aladhan_base_url!r}"

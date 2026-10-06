@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any, cast
@@ -65,18 +67,26 @@ def load_config_file(path: str | Path) -> ConfigFile:
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     """Write JSON via tmp+rename so readers see the old or new file, never torn.
 
-    The tmp name is pid-unique so concurrent writers cannot share it; the
-    payload is flushed and fsynced (plus a directory fsync where the OS
-    allows) so a crash loses at most the update, never the file itself.
-    Callers needing read-modify-write atomicity must still hold a lock —
-    see :class:`FilePrayerRepo`.
+    The tmp file is mkstemp-unique per write, so concurrent writers — even
+    threads sharing one pid — can never share (and truncate/replace away)
+    each other's tmp file; the payload is flushed and fsynced (plus a
+    directory fsync where the OS allows) so a crash loses at most the
+    update, never the file itself. Callers needing read-modify-write
+    atomicity must still hold a lock — see :class:`FilePrayerRepo`.
     """
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    with open(tmp, "w") as handle:
-        handle.write(json.dumps(payload, indent=2) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(tmp, path)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f"{path.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(payload, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise
     try:
         dir_fd = os.open(path.parent, os.O_DIRECTORY)
     except OSError:

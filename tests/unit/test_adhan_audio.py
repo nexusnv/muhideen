@@ -150,6 +150,41 @@ def test_resolve_rejects_whitespace_only_and_directories(tmp_path, bad: str) -> 
         _adhan_audio_url(media, bad)
 
 
+def test_adhan_audio_url_percent_encodes_special_chars(tmp_path) -> None:
+    from muhideen.api.app import _adhan_audio_url
+
+    media = tmp_path / "media"
+    media.mkdir()
+    # Uvicorn/Starlette decode % escapes before StaticFiles resolves, so a
+    # literal % in the filename must be encoded (and / must be preserved).
+    assert _adhan_audio_url(media, "mix%20.mp3") == "/media/mix%2520.mp3"
+    assert _adhan_audio_url(media, "my adhan.mp3") == "/media/my%20adhan.mp3"
+    assert _adhan_audio_url(media, "sub/dir.mp3") == "/media/sub/dir.mp3"
+    assert _adhan_audio_url(media, "adhan.mp3") == "/media/adhan.mp3"
+
+
+def test_resolve_translates_symlink_loop_to_config_error(tmp_path, monkeypatch) -> None:
+    from pathlib import Path
+
+    from muhideen.adapters.adhan_audio import resolve_adhan_path
+    from muhideen.core.errors import ConfigError
+
+    media = tmp_path / "media"
+    media.mkdir()
+    # Path.resolve() raises RuntimeError on symlink loops (py3.11/3.12);
+    # simulate it so the display keeps serving the 503 slate, not a 500.
+    real_resolve = Path.resolve
+
+    def looping_resolve(self, *args, **kwargs):
+        if str(self).startswith(str(media)):
+            raise RuntimeError(f"Symlink loop from {self!r}")
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", looping_resolve)
+    with pytest.raises(ConfigError, match="Symlink loop"):
+        resolve_adhan_path("adhan.mp3", media)
+
+
 def test_adhan_audio_url_rejects_symlink_escape(tmp_path) -> None:
     import os
 

@@ -206,7 +206,13 @@ def test_effective_zone_prefers_label_then_fetch_key():
 
 
 def test_aladhan_base_url_must_be_http():
-    for bad in ("ftp://example.com/v1", "not-a-url", "https://"):
+    for bad in (
+        "ftp://example.com/v1",
+        "not-a-url",
+        "https://",
+        "https://api.aladhan.com/v1?method=17",
+        "https://api.aladhan.com/v1#frag",
+    ):
         raw = _example_raw()
         raw["schedule"]["aladhan"]["base_url"] = bad
         with pytest.raises(ValidationError):
