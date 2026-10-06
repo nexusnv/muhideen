@@ -740,6 +740,8 @@ def create_app(deps: AppDeps) -> FastAPI:
         ):
             try:
                 adhan_path = resolve_adhan_path(settings.adhan_audio_file, media_dir)
+                if adhan_path.is_file():
+                    adhan_url = _adhan_audio_url(media_dir, settings.adhan_audio_file)
             except ConfigError:
                 return _TEMPLATES.TemplateResponse(
                     request,
@@ -747,8 +749,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                     {"code": 503, "message": "Setup required"},
                     status_code=503,
                 )
-            if adhan_path.is_file():
-                adhan_url = _adhan_audio_url(media_dir, settings.adhan_audio_file)
         try:
             ctx = build_display_context(
                 day=day_dto,

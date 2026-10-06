@@ -201,9 +201,14 @@ class FileSettingsRepo:
         }
         schedule_raw = data.get("schedule")
         audio_raw = data.get("adhan_audio")
-        if not isinstance(schedule_raw, dict) or not isinstance(audio_raw, dict):
+        if not isinstance(schedule_raw, dict) or (
+            audio_raw is not None and not isinstance(audio_raw, dict)
+        ):
             raise ConfigError(f"{self._path}: config missing schedule/audio sections")
         schedule = cast(dict[str, Any], schedule_raw)
+        if audio_raw is None:
+            audio_raw = {}
+            data["adhan_audio"] = audio_raw
         audio = cast(dict[str, Any], audio_raw)
         schedule.update(
             {
@@ -237,12 +242,18 @@ class FileSettingsRepo:
             schedule["zone"] = settings.zone
         schedule["sync_provider"] = settings.sync_provider
         jakim_raw = schedule.get("jakim")
+        if jakim_raw is None:
+            jakim_raw = {}
+            schedule["jakim"] = jakim_raw
         if not isinstance(jakim_raw, dict):
-            raise ConfigError(f"{self._path}: config missing schedule/audio sections")
+            raise ConfigError(f"{self._path}: config missing schedule.jakim section")
         jakim_raw["zone"] = fetch_key
         aladhan_raw = schedule.get("aladhan")
+        if aladhan_raw is None:
+            aladhan_raw = {}
+            schedule["aladhan"] = aladhan_raw
         if not isinstance(aladhan_raw, dict):
-            raise ConfigError(f"{self._path}: config missing schedule/audio sections")
+            raise ConfigError(f"{self._path}: config missing schedule.aladhan section")
         aladhan_raw["base_url"] = settings.aladhan_base_url
         aladhan_raw["method"] = settings.aladhan_method
         data["timing"] = {

@@ -335,7 +335,7 @@ docker compose restart muhideen
 State lives in the bind-mounted files (config + timetable cache +
 media); the image itself is stateless. Port and tag come from
 `MUHIDEEN_PORT` / `MUHIDEEN_VERSION`. Adhan audio dropped into `media/`
-is served at `/media/adhan.mp3`; playlist `image_path` files are
+is served at the configured `adhan_audio.file` (default `/media/adhan.mp3`); playlist `image_path` files are
 addressable under `/media/` (template carousel rendering is a future
 slice). `/docs`, `/redoc`, and `/openapi.json` are public by decision —
 they expose only the read-only public schemas; the contract tests pin

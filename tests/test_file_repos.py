@@ -761,3 +761,33 @@ def test_settings_save_keeps_jakim_key_none_for_non_jakim_provider(tmp_path: Pat
     assert raw["schedule"]["jakim"]["zone"] is None
     reloaded = repo.load()
     assert reloaded.jakim_zone is None and reloaded.zone == "my-label"
+
+
+def test_settings_save_materializes_missing_sections(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    raw = json.loads(path.read_text())
+    del raw["schedule"]["aladhan"]
+    del raw["adhan_audio"]
+    path.write_text(json.dumps(raw, indent=2) + "\n")
+    settings = repo.load()
+    repo.save(settings)
+    reloaded = repo.load()
+    assert reloaded.aladhan_base_url == settings.aladhan_base_url
+    assert reloaded.adhan_audio_file == settings.adhan_audio_file
+    raw = json.loads(path.read_text())
+    assert raw["schedule"]["aladhan"]["base_url"] == settings.aladhan_base_url
+    assert raw["adhan_audio"]["file"] == settings.adhan_audio_file
+
+
+def test_settings_save_materializes_missing_jakim_for_non_jakim(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    raw = json.loads(path.read_text())
+    del raw["schedule"]["jakim"]
+    raw["schedule"]["sync_provider"] = "none"
+    path.write_text(json.dumps(raw, indent=2) + "\n")
+    settings = repo.load()
+    assert settings.sync_provider == "none"
+    repo.save(settings)
+    reloaded = repo.load()
+    assert reloaded.sync_provider == "none"
+    assert reloaded.jakim_zone is None
