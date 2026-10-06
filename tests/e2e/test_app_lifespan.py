@@ -306,3 +306,74 @@ def test_partial_pin_applies_when_its_row_arrives(tmp_path: Path) -> None:
             assert client.get("/api/version").status_code == 200
         finally:
             deps.event_bus.unsubscribe(subscriber)
+
+
+def test_pins_file_hot_reload_and_invalid_keeps_last_good(tmp_path: Path) -> None:
+    """Pins-file edits hot-reload; invalid pins keep last-good with no publish."""
+    import json as json_mod
+    import queue
+    from datetime import date as day_date
+    from datetime import time as day_time
+
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
+    )
+    from muhideen.adapters.sse_bus import SSEBus
+
+    config_path = tmp_path / "muhideen.json"
+    shutil.copy(EXAMPLE, config_path)
+    raw = json_mod.loads(config_path.read_text())
+    pin = dict(raw["schedule"]["manual_days"][0])
+    pins_path = tmp_path / "pins.json"
+    pins_path.write_text(json_mod.dumps([pin]))
+    raw["schedule"]["manual_days"] = []
+    raw["schedule"]["manual_days_file"] = pins_path.name
+    config_path.write_text(json_mod.dumps(raw))
+    cfg = load_config_file(config_path)
+    assert len(cfg.schedule.manual_days) == 1
+    media_dir = tmp_path / "media"
+    media_dir.mkdir(exist_ok=True)
+    deps = AppDeps(
+        settings_repo=FileSettingsRepo(config_path),
+        prayer_repo=FilePrayerRepo(
+            tmp_path / "prayer_buffer.json", cfg.schedule.manual_days
+        ),
+        clock=FakeClock(),
+        event_bus=SSEBus(),
+        playlist_repo=FilePlaylistRepo(config_path),
+        media_dir=media_dir,
+        config_path=config_path,
+    )
+    app = create_app(deps)
+    with TestClient(app) as client:
+        assert client.get("/api/version").status_code == 200
+        subscriber = deps.event_bus.subscribe()
+        try:
+            zone = load_config_file(config_path).schedule.effective_zone
+            pin_day = day_date.fromisoformat(pin["date"])
+            assert isinstance(deps.prayer_repo, FilePrayerRepo)
+            assert deps.prayer_repo.get_pin(pin_day, zone) is not None
+
+            updated = dict(pin, maghrib="19:09")
+            pins_path.write_text(json_mod.dumps([updated]))
+            name, changed = subscriber.get(timeout=8.0)
+            assert (name, changed) == ("config-update", ("settings",))
+            completed = deps.prayer_repo.get_pin(pin_day, zone)
+            assert completed is not None
+            assert completed.maghrib == day_time(19, 9)
+
+            pins_path.write_text("{ not json")
+            with pytest.raises(queue.Empty):
+                subscriber.get(timeout=2.5)
+            assert deps.prayer_repo.get_pin(pin_day, zone) is not None
+            assert deps.prayer_repo.get_pin(pin_day, zone).maghrib == day_time(19, 9)
+
+            pins_path.write_text(json_mod.dumps([pin]))
+            name, changed = subscriber.get(timeout=8.0)
+            assert (name, changed) == ("config-update", ("settings",))
+            assert deps.prayer_repo.get_pin(pin_day, zone).maghrib == day_time(19, 15)
+        finally:
+            deps.event_bus.unsubscribe(subscriber)

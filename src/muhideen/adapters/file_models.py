@@ -158,6 +158,13 @@ class Schedule(Strict):
     dhuha_offset_min: Annotated[int, Field(ge=15, le=30)] = 28
     boundary_countdown: bool = False
     manual_days: list[ManualDay] = Field(default_factory=list[ManualDay])
+    manual_days_file: Annotated[str, Field(min_length=1, max_length=256)] | None = None
+    """Separate pins file (bare array), resolved relative to the main config.
+
+    Exclusive with inline ``manual_days``: setting both is a config error.
+    Resolved at load by ``load_config_file`` into ``manual_days`` with
+    identical merge/validation semantics; errors name the pins file.
+    """
     sync_provider: SyncProvider
     """Sync source, no default: ``jakim``/``aladhan`` fetch, ``none`` is
     explicit offline (no fetch ever — calc/manual only)."""
@@ -182,6 +189,19 @@ class Schedule(Strict):
         dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})
         if dupes:
             raise ValueError(f"duplicate manual_day date: {dupes}")
+        return self
+
+    @model_validator(mode="after")
+    def _manual_source_exclusive(self) -> Schedule:
+        """Inline pins and a pins file are exclusive: concatenation is rejected.
+
+        Rejection is simpler to reason about than merging two sources with
+        cross-file duplicate rules; use one source per install.
+        """
+        if self.manual_days and self.manual_days_file is not None:
+            raise ValueError(
+                "schedule.manual_days and schedule.manual_days_file are exclusive"
+            )
         return self
 
     @model_validator(mode="after")

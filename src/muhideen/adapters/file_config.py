@@ -47,7 +47,10 @@ def load_config_file(path: str | Path) -> ConfigFile:
 
     The error message carries the path plus the underlying pydantic (or
     JSON-syntax) detail so a hand-edit typo points at the file and the
-    offending key.
+    offending key. When ``schedule.manual_days_file`` is set, pins load
+    from that file (bare array, relative to this file's directory unless
+    absolute) with identical per-marker semantics; pins-file errors name
+    the pins file, and a missing pins file fails loud.
     """
     raw_path = Path(path)
     try:
@@ -59,9 +62,92 @@ def load_config_file(path: str | Path) -> ConfigFile:
     except json.JSONDecodeError as exc:
         raise ConfigError(f"{raw_path}: invalid JSON: {exc}") from exc
     try:
-        return ConfigFile.model_validate(data)
+        cfg = ConfigFile.model_validate(data)
     except ValidationError as exc:
         raise ConfigError(f"{raw_path}: {exc}") from exc
+    ref = cfg.schedule.manual_days_file
+    if ref is not None:
+        pins_path = resolve_pins_path(raw_path, ref)
+        cfg.schedule.manual_days = load_manual_days_file(pins_path)
+    return cfg
+
+
+def resolve_pins_path(config_path: str | Path, ref: str) -> Path:
+    """Resolve a pins-file reference relative to the main config directory.
+
+    Absolute references are an escape hatch; anything else joins onto the
+    main config file's parent so compose ``/config`` and systemd
+    ``/etc/muhideen`` layouts stay portable.
+    """
+    candidate = Path(ref)
+    if candidate.is_absolute():
+        return candidate
+    return Path(config_path).parent / candidate
+
+
+def load_manual_days_file(pins_path: str | Path) -> list[ManualDay]:
+    """Load a bare-array pins file; every error names the pins file.
+
+    A referenced-but-absent file fails loud (the operator asked for pins
+    and got none — silent empty risks serving uncorrected times).
+    Duplicates reject exactly like inline pins.
+    """
+    resolved = Path(pins_path)
+    try:
+        text = resolved.read_text()
+    except OSError as exc:
+        raise ConfigError(f"{resolved}: cannot read manual days file: {exc}") from exc
+    try:
+        raw_data: object = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            f"{resolved}: invalid JSON in manual days file: {exc}"
+        ) from exc
+    if not isinstance(raw_data, list):
+        raise ConfigError(
+            f"{resolved}: manual days file must be a bare array of day entries"
+        )
+    entries = cast(list[Any], raw_data)
+    pins: list[ManualDay] = []
+    try:
+        for entry in entries:
+            pins.append(ManualDay.model_validate(entry))
+    except ValidationError as exc:
+        raise ConfigError(f"{resolved}: {exc}") from exc
+    dates = [pin.date for pin in pins]
+    dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})
+    if dupes:
+        raise ConfigError(f"{resolved}: duplicate manual_day date: {dupes}")
+    return pins
+
+
+def manual_days_file_for_config(config_path: str | Path) -> Path | None:
+    """Resolved pins path without validating pins content (watcher use).
+
+    Reads only the main file's ``schedule.manual_days_file`` reference;
+    ``None`` when unset, unreadable, or not a non-empty string. Pins-file
+    content errors stay loud at ``load_config_file`` time.
+    """
+    raw_path = Path(config_path)
+    try:
+        text = raw_path.read_text()
+    except OSError:
+        return None
+    try:
+        raw_data: object = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(raw_data, dict):
+        return None
+    data = cast(dict[str, Any], raw_data)
+    schedule_raw: object = data.get("schedule")
+    if not isinstance(schedule_raw, dict):
+        return None
+    schedule = cast(dict[str, Any], schedule_raw)
+    ref: object = schedule.get("manual_days_file")
+    if not isinstance(ref, str) or not ref.strip():
+        return None
+    return resolve_pins_path(raw_path, ref)
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -170,8 +256,8 @@ class FileSettingsRepo:
     ``save`` round-trips through the current file content: the mapped
     settings sections are replaced (masjid, schedule incl.
     zone/provider/aladhan, timing, adhan audio incl. file, theme);
-    hand-edited ``displays``, ``playlists``, and ``manual_days`` survive
-    untouched.
+    hand-edited ``displays``, ``playlists``, ``manual_days``, and the
+    ``manual_days_file`` reference survive untouched.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -203,7 +289,8 @@ class FileSettingsRepo:
             raise ConfigError(f"{self._path}: config root must be an object")
         data = cast(dict[str, Any], raw_data)
         # Raw-dict surgery: only the mapped settings sections are replaced,
-        # so hand-edited displays/playlists/manual_days survive byte-for-byte.
+        # so hand-edited displays/playlists/manual_days/manual_days_file
+        # survive byte-for-byte.
         data["masjid"] = {
             "name": settings.masjid_name,
             "timezone": settings.timezone,
@@ -459,8 +546,9 @@ def _corrupt(path: Path, key: str, exc: Exception) -> ConfigError:
 class FilePrayerRepo:
     """``PrayerRepo`` over config manual pins plus a JSON buffer cache.
 
-    Manual pins (from ``config.schedule.manual_days``) always win over
-    buffer rows for their date. ``delete_day`` mirrors the port contract —
+    Manual pins (from ``config.schedule.manual_days``, inline or resolved
+    from ``manual_days_file``) always win over buffer rows for their date.
+    ``delete_day`` mirrors the port contract —
     with one file-world caveat: pins live in the hand-edited config file,
     which this repo never writes, so deleting a pinned date returns False
     (remove the pin from the config instead); only a ``manual``-sourced

@@ -13,7 +13,9 @@ publishing on failure.
 ``FileSettingsRepo``/``FilePlaylistRepo`` are read-through per call, so
 there is nothing to swap on reload; ``FilePrayerRepo`` caches only the
 ``manual_days`` snapshot (buffer rows are read per call), refreshed via
-:meth:`FilePrayerRepo.set_manual_days` by the lifespan callback.
+:meth:`FilePrayerRepo.set_manual_days` by the lifespan callback. When
+``schedule.manual_days_file`` is set, the lifespan also watches the
+resolved pins file so pins edits hot-reload like main-config edits.
 """
 
 from __future__ import annotations
@@ -74,6 +76,18 @@ class ConfigWatcher:
         """Start the daemon polling thread."""
         self._thread.start()
 
+    def watch(self, path: str | Path) -> None:
+        """Start watching one more file (pins-file reference changes).
+
+        Idempotent: re-adding a watched path is a no-op. Called from the
+        lifespan reload when the main config starts pointing at a new
+        pins file so edits to it hot-reload without a restart.
+        """
+        candidate = Path(path)
+        if candidate not in self._paths:
+            self._paths.append(candidate)
+            self._snaps[candidate] = _snapshot(candidate)
+
     def stop(self, timeout: float = 2.0) -> None:
         """Signal the thread and join it (bounded by ``timeout``)."""
         self._stop.set()
@@ -82,7 +96,7 @@ class ConfigWatcher:
     def _run(self) -> None:
         """Poll until stopped; log callback errors, keep serving."""
         while not self._stop.wait(self._interval):
-            for path in self._paths:
+            for path in list(self._paths):
                 snap = _snapshot(path)
                 if snap is None:
                     continue
