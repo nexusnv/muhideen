@@ -9,12 +9,10 @@ from muhideen.core.ports import (
     CalcEngine,
     Clock,
     EventBus,
-    MediaStore,
     PrayerRepo,
     ScheduleClient,
     SettingsRepo,
     TimeSyncProbe,
-    UserRepo,
 )
 from muhideen.core.values import AsrJuristic, PrayerDay, Settings
 
@@ -142,32 +140,6 @@ class PartialEventBus:
         raise NotImplementedError
 
 
-class FullMediaStore:
-    def list_enabled(self) -> list[str]:
-        raise NotImplementedError
-
-
-class PartialMediaStore:
-    def list_all(self) -> list[str]:
-        raise NotImplementedError
-
-
-class FullUserRepo:
-    def has_users(self) -> bool:
-        raise NotImplementedError
-
-    def create_user(self, username: str, password: str) -> bool:
-        raise NotImplementedError
-
-    def verify(self, username: str, password: str) -> bool:
-        raise NotImplementedError
-
-
-class PartialUserRepo:
-    def has_users(self) -> bool:
-        raise NotImplementedError
-
-
 ALL_PROTOCOLS = (
     PrayerRepo,
     SettingsRepo,
@@ -176,8 +148,6 @@ ALL_PROTOCOLS = (
     Clock,
     TimeSyncProbe,
     EventBus,
-    MediaStore,
-    UserRepo,
 )
 
 
@@ -192,8 +162,6 @@ ALL_PROTOCOLS = (
         (FullClock(), Clock),
         (FullTimeSyncProbe(), TimeSyncProbe),
         (FullEventBus(), EventBus),
-        (FullMediaStore(), MediaStore),
-        (FullUserRepo(), UserRepo),
     ],
 )
 def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
@@ -213,8 +181,6 @@ def test_satisfying_stub_passes_isinstance(stub: Any, protocol: type) -> None:
         (PartialClock(), Clock),
         (PartialTimeSyncProbe(), TimeSyncProbe),
         (PartialEventBus(), EventBus),
-        (PartialMediaStore(), MediaStore),
-        (PartialUserRepo(), UserRepo),
     ],
 )
 def test_incomplete_stub_fails_isinstance(stub: Any, protocol: type) -> None:
