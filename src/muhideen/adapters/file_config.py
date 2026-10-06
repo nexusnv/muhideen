@@ -223,7 +223,11 @@ class FileSettingsRepo:
         # Settings (e.g. zone-only seeds) predate the split; without this
         # the jakim provider would fail its own file validation.
         fetch_key = settings.jakim_zone
-        if fetch_key is None and settings.zone != "local":
+        if (
+            settings.sync_provider == "jakim"
+            and fetch_key is None
+            and settings.zone != "local"
+        ):
             fetch_key = settings.zone
         if settings.zone == fetch_key or (
             fetch_key is None and settings.zone == "local"

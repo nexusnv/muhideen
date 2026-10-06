@@ -744,3 +744,20 @@ def test_settings_save_clears_zone_override_when_matching_fetch_key(tmp_path: Pa
     raw = json.loads(path.read_text())
     assert raw["schedule"]["zone"] is None
     assert repo.load().zone == "SGR01"
+
+
+def test_settings_save_keeps_jakim_key_none_for_non_jakim_provider(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    settings = replace(
+        repo.load(),
+        sync_provider="aladhan",
+        zone="my-label",
+        jakim_zone=None,
+        lat=3.07,
+        lon=101.69,
+    )
+    repo.save(settings)
+    raw = json.loads(path.read_text())
+    assert raw["schedule"]["jakim"]["zone"] is None
+    reloaded = repo.load()
+    assert reloaded.jakim_zone is None and reloaded.zone == "my-label"
