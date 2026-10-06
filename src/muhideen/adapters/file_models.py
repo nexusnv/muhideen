@@ -133,7 +133,9 @@ class AladhanSource(Strict):
     @classmethod
     def _base_url_http(cls, value: str) -> str:
         """Base URL is an http(s) host; any path suffix is trimmed."""
-        if not re.match(r"^https?://[^/\s]+", value):
+        if re.search(r"\s", value) or not re.match(
+            r"^https?://[^/\s]+(/\S*)?$", value
+        ):
             raise ValueError(f"aladhan base URL must be http(s): {value!r}")
         return value.rstrip("/")
 
@@ -271,15 +273,9 @@ class AdhanAudio(Strict):
     @classmethod
     def _file_relative_contained(cls, value: str) -> str:
         """Adhan file is media-root-relative: no absolute paths, no escapes."""
-        import posixpath
+        from muhideen.core.values import normalize_adhan_rel
 
-        if not value:
-            raise ValueError("adhan_audio.file must be non-empty")
-        if value.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", value):
-            raise ValueError(f"adhan_audio.file must be relative: {value!r}")
-        norm = posixpath.normpath(value.replace("\\", "/"))
-        if norm == ".." or norm.startswith("../"):
-            raise ValueError(f"adhan_audio.file escapes the media root: {value!r}")
+        normalize_adhan_rel(value)
         return value
 
 

@@ -16,6 +16,7 @@ at the boundary.
 
 from __future__ import annotations
 
+import posixpath
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
@@ -301,6 +302,44 @@ _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 """Quiet-hours bound shape: 24h ``HH:MM`` (same wire shape as prayer times)."""
 
 
+def strip_legacy_media_prefix(value: str) -> str:
+    """Strip the shipped-default ``media/`` prefix to a media-relative rel."""
+    if value == "media":
+        return ""
+    if value.startswith("media/"):
+        return value[len("media/") :]
+    return value
+
+
+def normalize_adhan_rel(value: str) -> str:
+    """Normalize a configured adhan file to a media-relative posix path.
+
+    Raises ``ValueError`` on empty, absolute (including the degenerate
+    ``media//...`` leftover of the legacy prefix), URL-structural
+    (``?``/``#`` would split the served URL), or escaping values.
+    Filesystem callers translate to ``ConfigError``; validated-model
+    callers let ``ValueError`` flow into the boundary translation.
+    Storage keeps the original spelling (e.g. ``sub/../x.mp3`` stays
+    byte-stable in hand-edited files); resolution/URLs use the norm.
+    """
+    if not value:
+        raise ValueError("adhan_audio.file must be non-empty")
+    candidate = value.replace("\\", "/")
+    if candidate.startswith("/") or re.match(r"^[A-Za-z]:", candidate):
+        raise ValueError(f"adhan_audio.file must be relative: {value!r}")
+    rel = strip_legacy_media_prefix(candidate)
+    if rel.startswith("/"):
+        raise ValueError(f"adhan_audio.file must be relative: {value!r}")
+    if "?" in rel or "#" in rel:
+        raise ValueError(f"adhan_audio.file must not contain '?' or '#': {value!r}")
+    norm = posixpath.normpath(rel)
+    if norm in ("", "."):
+        raise ValueError(f"adhan_audio.file must name a file: {value!r}")
+    if norm == ".." or norm.startswith("../"):
+        raise ValueError(f"adhan_audio.file escapes the media root: {value!r}")
+    return norm
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Installation identity, display tuning, and schedule-source switches."""
@@ -392,9 +431,10 @@ class Settings:
                 )
         if not 0 <= self.adhan_volume <= 100:
             raise ValueError(f"adhan_volume out of range 0-100: {self.adhan_volume}")
-        if not self.adhan_audio_file:
-            raise ValueError("adhan_audio_file must be non-empty")
-        if not re.match(r"^https?://[^/\s]+", self.aladhan_base_url):
+        normalize_adhan_rel(self.adhan_audio_file)
+        if re.search(r"\s", self.aladhan_base_url) or not re.match(
+            r"^https?://[^/\s]+(/\S*)?$", self.aladhan_base_url
+        ):
             raise ValueError(
                 f"aladhan base URL must be http(s): {self.aladhan_base_url!r}"
             )

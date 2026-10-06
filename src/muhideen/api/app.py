@@ -12,7 +12,6 @@ import asyncio
 import hashlib
 import logging
 import os
-import posixpath
 import queue
 import re
 import threading
@@ -37,7 +36,6 @@ from starlette.types import Send
 
 from muhideen.adapters.adhan_audio import (
     ADHAN_FILENAME,
-    _strip_legacy_media_prefix,
     resolve_adhan_path,
 )
 from muhideen.adapters.aladhan import AladhanClient
@@ -71,7 +69,7 @@ from muhideen.core.ports import (
     SettingsRepo,
     TimeSyncProbe,
 )
-from muhideen.core.values import NextEvent, Playlist, PrayerDay, Settings
+from muhideen.core.values import NextEvent, Playlist, PrayerDay, Settings, normalize_adhan_rel
 from muhideen.domain.iqamah import card_iqamah_labels
 from muhideen.domain.stage import StageOccupant, resolve_stage, stage_id
 from muhideen.engine import Engine
@@ -96,10 +94,16 @@ def _adhan_audio_url(media_dir: Path, rel_path: str = ADHAN_FILENAME) -> str:
     Inside the static root the file keeps its ``/static/...`` URL;
     anywhere else (both deploy targets: compose ``/media``, systemd
     ``/var/lib/muhideen/media``) it is served from the ``/media`` mount
-    below — never the dead ``/static/uploads`` fallback. A legacy
+    below — never a stale hardcoded-name fallback. A legacy
     ``media/`` prefix on the setting is stripped: it is media-relative.
+
+    The input must already be :func:`resolve_adhan_path`-valid; empty,
+    absolute, or escaping values raise :class:`ConfigError`.
     """
-    rel = posixpath.normpath(_strip_legacy_media_prefix(rel_path.replace("\\", "/")))
+    try:
+        rel = normalize_adhan_rel(rel_path)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
     try:
         base = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
     except ValueError:
@@ -743,7 +747,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                     {"code": 503, "message": "Setup required"},
                     status_code=503,
                 )
-            if adhan_path.exists():
+            if adhan_path.is_file():
                 adhan_url = _adhan_audio_url(media_dir, settings.adhan_audio_file)
         try:
             ctx = build_display_context(
