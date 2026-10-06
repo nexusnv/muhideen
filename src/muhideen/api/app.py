@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import posixpath
 import queue
 import re
 import threading
@@ -98,7 +99,7 @@ def _adhan_audio_url(media_dir: Path, rel_path: str = ADHAN_FILENAME) -> str:
     below — never the dead ``/static/uploads`` fallback. A legacy
     ``media/`` prefix on the setting is stripped: it is media-relative.
     """
-    rel = _strip_legacy_media_prefix(rel_path.replace("\\", "/"))
+    rel = posixpath.normpath(_strip_legacy_media_prefix(rel_path.replace("\\", "/")))
     try:
         base = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
     except ValueError:

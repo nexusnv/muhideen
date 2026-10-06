@@ -58,6 +58,12 @@ def test_adhan_audio_url_helper_default_and_custom(tmp_path) -> None:
     )
 
 
+def test_adhan_audio_url_normalizes_dotdot_segments(tmp_path) -> None:
+    from muhideen.api.app import _adhan_audio_url
+
+    assert _adhan_audio_url(tmp_path / "elsewhere", "sub/../x.mp3") == "/media/x.mp3"
+
+
 def test_sniff_rejects_short_blobs() -> None:
     from muhideen.adapters.adhan_audio import _is_mp3
 
@@ -94,6 +100,17 @@ def test_resolve_rejects_absolute_and_escape(tmp_path) -> None:
         resolve_adhan_path("../secret.mp3", media)
     with pytest.raises(ConfigError):
         resolve_adhan_path("sub/../../escape.mp3", media)
+
+
+@pytest.mark.parametrize("degenerate", ["media", "media/"])
+def test_resolve_rejects_bare_media_prefix(tmp_path, degenerate: str) -> None:
+    from muhideen.adapters.adhan_audio import resolve_adhan_path
+    from muhideen.core.errors import ConfigError
+
+    media = tmp_path / "media"
+    media.mkdir()
+    with pytest.raises(ConfigError):
+        resolve_adhan_path(degenerate, media)
 
 
 def test_resolve_strips_legacy_media_prefix_and_urls_are_stable(

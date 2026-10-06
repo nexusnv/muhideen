@@ -79,6 +79,8 @@ def resolve_adhan_path(file_setting: str, media_dir: str | Path) -> Path:
         raise ConfigError(f"adhan_audio.file must be relative: {file_setting!r}")
     rel = _strip_legacy_media_prefix(candidate)
     norm = posixpath.normpath(rel)
+    if norm in ("", "."):
+        raise ConfigError(f"adhan_audio.file must name a file: {file_setting!r}")
     if norm == ".." or norm.startswith("../"):
         raise ConfigError(f"adhan_audio.file escapes the media root: {file_setting!r}")
     root = Path(media_dir).resolve()
