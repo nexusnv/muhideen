@@ -279,9 +279,7 @@ class AdhanAudio(Strict):
             raise ValueError(f"adhan_audio.file must be relative: {value!r}")
         norm = posixpath.normpath(value.replace("\\", "/"))
         if norm == ".." or norm.startswith("../"):
-            raise ValueError(
-                f"adhan_audio.file escapes the media root: {value!r}"
-            )
+            raise ValueError(f"adhan_audio.file escapes the media root: {value!r}")
         return value
 
 
