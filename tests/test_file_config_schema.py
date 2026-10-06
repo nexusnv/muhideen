@@ -336,3 +336,19 @@ def test_playlist_items_capped_at_fifty():
         ConfigFile.model_validate(raw)
     valid = _example_raw()
     assert PlaylistFile.model_validate(valid["playlists"][0]).id == "announcements"
+
+
+def test_adhan_file_rejects_absolute_and_traversal() -> None:
+    import copy
+
+    base = {
+        "$schemaVersion": 1,
+        "masjid": {"name": "M", "timezone": "Asia/Kuala_Lumpur"},
+        "schedule": {"sync_provider": "none"},
+    }
+    bads = ("/etc/passwd", "/media/adhan.mp3", "../secret.mp3", "a/../../b.mp3")
+    for bad in bads:
+        cfg = copy.deepcopy(base)
+        cfg["adhan_audio"] = {"file": bad}
+        with pytest.raises(ValidationError):
+            ConfigFile.model_validate(cfg)

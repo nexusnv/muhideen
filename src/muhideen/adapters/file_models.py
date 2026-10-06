@@ -267,6 +267,23 @@ class AdhanAudio(Strict):
             raise ValueError("quiet hours need both start and end")
         return self
 
+    @field_validator("file")
+    @classmethod
+    def _file_relative_contained(cls, value: str) -> str:
+        """Adhan file is media-root-relative: no absolute paths, no escapes."""
+        import posixpath
+
+        if not value:
+            raise ValueError("adhan_audio.file must be non-empty")
+        if value.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", value):
+            raise ValueError(f"adhan_audio.file must be relative: {value!r}")
+        norm = posixpath.normpath(value.replace("\\", "/"))
+        if norm == ".." or norm.startswith("../"):
+            raise ValueError(
+                f"adhan_audio.file escapes the media root: {value!r}"
+            )
+        return value
+
 
 class Theme(Strict):
     """Global display defaults: seven closed enums (see core/values.py)."""
