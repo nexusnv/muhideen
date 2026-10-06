@@ -61,7 +61,7 @@ def test_resolve_rejects_url_structural_chars(tmp_path, bad: str) -> None:
 
 
 def test_normalize_rejected_consistently_at_every_layer(tmp_path) -> None:
-    """Low-1 regression: load validators and resolve must agree."""
+    """Enabled-audio regression: load validators and resolve must agree."""
     import copy
 
     from pydantic import ValidationError
@@ -74,19 +74,47 @@ def test_normalize_rejected_consistently_at_every_layer(tmp_path) -> None:
 
     media = tmp_path / "media"
     media.mkdir()
-    for bad in ("media//adhan.mp3", "x?y.mp3", "a#b.mp3"):
+    for bad in ("media//adhan.mp3", "x?y.mp3", "a#b.mp3", "a\x00.mp3"):
         cfg = {
             "$schemaVersion": 1,
             "masjid": {"name": "M", "timezone": "Asia/Kuala_Lumpur"},
             "schedule": {"sync_provider": "none"},
-            "adhan_audio": {"file": bad},
+            "adhan_audio": {"enabled": True, "file": bad},
         }
         with pytest.raises(ValidationError):
             ConfigFile.model_validate(copy.deepcopy(cfg))
         with pytest.raises(ValueError):
             Settings(
-                masjid_name="M", zone="SGR01", hijri_offset=0, adhan_audio_file=bad
+                masjid_name="M",
+                zone="SGR01",
+                hijri_offset=0,
+                adhan_audio_enabled=True,
+                adhan_audio_file=bad,
             )
+        with pytest.raises(ConfigError):
+            resolve_adhan_path(bad, media)
+        with pytest.raises(ConfigError):
+            _adhan_audio_url(media, bad)
+    # Disabled audio ignores the file at load but resolve still rejects
+    # (display only resolves when enabled).
+    for bad in ("media//adhan.mp3", "../escape.mp3", "a\x00.mp3"):
+        cfg = {
+            "$schemaVersion": 1,
+            "masjid": {"name": "M", "timezone": "Asia/Kuala_Lumpur"},
+            "schedule": {"sync_provider": "none"},
+            "adhan_audio": {"enabled": False, "file": bad},
+        }
+        assert ConfigFile.model_validate(copy.deepcopy(cfg)).adhan_audio.file == bad
+        assert (
+            Settings(
+                masjid_name="M",
+                zone="SGR01",
+                hijri_offset=0,
+                adhan_audio_enabled=False,
+                adhan_audio_file=bad,
+            ).adhan_audio_file
+            == bad
+        )
         with pytest.raises(ConfigError):
             resolve_adhan_path(bad, media)
         with pytest.raises(ConfigError):
@@ -106,3 +134,30 @@ def test_resolve_strips_legacy_media_prefix_and_urls_are_stable(tmp_path) -> Non
     assert _adhan_audio_url(media, "media/adhan.mp3") == _adhan_audio_url(
         media, "adhan.mp3"
     )
+
+
+@pytest.mark.parametrize("bad", [" ", "   ", "custom/dir/", "media/"])
+def test_resolve_rejects_whitespace_only_and_directories(tmp_path, bad: str) -> None:
+    from muhideen.adapters.adhan_audio import resolve_adhan_path
+    from muhideen.api.app import _adhan_audio_url
+    from muhideen.core.errors import ConfigError
+
+    media = tmp_path / "media"
+    media.mkdir()
+    with pytest.raises(ConfigError):
+        resolve_adhan_path(bad, media)
+    with pytest.raises(ConfigError):
+        _adhan_audio_url(media, bad)
+
+
+def test_adhan_audio_url_rejects_symlink_escape(tmp_path) -> None:
+    import os
+
+    from muhideen.api.app import _adhan_audio_url
+    from muhideen.core.errors import ConfigError
+
+    media = tmp_path / "media"
+    media.mkdir()
+    os.symlink("/etc", media / "link")
+    with pytest.raises(ConfigError, match="escapes"):
+        _adhan_audio_url(media, "link/passwd")

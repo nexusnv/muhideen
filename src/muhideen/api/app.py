@@ -104,12 +104,19 @@ def _adhan_audio_url(media_dir: Path, rel_path: str = ADHAN_FILENAME) -> str:
     ``media/`` prefix on the setting is stripped: it is media-relative.
 
     The input must already be :func:`resolve_adhan_path`-valid; empty,
-    absolute, or escaping values raise :class:`ConfigError`.
+    whitespace-only, directory-like, absolute, URL-structural, escaping,
+    or symlink-escaping values raise :class:`ConfigError`.
     """
     try:
         rel = normalize_adhan_rel(rel_path)
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc
+    # Symlink containment: resolve rejects media-internal symlinks pointing
+    # outside the root; the URL helper must agree so a future caller using
+    # only this helper cannot mint a servable /media URL for an outside file.
+    # The display already calls resolve first (for is_file), so this is a
+    # second cheap check on the same path.
+    resolve_adhan_path(rel_path, media_dir)
     try:
         base = media_dir.resolve().relative_to(_STATIC_DIR.resolve())
     except ValueError:

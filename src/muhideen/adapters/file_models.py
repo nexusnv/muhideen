@@ -267,14 +267,19 @@ class AdhanAudio(Strict):
             raise ValueError("quiet hours need both start and end")
         return self
 
-    @field_validator("file")
-    @classmethod
-    def _file_relative_contained(cls, value: str) -> str:
-        """Adhan file is media-root-relative: no absolute paths, no escapes."""
-        from muhideen.core.values import normalize_adhan_rel
+    @model_validator(mode="after")
+    def _file_relative_contained_when_enabled(self) -> AdhanAudio:
+        """Adhan file is media-root-relative when audio is enabled.
 
-        normalize_adhan_rel(value)
-        return value
+        Disabled audio ignores the file setting so a stale/invalid path
+        cannot brick the display (resolve/URL helpers still reject always;
+        they are only reached when enabled).
+        """
+        if self.enabled:
+            from muhideen.core.values import normalize_adhan_rel
+
+            normalize_adhan_rel(self.file)
+        return self
 
 
 class Theme(Strict):

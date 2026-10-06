@@ -349,6 +349,11 @@ def test_adhan_file_rejects_absolute_and_traversal() -> None:
     bads = ("/etc/passwd", "/media/adhan.mp3", "../secret.mp3", "a/../../b.mp3")
     for bad in bads:
         cfg = copy.deepcopy(base)
-        cfg["adhan_audio"] = {"file": bad}
+        cfg["adhan_audio"] = {"enabled": True, "file": bad}
         with pytest.raises(ValidationError):
             ConfigFile.model_validate(cfg)
+        # Disabled audio ignores the file setting so a stale path cannot
+        # brick the display; resolve still rejects (only called when enabled).
+        allowed = copy.deepcopy(base)
+        allowed["adhan_audio"] = {"enabled": False, "file": bad}
+        assert ConfigFile.model_validate(allowed).adhan_audio.file == bad

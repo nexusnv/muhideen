@@ -834,3 +834,24 @@ def test_settings_rejects_bad_aladhan_host_and_method() -> None:
         )
     with pytest.raises(ValueError, match="aladhan_method"):
         Settings(masjid_name="M", zone="SGR01", hijri_offset=0, aladhan_method=99)
+
+
+def test_settings_strips_aladhan_trailing_slash_for_round_trip() -> None:
+    s = Settings(
+        masjid_name="M",
+        zone="SGR01",
+        hijri_offset=0,
+        aladhan_base_url="https://aladhan.api.islamic.network/v1/",
+    )
+    assert s.aladhan_base_url == "https://aladhan.api.islamic.network/v1"
+
+
+def test_settings_ignores_adhan_file_when_disabled() -> None:
+    s = Settings(
+        masjid_name="M",
+        zone="SGR01",
+        hijri_offset=0,
+        adhan_audio_enabled=False,
+        adhan_audio_file="../escape.mp3",
+    )
+    assert s.adhan_audio_file == "../escape.mp3"

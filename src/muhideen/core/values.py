@@ -314,7 +314,10 @@ def strip_legacy_media_prefix(value: str) -> str:
 def normalize_adhan_rel(value: str) -> str:
     """Normalize a configured adhan file to a media-relative posix path.
 
-    Raises ``ValueError`` on empty, absolute (including the degenerate
+    Raises ``ValueError`` on empty/whitespace-only, NUL bytes (which the
+    filesystem layer rejects with an unwrapped ``ValueError`` instead of
+    the 503 slate), directory-like
+    (trailing ``/``), absolute (including the degenerate
     ``media//...`` leftover of the legacy prefix), URL-structural
     (``?``/``#`` would split the served URL), or escaping values.
     Filesystem callers translate to ``ConfigError``; validated-model
@@ -322,9 +325,15 @@ def normalize_adhan_rel(value: str) -> str:
     Storage keeps the original spelling (e.g. ``sub/../x.mp3`` stays
     byte-stable in hand-edited files); resolution/URLs use the norm.
     """
-    if not value:
+    if not value or not value.strip():
         raise ValueError("adhan_audio.file must be non-empty")
+    if "\x00" in value:
+        raise ValueError(f"adhan_audio.file must not contain NUL bytes: {value!r}")
     candidate = value.replace("\\", "/")
+    if candidate.strip().endswith("/"):
+        raise ValueError(
+            f"adhan_audio.file must name a file, not a directory: {value!r}"
+        )
     if candidate.startswith("/") or re.match(r"^[A-Za-z]:", candidate):
         raise ValueError(f"adhan_audio.file must be relative: {value!r}")
     rel = strip_legacy_media_prefix(candidate)
@@ -431,7 +440,16 @@ class Settings:
                 )
         if not 0 <= self.adhan_volume <= 100:
             raise ValueError(f"adhan_volume out of range 0-100: {self.adhan_volume}")
-        normalize_adhan_rel(self.adhan_audio_file)
+        # Disabled audio ignores the file setting: a stale/invalid path must
+        # not brick the display (resolve/URL helpers always reject; they are
+        # only called when enabled, where all layers agree).
+        if self.adhan_audio_enabled:
+            normalize_adhan_rel(self.adhan_audio_file)
+        # Strip trailing slashes so save/load round-trips byte-stable
+        # (the file model strips on validate).
+        stripped_base_url = self.aladhan_base_url.rstrip("/")
+        if stripped_base_url != self.aladhan_base_url:
+            object.__setattr__(self, "aladhan_base_url", stripped_base_url)
         if re.search(r"\s", self.aladhan_base_url) or not re.match(
             r"^https?://[^/\s]+(/\S*)?$", self.aladhan_base_url
         ):
