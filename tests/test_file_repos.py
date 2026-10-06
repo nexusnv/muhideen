@@ -700,3 +700,14 @@ def test_unordered_buffer_row_is_corrupt_everywhere(tmp_path: Path):
         repo.validate_buffer()
     with pytest.raises(ConfigError, match="corrupt buffer day"):
         repo.delete_day(PINNED, ZONE)
+
+
+def test_settings_load_maps_adhan_file_and_aladhan(tmp_path: Path):
+    repo, path = _settings_repo(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["adhan_audio"]["file"] = "custom/x.mp3"
+    raw["schedule"]["aladhan"]["method"] = 2
+    path.write_text(json.dumps(raw, indent=2) + "\n")
+    settings = repo.load()
+    assert settings.adhan_audio_file == "custom/x.mp3"
+    assert settings.aladhan_method == 2

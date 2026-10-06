@@ -140,6 +140,9 @@ def _settings_from_config(cfg: ConfigFile) -> Settings:
         quiet_hours_start=audio.quiet_hours_start,
         quiet_hours_end=audio.quiet_hours_end,
         adhan_muted_prayers=list(audio.muted_prayers),
+        adhan_audio_file=audio.file,
+        aladhan_base_url=cfg.schedule.aladhan.base_url,
+        aladhan_method=cfg.schedule.aladhan.method,
         theme=ThemeSettings(
             palette=cfg.theme.palette,
             font=cfg.theme.font,
