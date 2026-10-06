@@ -399,10 +399,43 @@ def create_app(deps: AppDeps) -> FastAPI:
                 except OSError:
                     return None
 
+            # Reconcile boot TOCTOU: ``create_production_app`` loaded the
+            # prayer-repo pins snapshot before this lifespan runs; a pins
+            # edit in between would otherwise serve stale until the next
+            # change (the digests below would baseline the new file while
+            # the repo holds the old snapshot). Refresh from disk here
+            # with no publish: no subscribers exist yet, and the first
+            # requests read the swapped snapshot directly.
+            try:
+                boot_cfg = load_config_file(cfg_path)
+            except ConfigError as exc:
+                logger.error(
+                    "config load failed at startup; keeping boot pins: %s", exc
+                )
+                boot_cfg = None
+            if boot_cfg is not None and isinstance(deps.prayer_repo, FilePrayerRepo):
+                try:
+                    deps.prayer_repo.validate_pins(
+                        boot_cfg.schedule.manual_days,
+                        boot_cfg.schedule.effective_zone,
+                    )
+                except ConfigError as exc:
+                    logger.error(
+                        "config pins invalid at startup; keeping boot pins: %s",
+                        exc,
+                    )
+                else:
+                    deps.prayer_repo.set_manual_days(boot_cfg.schedule.manual_days)
+
             last_cfg_holder: list[str | None] = [_digest(cfg_path)]
             initial_pins = manual_days_file_for_config(cfg_path)
             last_pins_holder: list[str | None] = [_digest(initial_pins)]
-            last_pins_path_holder: list[Path | None] = [initial_pins]
+            # Every pins path ever watched (active + failed candidates).
+            # Pruned to the newly active path on each successful reload so
+            # abandoned candidates never accumulate wakeups.
+            known_pins_holder: list[set[Path]] = [
+                {initial_pins} if initial_pins is not None else set()
+            ]
             watcher_holder: list[ConfigWatcher | None] = [None]
 
             def _on_reload() -> None:
@@ -433,6 +466,7 @@ def create_app(deps: AppDeps) -> FastAPI:
                 active_watcher = watcher_holder[0]
                 if pins_path is not None and active_watcher is not None:
                     active_watcher.watch(pins_path)
+                    known_pins_holder[0].add(pins_path)
                 current_pins = _digest(pins_path)
                 if (
                     current_cfg == last_cfg_holder[0]
@@ -480,15 +514,16 @@ def create_app(deps: AppDeps) -> FastAPI:
                 # buffer arrival or pins fix re-runs the full path and
                 # retries the pins instead of taking the digest-equal
                 # branch and leaving them unapplied.
-                # Retire the previous pins path only on success: the new
-                # path is already watched above (so fixing an invalid new
-                # pins file still wakes us), while the old path stays
-                # watched through failures because its pins are still live.
-                previous_pins = last_pins_path_holder[0]
-                if previous_pins != pins_path:
-                    if previous_pins is not None and active_watcher is not None:
-                        active_watcher.unwatch(previous_pins)
-                    last_pins_path_holder[0] = pins_path
+                # Prune retired pins paths only on success: the candidate
+                # is watched before validation (so fixing an invalid new
+                # pins file still wakes us and retries), and every
+                # non-active path is unwatched once the new snapshot
+                # lands — failed candidates never accumulate.
+                active_set: set[Path] = {pins_path} if pins_path is not None else set()
+                for stale in known_pins_holder[0] - active_set:
+                    if active_watcher is not None:
+                        active_watcher.unwatch(stale)
+                known_pins_holder[0] = active_set
                 last_cfg_holder[0] = current_cfg
                 last_pins_holder[0] = current_pins
                 deps.event_bus.publish("config-update", ("settings",))

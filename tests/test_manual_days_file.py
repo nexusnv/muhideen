@@ -264,6 +264,30 @@ def test_watcher_watch_adds_new_path(tmp_path: Path):
     assert len(watcher._paths) == before - 1
 
 
+def test_watcher_polls_paths_added_via_watch(tmp_path: Path):
+    """Paths registered via ``watch()`` are polled like startup paths."""
+    import time
+
+    from muhideen.adapters.config_watcher import ConfigWatcher
+
+    first = tmp_path / "first.json"
+    first.write_text("{}")
+    extra = tmp_path / "extra.json"
+    extra.write_text("{}")
+    fired: list[int] = []
+    watcher = ConfigWatcher([first], lambda: fired.append(1), interval_s=0.05)
+    watcher.start()
+    try:
+        watcher.watch(extra)
+        extra.write_text('{"v": 1}')
+        deadline = time.monotonic() + 2.0
+        while not fired and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert fired, "edit to watch()-added path did not fire on_reload"
+    finally:
+        watcher.stop()
+
+
 def test_watcher_fires_on_deletion(tmp_path: Path):
     """A watched file that becomes missing fires once (pins snapshot)."""
     import time

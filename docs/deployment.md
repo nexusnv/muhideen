@@ -209,7 +209,10 @@ reloads into the route slate (see `docs/api-contract.md`).
   and `"stale": true`, and the display carries the `manual` pill. Pins
   outrank every automatic source (manual > provider > calc) and the daily
   02:00 sync never overwrites them. A partial pin with no synced row to
-  complete against fails loudly until the row syncs.
+  complete against fails loudly until the row syncs. Rollout order:
+  deploy the release carrying `manual_days_file` support before adding
+  the key — older builds reject it as an unknown key under the
+  fail-closed schema and serve 503 until the image is updated.
 * **Auto-recovery (January).** The first successful daily sync in the
   new year fetches that year's full table, so unpinned January dates
   resolve automatically again — no action needed.
