@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import os
+import posixpath
+import re
 import tempfile
 from pathlib import Path
+
+from muhideen.core.errors import ConfigError
 
 MAX_ADHAN_BYTES = 10 * 1024 * 1024
 """Upload cap: inputs larger than 10MB are rejected before sniffing."""
@@ -54,3 +58,42 @@ def delete_adhan_audio(dest_dir: str | Path) -> bool:
         return False
     path.unlink()
     return True
+
+
+def _strip_legacy_media_prefix(value: str) -> str:
+    """Strip the shipped-default ``media/`` prefix to a media-relative rel."""
+    if value == "media" or value.startswith("media/"):
+        return value[len("media/") :]
+    return value
+
+
+def resolve_adhan_path(file_setting: str, media_dir: str | Path) -> Path:
+    """Resolve the configured adhan file strictly inside ``media_dir``.
+
+    Raises :class:`ConfigError` on empty, absolute, or escaping values.
+    """
+    if not file_setting:
+        raise ConfigError("adhan_audio.file must be non-empty")
+    candidate = file_setting.replace("\\", "/")
+    if candidate.startswith("/") or re.match(r"^[A-Za-z]:", candidate):
+        raise ConfigError(f"adhan_audio.file must be relative: {file_setting!r}")
+    rel = _strip_legacy_media_prefix(candidate)
+    norm = posixpath.normpath(rel)
+    if norm == ".." or norm.startswith("../"):
+        raise ConfigError(f"adhan_audio.file escapes the media root: {file_setting!r}")
+    root = Path(media_dir).resolve()
+    path = (root / Path(norm)).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ConfigError(
+            f"adhan_audio.file escapes the media root: {file_setting!r}"
+        ) from None
+    return path
+
+
+def adhan_url_for(file_setting: str, media_dir: str | Path) -> str:
+    """Stable public URL for the resolved adhan file (no hashes)."""
+    del media_dir  # reserved: static-root deployments serve under /media too
+    rel = _strip_legacy_media_prefix(file_setting.replace("\\", "/"))
+    return f"/media/{posixpath.normpath(rel)}"

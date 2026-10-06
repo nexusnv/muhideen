@@ -77,3 +77,31 @@ def test_store_failure_leaves_no_tmp_litter(
     with pytest.raises(OSError, match="disk full"):
         store_adhan_audio(VALID_MP3, tmp_path)
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_resolve_rejects_absolute_and_escape(tmp_path) -> None:
+    from muhideen.adapters.adhan_audio import resolve_adhan_path
+    from muhideen.core.errors import ConfigError
+
+    media = tmp_path / "media"
+    media.mkdir()
+    with pytest.raises(ConfigError):
+        resolve_adhan_path("/etc/passwd", media)
+    with pytest.raises(ConfigError):
+        resolve_adhan_path("../secret.mp3", media)
+    with pytest.raises(ConfigError):
+        resolve_adhan_path("sub/../../escape.mp3", media)
+
+
+def test_resolve_strips_legacy_media_prefix_and_urls_are_stable(
+    tmp_path,
+) -> None:
+    from muhideen.adapters.adhan_audio import adhan_url_for, resolve_adhan_path
+
+    media = tmp_path / "media"
+    media.mkdir()
+    assert resolve_adhan_path("media/adhan.mp3", media) == media / "adhan.mp3"
+    assert resolve_adhan_path("adhan.mp3", media) == media / "adhan.mp3"
+    assert resolve_adhan_path("custom/x.mp3", media) == media / "custom" / "x.mp3"
+    assert adhan_url_for("media/adhan.mp3", media) == "/media/adhan.mp3"
+    assert adhan_url_for("media/adhan.mp3", media) == adhan_url_for("adhan.mp3", media)
