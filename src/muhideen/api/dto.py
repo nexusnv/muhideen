@@ -236,4 +236,3 @@ class VersionDTO(ContractDTO):
 
     version: str
     api: Literal["v1"]
-

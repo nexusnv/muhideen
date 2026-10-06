@@ -133,9 +133,7 @@ class AladhanSource(Strict):
     @classmethod
     def _base_url_http(cls, value: str) -> str:
         """Base URL is an http(s) host; any path suffix is trimmed."""
-        if re.search(r"\s", value) or not re.match(
-            r"^https?://[^/\s]+(/\S*)?$", value
-        ):
+        if re.search(r"\s", value) or not re.match(r"^https?://[^/\s]+(/\S*)?$", value):
             raise ValueError(f"aladhan base URL must be http(s): {value!r}")
         return value.rstrip("/")
 

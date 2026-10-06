@@ -165,4 +165,3 @@ def test_all_contract_surfaces_have_fixtures() -> None:
     ):
         _load(name)
     assert (FIXTURES / "events-stream.txt").read_text().strip()
-

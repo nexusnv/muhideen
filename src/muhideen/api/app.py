@@ -69,7 +69,13 @@ from muhideen.core.ports import (
     SettingsRepo,
     TimeSyncProbe,
 )
-from muhideen.core.values import NextEvent, Playlist, PrayerDay, Settings, normalize_adhan_rel
+from muhideen.core.values import (
+    NextEvent,
+    Playlist,
+    PrayerDay,
+    Settings,
+    normalize_adhan_rel,
+)
 from muhideen.domain.iqamah import card_iqamah_labels
 from muhideen.domain.stage import StageOccupant, resolve_stage, stage_id
 from muhideen.engine import Engine
