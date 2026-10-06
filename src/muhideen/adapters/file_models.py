@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import date
 from typing import Annotated, Any, Literal
 
@@ -59,6 +60,20 @@ _MANUAL_MARKERS: tuple[str, ...] = (
     "isha",
 )
 """The eight day-local markers a manual pin may correct."""
+
+
+def ensure_unique_manual_dates(pins: Sequence[ManualDay]) -> None:
+    """Reject duplicate pin dates; ``ValueError`` names the dupes.
+
+    Shared by the inline ``Schedule`` validator and the separate pins-file
+    loader so both sources enforce one candidate per day with identical
+    wording. Callers at the file boundary map ``ValueError`` to
+    ``ConfigError`` with the offending file's path.
+    """
+    dates = [pin.date for pin in pins]
+    dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})
+    if dupes:
+        raise ValueError(f"duplicate manual_day date: {dupes}")
 
 
 class Strict(BaseModel):
@@ -158,6 +173,13 @@ class Schedule(Strict):
     dhuha_offset_min: Annotated[int, Field(ge=15, le=30)] = 28
     boundary_countdown: bool = False
     manual_days: list[ManualDay] = Field(default_factory=list[ManualDay])
+    manual_days_file: Annotated[str, Field(min_length=1, max_length=256)] | None = None
+    """Separate pins file (bare array), resolved relative to the main config.
+
+    Exclusive with inline ``manual_days``: setting both is a config error.
+    Resolved at load by ``load_config_file`` into ``manual_days`` with
+    identical merge/validation semantics; errors name the pins file.
+    """
     sync_provider: SyncProvider
     """Sync source, no default: ``jakim``/``aladhan`` fetch, ``none`` is
     explicit offline (no fetch ever — calc/manual only)."""
@@ -178,10 +200,20 @@ class Schedule(Strict):
         Pins are unique by date, so ``get_pin`` has one candidate per day.
         Reject the file loudly instead of serving divergent times.
         """
-        dates = [pin.date for pin in self.manual_days]
-        dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})
-        if dupes:
-            raise ValueError(f"duplicate manual_day date: {dupes}")
+        ensure_unique_manual_dates(self.manual_days)
+        return self
+
+    @model_validator(mode="after")
+    def _manual_source_exclusive(self) -> Schedule:
+        """Inline pins and a pins file are exclusive: concatenation is rejected.
+
+        Rejection is simpler to reason about than merging two sources with
+        cross-file duplicate rules; use one source per install.
+        """
+        if self.manual_days and self.manual_days_file is not None:
+            raise ValueError(
+                "schedule.manual_days and schedule.manual_days_file are exclusive"
+            )
         return self
 
     @model_validator(mode="after")

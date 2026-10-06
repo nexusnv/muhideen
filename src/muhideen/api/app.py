@@ -47,6 +47,7 @@ from muhideen.adapters.file_config import (
     FilePrayerRepo,
     FileSettingsRepo,
     load_config_file,
+    manual_days_file_for_config,
 )
 from muhideen.adapters.hijri_date import resolve_hijri
 from muhideen.adapters.jakim_esolat import HttpJAKIMClient
@@ -388,14 +389,58 @@ def create_app(deps: AppDeps) -> FastAPI:
             buf_path: Path | None = None
             if isinstance(deps.prayer_repo, FilePrayerRepo):
                 buf_path = deps.prayer_repo.buffer_path
-            try:
-                last_seen: str | None = hashlib.sha256(
-                    cfg_path.read_bytes()
-                ).hexdigest()
-            except OSError:
-                last_seen = None
 
-            last_holder: list[str | None] = [last_seen]
+            def _digest(target: Path | None) -> str | None:
+                """SHA256 of ``target``; ``None`` when absent/unreadable."""
+                if target is None:
+                    return None
+                try:
+                    return hashlib.sha256(target.read_bytes()).hexdigest()
+                except OSError:
+                    return None
+
+            # Baseline first: these digests are the reference for the
+            # explicit ``_on_reload()`` after watcher assignment, which
+            # heals any edit landing between baselining and installation.
+            last_cfg_holder: list[str | None] = [_digest(cfg_path)]
+            initial_pins = manual_days_file_for_config(cfg_path)
+            last_pins_holder: list[str | None] = [_digest(initial_pins)]
+            # Every pins path ever watched (active + failed candidates).
+            # Pruned to the newly active path on each successful reload so
+            # abandoned candidates never accumulate wakeups.
+            known_pins_holder: list[set[Path]] = [
+                {initial_pins} if initial_pins is not None else set()
+            ]
+            watcher_holder: list[ConfigWatcher | None] = [None]
+
+            # Reconcile boot TOCTOU: ``create_production_app`` loaded the
+            # prayer-repo pins snapshot before this lifespan runs; a pins
+            # edit in between would otherwise serve stale until the next
+            # change. Refresh from disk here with no publish: no
+            # subscribers exist yet, and the first requests read the
+            # swapped snapshot directly. Any edit landing after the
+            # baseline above is picked up by the explicit ``_on_reload()``
+            # below.
+            try:
+                boot_cfg = load_config_file(cfg_path)
+            except ConfigError as exc:
+                logger.error(
+                    "config load failed at startup; keeping boot pins: %s", exc
+                )
+                boot_cfg = None
+            if boot_cfg is not None and isinstance(deps.prayer_repo, FilePrayerRepo):
+                try:
+                    deps.prayer_repo.validate_pins(
+                        boot_cfg.schedule.manual_days,
+                        boot_cfg.schedule.effective_zone,
+                    )
+                except ConfigError as exc:
+                    logger.error(
+                        "config pins invalid at startup; keeping boot pins: %s",
+                        exc,
+                    )
+                else:
+                    deps.prayer_repo.set_manual_days(boot_cfg.schedule.manual_days)
 
             def _on_reload() -> None:
                 """Revalidate the config; publish config-update on success.
@@ -403,9 +448,11 @@ def create_app(deps: AppDeps) -> FastAPI:
                 Read-through note: ``FileSettingsRepo``/``FilePlaylistRepo``
                 re-read the file on every call, so there is nothing to swap
                 — only ``FilePrayerRepo``'s in-memory ``manual_days``
-                snapshot is refreshed here. Invalid edits log an error and
-                keep the last-good snapshot serving with NO publish (this
-                includes unordered manual-day pins, validated before the
+                snapshot is refreshed here (pins resolve from inline or
+                from ``manual_days_file`` with identical semantics).
+                Invalid edits log an error and keep the last-good snapshot
+                serving with NO publish (this includes unordered manual-day
+                pins and invalid pins-file edits, validated before the
                 snapshot swap).
                 Buffer-only changes are validated (log on corrupt) with NO
                 publish — the next ``tick`` picks up new timetables.
@@ -413,13 +460,22 @@ def create_app(deps: AppDeps) -> FastAPI:
                 the old clock (tz is fixed at boot).
                 """
                 try:
-                    current_digest: str | None = hashlib.sha256(
+                    current_cfg: str | None = hashlib.sha256(
                         cfg_path.read_bytes()
                     ).hexdigest()
                 except OSError as exc:  # pragma: no cover - digest race guard
                     logger.error("config reload failed; keeping last-good: %s", exc)
                     return
-                if current_digest == last_holder[0]:
+                pins_path = manual_days_file_for_config(cfg_path)
+                active_watcher = watcher_holder[0]
+                if pins_path is not None and active_watcher is not None:
+                    active_watcher.watch(pins_path)
+                    known_pins_holder[0].add(pins_path)
+                current_pins = _digest(pins_path)
+                if (
+                    current_cfg == last_cfg_holder[0]
+                    and current_pins == last_pins_holder[0]
+                ):
                     if isinstance(deps.prayer_repo, FilePrayerRepo):
                         try:
                             deps.prayer_repo.validate_buffer()
@@ -456,17 +512,39 @@ def create_app(deps: AppDeps) -> FastAPI:
                         "timezone changed to %s; restart required to apply",
                         new_tz,
                     )
-                # Record the digest only on success: a failed validation
-                # (e.g. a partial pin with no provider row yet) leaves the
-                # holder stale, so a later buffer arrival re-runs the full
-                # path and retries the pins instead of taking the
-                # digest-equal branch and leaving them unapplied.
-                last_holder[0] = current_digest
+                # Record digests only on success: a failed validation
+                # (e.g. a partial pin with no provider row yet, or an
+                # invalid pins file) leaves the holders stale, so a later
+                # buffer arrival or pins fix re-runs the full path and
+                # retries the pins instead of taking the digest-equal
+                # branch and leaving them unapplied.
+                # Prune retired pins paths only on success: the candidate
+                # is watched before validation (so fixing an invalid new
+                # pins file still wakes us and retries), and every
+                # non-active path is unwatched once the new snapshot
+                # lands — failed candidates never accumulate.
+                active_set: set[Path] = {pins_path} if pins_path is not None else set()
+                for stale in known_pins_holder[0] - active_set:
+                    if active_watcher is not None:
+                        active_watcher.unwatch(stale)
+                known_pins_holder[0] = active_set
+                last_cfg_holder[0] = current_cfg
+                last_pins_holder[0] = current_pins
                 deps.event_bus.publish("config-update", ("settings",))
 
-            watch_paths = [cfg_path, buf_path] if buf_path is not None else [cfg_path]
+            watch_paths: list[Path] = [cfg_path]
+            if buf_path is not None:
+                watch_paths.append(buf_path)
+            if initial_pins is not None:
+                watch_paths.append(initial_pins)
             watcher = ConfigWatcher(watch_paths, _on_reload)
+            watcher_holder[0] = watcher
             _app.state.config_watcher = watcher
+            # Heal the boot window: when clean this is a no-op (digests
+            # match → buffer check only, no publish); on a real divergence
+            # it converges and publishes. Runs before start() so the poll
+            # thread cannot double-fire it.
+            _on_reload()
             watcher.start()
         background: _Background | None = None
         if deps.run_background:

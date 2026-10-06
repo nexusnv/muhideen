@@ -306,3 +306,214 @@ def test_partial_pin_applies_when_its_row_arrives(tmp_path: Path) -> None:
             assert client.get("/api/version").status_code == 200
         finally:
             deps.event_bus.unsubscribe(subscriber)
+
+
+def test_boot_reconciles_pins_edited_before_lifespan(tmp_path: Path) -> None:
+    """Pins edited between repo construction and lifespan start apply at boot.
+
+    ``create_production_app`` loads the repo snapshot before the lifespan
+    records its watcher baseline; without a startup reconciliation the
+    baseline would match the edited file while the repo still holds the
+    older pins, serving stale until the next change.
+    """
+    import json as json_mod
+    from datetime import date as day_date
+    from datetime import time as day_time
+
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
+    )
+    from muhideen.adapters.sse_bus import SSEBus
+
+    config_path = tmp_path / "muhideen.json"
+    shutil.copy(EXAMPLE, config_path)
+    raw = json_mod.loads(config_path.read_text())
+    pin = dict(raw["schedule"]["manual_days"][0])
+    pins_path = tmp_path / "pins.json"
+    pins_path.write_text(json_mod.dumps([pin]))
+    raw["schedule"]["manual_days"] = []
+    raw["schedule"]["manual_days_file"] = pins_path.name
+    config_path.write_text(json_mod.dumps(raw))
+    cfg = load_config_file(config_path)
+    media_dir = tmp_path / "media"
+    media_dir.mkdir(exist_ok=True)
+    deps = AppDeps(
+        settings_repo=FileSettingsRepo(config_path),
+        prayer_repo=FilePrayerRepo(
+            tmp_path / "prayer_buffer.json", cfg.schedule.manual_days
+        ),
+        clock=FakeClock(),
+        event_bus=SSEBus(),
+        playlist_repo=FilePlaylistRepo(config_path),
+        media_dir=media_dir,
+        config_path=config_path,
+    )
+    # The pins file changes after the repo snapshot is built but before
+    # the lifespan runs (the production boot window).
+    updated = dict(pin, maghrib="19:09")
+    pins_path.write_text(json_mod.dumps([updated]))
+    app = create_app(deps)
+    with TestClient(app):
+        assert isinstance(deps.prayer_repo, FilePrayerRepo)
+        zone = load_config_file(config_path).schedule.effective_zone
+        served = deps.prayer_repo.get_pin(day_date.fromisoformat(pin["date"]), zone)
+        assert served is not None
+        assert served.maghrib == day_time(19, 9)
+
+
+def test_pins_file_hot_reload_and_invalid_keeps_last_good(tmp_path: Path) -> None:
+    """Pins-file edits hot-reload; invalid pins keep last-good with no publish."""
+    import json as json_mod
+    import queue
+    from datetime import date as day_date
+    from datetime import time as day_time
+
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
+    )
+    from muhideen.adapters.sse_bus import SSEBus
+
+    config_path = tmp_path / "muhideen.json"
+    shutil.copy(EXAMPLE, config_path)
+    raw = json_mod.loads(config_path.read_text())
+    pin = dict(raw["schedule"]["manual_days"][0])
+    pins_path = tmp_path / "pins.json"
+    pins_path.write_text(json_mod.dumps([pin]))
+    raw["schedule"]["manual_days"] = []
+    raw["schedule"]["manual_days_file"] = pins_path.name
+    config_path.write_text(json_mod.dumps(raw))
+    cfg = load_config_file(config_path)
+    assert len(cfg.schedule.manual_days) == 1
+    media_dir = tmp_path / "media"
+    media_dir.mkdir(exist_ok=True)
+    deps = AppDeps(
+        settings_repo=FileSettingsRepo(config_path),
+        prayer_repo=FilePrayerRepo(
+            tmp_path / "prayer_buffer.json", cfg.schedule.manual_days
+        ),
+        clock=FakeClock(),
+        event_bus=SSEBus(),
+        playlist_repo=FilePlaylistRepo(config_path),
+        media_dir=media_dir,
+        config_path=config_path,
+    )
+    app = create_app(deps)
+    with TestClient(app) as client:
+        assert client.get("/api/version").status_code == 200
+        subscriber = deps.event_bus.subscribe()
+        try:
+            zone = load_config_file(config_path).schedule.effective_zone
+            pin_day = day_date.fromisoformat(pin["date"])
+            assert isinstance(deps.prayer_repo, FilePrayerRepo)
+            assert deps.prayer_repo.get_pin(pin_day, zone) is not None
+
+            updated = dict(pin, maghrib="19:09")
+            pins_path.write_text(json_mod.dumps([updated]))
+            name, changed = subscriber.get(timeout=8.0)
+            assert (name, changed) == ("config-update", ("settings",))
+            completed = deps.prayer_repo.get_pin(pin_day, zone)
+            assert completed is not None
+            assert completed.maghrib == day_time(19, 9)
+
+            pins_path.write_text("{ not json")
+            with pytest.raises(queue.Empty):
+                subscriber.get(timeout=2.5)
+            assert deps.prayer_repo.get_pin(pin_day, zone) is not None
+            assert deps.prayer_repo.get_pin(pin_day, zone).maghrib == day_time(19, 9)
+
+            pins_path.write_text(json_mod.dumps([pin]))
+            name, changed = subscriber.get(timeout=8.0)
+            assert (name, changed) == ("config-update", ("settings",))
+            assert deps.prayer_repo.get_pin(pin_day, zone).maghrib == day_time(19, 15)
+        finally:
+            deps.event_bus.unsubscribe(subscriber)
+
+
+def test_failed_pins_candidate_is_unwatched_after_recovery(
+    tmp_path: Path,
+) -> None:
+    """A pins path left behind by a failed reload is pruned on recovery.
+
+    The failed candidate stays watched while it fails (so fixing it still
+    retries), but once a later valid pins file lands, edits to the
+    abandoned path must no longer wake the reload path.
+    """
+    import json as json_mod
+    import queue
+    from datetime import date as day_date
+    from datetime import time as day_time
+
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
+    )
+    from muhideen.adapters.sse_bus import SSEBus
+
+    config_path = tmp_path / "muhideen.json"
+    shutil.copy(EXAMPLE, config_path)
+    raw = json_mod.loads(config_path.read_text())
+    pin = dict(raw["schedule"]["manual_days"][0])
+    pins_good = tmp_path / "pins-good.json"
+    pins_good.write_text(json_mod.dumps([pin]))
+    raw["schedule"]["manual_days"] = []
+    raw["schedule"]["manual_days_file"] = pins_good.name
+    config_path.write_text(json_mod.dumps(raw))
+    cfg = load_config_file(config_path)
+    media_dir = tmp_path / "media"
+    media_dir.mkdir(exist_ok=True)
+    deps = AppDeps(
+        settings_repo=FileSettingsRepo(config_path),
+        prayer_repo=FilePrayerRepo(
+            tmp_path / "prayer_buffer.json", cfg.schedule.manual_days
+        ),
+        clock=FakeClock(),
+        event_bus=SSEBus(),
+        playlist_repo=FilePlaylistRepo(config_path),
+        media_dir=media_dir,
+        config_path=config_path,
+    )
+    app = create_app(deps)
+    with TestClient(app) as client:
+        assert client.get("/api/version").status_code == 200
+        watcher = app.state.config_watcher
+        subscriber = deps.event_bus.subscribe()
+        try:
+            # Point at an invalid pins file: reload fails, no publish,
+            # but the candidate stays watched so fixing it would retry.
+            pins_bad = tmp_path / "pins-bad.json"
+            pins_bad.write_text("{ not json")
+            raw = json_mod.loads(config_path.read_text())
+            raw["schedule"]["manual_days_file"] = pins_bad.name
+            config_path.write_text(json_mod.dumps(raw))
+            with pytest.raises(queue.Empty):
+                subscriber.get(timeout=3.0)
+            assert Path(pins_bad) in watcher._paths
+
+            # Recover onto a second valid pins file with a distinct pin.
+            pins_next = tmp_path / "pins-next.json"
+            pins_next.write_text(json_mod.dumps([dict(pin, maghrib="19:09")]))
+            raw = json_mod.loads(config_path.read_text())
+            raw["schedule"]["manual_days_file"] = pins_next.name
+            config_path.write_text(json_mod.dumps(raw))
+            name, changed = subscriber.get(timeout=8.0)
+            assert (name, changed) == ("config-update", ("settings",))
+            zone = load_config_file(config_path).schedule.effective_zone
+            pin_day = day_date.fromisoformat(pin["date"])
+            assert isinstance(deps.prayer_repo, FilePrayerRepo)
+            served = deps.prayer_repo.get_pin(pin_day, zone)
+            assert served is not None
+            assert served.maghrib == day_time(19, 9)
+            # The abandoned candidate is pruned; the active path stays.
+            assert Path(pins_bad) not in watcher._paths
+            assert Path(pins_good) not in watcher._paths
+            assert Path(pins_next) in watcher._paths
+        finally:
+            deps.event_bus.unsubscribe(subscriber)

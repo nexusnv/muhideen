@@ -174,28 +174,53 @@ reloads into the route slate (see `docs/api-contract.md`).
   December. From early December the 30-days-forward cache window runs
   out of rows, and dates past 31-Dec resolve through the automatic
   fallback chain (calc / last-known) until the first January fetch.
-* **Bridging (December).** Pin each needed January date by hand: add
-  an entry to `schedule.manual_days` in `config/muhideen.json` (or
+* **Bridging (December).** Pin each needed January date by hand, either
+  inline or in a separate pins file. Inline: add an entry to
+  `schedule.manual_days` in `config/muhideen.json` (or
   `/etc/muhideen/muhideen.json` on systemd installs) with the date plus
   any subset of the 8 `HH:MM` markers (at least one) — the merged day
-  must stay strictly increasing, duplicate dates are rejected. Present
-  pin markers override everything; missing markers fall through to the
-  provider row (pin → provider), so a one-marker correction needs
-  no full retype. The service hot-reloads the file (~1s, validated
-  before swap; a bad edit keeps the last-good pins serving).
+  must stay strictly increasing, duplicate dates are rejected. Separate
+  file (recommended for a year's worth of corrections): point the main
+  config at a bare-array pins file and keep the entries there —
+  `config/manual_days.example.json` shows the shape:
+
+  ```json
+  "schedule": {
+    "sync_provider": "jakim",
+    "jakim": { "zone": "SWK08" },
+    "manual_days_file": "manual_days.json"
+  }
+  ```
+
+  The pins file holds the same day entries as a bare array
+  (`[{ "date": "2026-12-31", "maghrib": "19:09" }, …]`). The reference
+  resolves relative to the main config file's directory — a sibling
+  filename (e.g. `manual_days.json` next to `muhideen.json`, i.e.
+  `config/manual_days.json` on compose, `/etc/muhideen/manual_days.json`
+  on systemd; absolute paths allowed as an escape hatch); inline `manual_days` together with
+  `manual_days_file` is a config error (exclusive — use one source); a
+  referenced-but-missing pins file fails loud; validation errors name
+  the pins file. Present pin markers override everything; missing
+  markers fall through to the provider row (pin → provider), so a
+  one-marker correction needs no full retype. The service hot-reloads
+  both files (~1s, validated before swap; a bad edit — main or pins —
+  keeps the last-good pins serving with no publish).
   The response surface echoes the pinned day with `"source": "manual"`
   and `"stale": true`, and the display carries the `manual` pill. Pins
   outrank every automatic source (manual > provider > calc) and the daily
   02:00 sync never overwrites them. A partial pin with no synced row to
-  complete against fails loudly until the row syncs.
+  complete against fails loudly until the row syncs. Rollout order:
+  deploy the release carrying `manual_days_file` support before adding
+  the key — older builds reject it as an unknown key under the
+  fail-closed schema and serve 503 until the image is updated.
 * **Auto-recovery (January).** The first successful daily sync in the
   new year fetches that year's full table, so unpinned January dates
   resolve automatically again — no action needed.
 * **Releasing a pin.** Pins persist across syncs (the sync skips them),
   so hand a date back to the automatic schedule explicitly: delete the
-  entry from `manual_days` and save — the date immediately falls back
-  to the automatic chain, and the next sync re-saves the JAKIM row for
-  it — no restart required.
+  entry from `manual_days` (or from the pins file) and save — the date
+  immediately falls back to the automatic chain, and the next sync
+  re-saves the JAKIM row for it — no restart required.
 
 ## Update (new image)
 A new release ships as a new image tag. Run these commands from the
@@ -244,11 +269,14 @@ To carry an install forward by hand:
 
 ## Backup and restore (file copies)
 
-There is no admin UI and no export API: the installation is two JSON
-files plus a media tree, so backup is copying them.
+There is no admin UI and no export API: the installation is the JSON
+config (plus the pins file when `schedule.manual_days_file` is set)
+plus a media tree, so backup is copying them.
 
 * **What to copy.** The hand-edited config (`config/muhideen.json` on
-  compose, `/etc/muhideen/muhideen.json` on systemd) and, when media
+  compose, `/etc/muhideen/muhideen.json` on systemd), plus the separate
+  pins file when `schedule.manual_days_file` is set (same directory
+  unless the reference is absolute), and, when media
   changed, the media tree (`media/` on compose,
   `/var/lib/muhideen/media` on systemd). `prayer_buffer.json` is a
   regenerable sync cache — copy it if you like, or let the scheduler
