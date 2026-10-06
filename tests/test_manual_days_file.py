@@ -175,8 +175,10 @@ def test_partial_pin_from_file_completes_like_inline(tmp_path: Path):
 
     config_path = _copy_example(tmp_path)
     pin = _example_pin()
+    # Pin maghrib deliberately differs from the buffer row below so the
+    # assertion proves the pin marker wins (not a coincidental match).
     pins_path = _write_pins(
-        tmp_path, [{"date": pin["date"], "maghrib": pin["maghrib"]}], name="pins.json"
+        tmp_path, [{"date": pin["date"], "maghrib": "19:09"}], name="pins.json"
     )
     _point_config_at(config_path, pins_path.name)
     cfg = load_config_file(config_path)
@@ -203,7 +205,10 @@ def test_partial_pin_from_file_completes_like_inline(tmp_path: Path):
     day = repo.get_pin(pinned_date, zone)
     assert day is not None
     assert day.source is ScheduleSource.MANUAL
-    assert day.maghrib == time(19, 15)
+    assert day.maghrib == time(19, 9)
+    # Missing pin markers fall through to the provider row.
+    assert day.fajr == time(5, 58)
+    assert day.isha == time(20, 30)
 
 
 def test_manual_days_file_for_config(tmp_path: Path):
@@ -248,3 +253,37 @@ def test_watcher_watch_adds_new_path(tmp_path: Path):
     before = len(watcher._paths)
     watcher.watch(extra)
     assert len(watcher._paths) == before
+    # Equivalent spellings share one identity (no duplicate watch).
+    watcher.watch(tmp_path / "." / "pins.json")
+    assert len(watcher._paths) == before
+    # Retiring a pins file stops watching it.
+    watcher.unwatch(extra)
+    assert extra not in watcher._paths
+    assert len(watcher._paths) == before - 1
+    watcher.unwatch(extra)
+    assert len(watcher._paths) == before - 1
+
+
+def test_watcher_fires_on_deletion(tmp_path: Path):
+    """A watched file that becomes missing fires once (pins snapshot)."""
+    import time
+
+    from muhideen.adapters.config_watcher import ConfigWatcher
+
+    target = tmp_path / "pins.json"
+    target.write_text("[]")
+    fired: list[int] = []
+    watcher = ConfigWatcher([target], lambda: fired.append(1), interval_s=0.05)
+    watcher.start()
+    try:
+        target.unlink()
+        deadline = time.monotonic() + 2.0
+        while not fired and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert fired, "deletion did not fire on_reload"
+        # Stays missing: fires only on transition, never repeatedly.
+        count = len(fired)
+        time.sleep(0.2)
+        assert len(fired) == count
+    finally:
+        watcher.stop()

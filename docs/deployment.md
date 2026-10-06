@@ -188,14 +188,16 @@ reloads into the route slate (see `docs/api-contract.md`).
   "schedule": {
     "sync_provider": "jakim",
     "jakim": { "zone": "SWK08" },
-    "manual_days_file": "config/manual_days.json"
+    "manual_days_file": "manual_days.json"
   }
   ```
 
   The pins file holds the same day entries as a bare array
   (`[{ "date": "2026-12-31", "maghrib": "19:09" }, …]`). The reference
-  resolves relative to the main config file's directory (absolute paths
-  allowed as an escape hatch); inline `manual_days` together with
+  resolves relative to the main config file's directory — a sibling
+  filename (e.g. `manual_days.json` next to `muhideen.json`, i.e.
+  `config/manual_days.json` on compose, `/etc/muhideen/manual_days.json`
+  on systemd; absolute paths allowed as an escape hatch); inline `manual_days` together with
   `manual_days_file` is a config error (exclusive — use one source); a
   referenced-but-missing pins file fails loud; validation errors name
   the pins file. Present pin markers override everything; missing
@@ -264,11 +266,14 @@ To carry an install forward by hand:
 
 ## Backup and restore (file copies)
 
-There is no admin UI and no export API: the installation is two JSON
-files plus a media tree, so backup is copying them.
+There is no admin UI and no export API: the installation is the JSON
+config (plus the pins file when `schedule.manual_days_file` is set)
+plus a media tree, so backup is copying them.
 
 * **What to copy.** The hand-edited config (`config/muhideen.json` on
-  compose, `/etc/muhideen/muhideen.json` on systemd) and, when media
+  compose, `/etc/muhideen/muhideen.json` on systemd), plus the separate
+  pins file when `schedule.manual_days_file` is set (same directory
+  unless the reference is absolute), and, when media
   changed, the media tree (`media/` on compose,
   `/var/lib/muhideen/media` on systemd). `prayer_buffer.json` is a
   regenerable sync cache — copy it if you like, or let the scheduler

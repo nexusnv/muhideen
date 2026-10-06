@@ -23,7 +23,12 @@ from typing import Any, cast
 
 from pydantic import ValidationError
 
-from muhideen.adapters.file_models import ConfigFile, ManualDay, PlaylistFile
+from muhideen.adapters.file_models import (
+    ConfigFile,
+    ManualDay,
+    PlaylistFile,
+    ensure_unique_manual_dates,
+)
 from muhideen.core.errors import ConfigError, SyncError
 from muhideen.core.values import (
     IqamahRule,
@@ -68,8 +73,27 @@ def load_config_file(path: str | Path) -> ConfigFile:
     ref = cfg.schedule.manual_days_file
     if ref is not None:
         pins_path = resolve_pins_path(raw_path, ref)
-        cfg.schedule.manual_days = load_manual_days_file(pins_path)
+        loaded = load_manual_days_file(pins_path)
+        # In-memory coexistence is intentional: the file-content rule
+        # (inline + file ref exclusive) was already enforced by
+        # ``ConfigFile.model_validate`` above on the empty-inline + ref
+        # combination. The loaded pins populate ``manual_days`` while the
+        # ref string is retained so the watcher and ``FileSettingsRepo``
+        # round-trip keep pointing at the same file. Do not re-validate
+        # the combined object against the exclusivity rule here.
+        cfg.schedule.manual_days = loaded
     return cfg
+
+
+def _normalize_path(path: str | Path) -> Path:
+    """Lexically normalize a path (collapse ``.``/duplicate separators).
+
+    ``Path("a/./b")`` and ``Path("a/b")`` must compare equal so the
+    watcher never tracks the same pins file twice under different
+    spellings. Purely lexical (no filesystem access, no symlink
+    resolution) so missing files normalize the same as present ones.
+    """
+    return Path(os.path.normpath(str(Path(path))))
 
 
 def resolve_pins_path(config_path: str | Path, ref: str) -> Path:
@@ -77,12 +101,14 @@ def resolve_pins_path(config_path: str | Path, ref: str) -> Path:
 
     Absolute references are an escape hatch; anything else joins onto the
     main config file's parent so compose ``/config`` and systemd
-    ``/etc/muhideen`` layouts stay portable.
+    ``/etc/muhideen`` layouts stay portable. The result is lexically
+    normalized so equivalent spellings (``pins.json`` vs
+    ``./pins.json``) resolve to one identity.
     """
     candidate = Path(ref)
     if candidate.is_absolute():
-        return candidate
-    return Path(config_path).parent / candidate
+        return _normalize_path(candidate)
+    return _normalize_path(Path(config_path).parent / candidate)
 
 
 def load_manual_days_file(pins_path: str | Path) -> list[ManualDay]:
@@ -114,10 +140,10 @@ def load_manual_days_file(pins_path: str | Path) -> list[ManualDay]:
             pins.append(ManualDay.model_validate(entry))
     except ValidationError as exc:
         raise ConfigError(f"{resolved}: {exc}") from exc
-    dates = [pin.date for pin in pins]
-    dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})
-    if dupes:
-        raise ConfigError(f"{resolved}: duplicate manual_day date: {dupes}")
+    try:
+        ensure_unique_manual_dates(pins)
+    except ValueError as exc:
+        raise ConfigError(f"{resolved}: {exc}") from exc
     return pins
 
 
@@ -147,7 +173,7 @@ def manual_days_file_for_config(config_path: str | Path) -> Path | None:
     ref: object = schedule.get("manual_days_file")
     if not isinstance(ref, str) or not ref.strip():
         return None
-    return resolve_pins_path(raw_path, ref)
+    return _normalize_path(resolve_pins_path(raw_path, ref))
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -549,9 +575,10 @@ class FilePrayerRepo:
     Manual pins (from ``config.schedule.manual_days``, inline or resolved
     from ``manual_days_file``) always win over buffer rows for their date.
     ``delete_day`` mirrors the port contract —
-    with one file-world caveat: pins live in the hand-edited config file,
-    which this repo never writes, so deleting a pinned date returns False
-    (remove the pin from the config instead); only a ``manual``-sourced
+    with one file-world caveat: pins live in the hand-edited config file
+    or its referenced pins file, neither of which this repo writes, so
+    deleting a pinned date returns False (remove the pin from the
+    inline list or the pins file instead); only a ``manual``-sourced
     buffer row with no config pin is actually removed.
     """
 

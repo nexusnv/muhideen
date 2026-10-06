@@ -402,6 +402,7 @@ def create_app(deps: AppDeps) -> FastAPI:
             last_cfg_holder: list[str | None] = [_digest(cfg_path)]
             initial_pins = manual_days_file_for_config(cfg_path)
             last_pins_holder: list[str | None] = [_digest(initial_pins)]
+            last_pins_path_holder: list[Path | None] = [initial_pins]
             watcher_holder: list[ConfigWatcher | None] = [None]
 
             def _on_reload() -> None:
@@ -479,6 +480,15 @@ def create_app(deps: AppDeps) -> FastAPI:
                 # buffer arrival or pins fix re-runs the full path and
                 # retries the pins instead of taking the digest-equal
                 # branch and leaving them unapplied.
+                # Retire the previous pins path only on success: the new
+                # path is already watched above (so fixing an invalid new
+                # pins file still wakes us), while the old path stays
+                # watched through failures because its pins are still live.
+                previous_pins = last_pins_path_holder[0]
+                if previous_pins != pins_path:
+                    if previous_pins is not None and active_watcher is not None:
+                        active_watcher.unwatch(previous_pins)
+                    last_pins_path_holder[0] = pins_path
                 last_cfg_holder[0] = current_cfg
                 last_pins_holder[0] = current_pins
                 deps.event_bus.publish("config-update", ("settings",))

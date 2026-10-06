@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import date
 from typing import Annotated, Any, Literal
 
@@ -59,6 +60,20 @@ _MANUAL_MARKERS: tuple[str, ...] = (
     "isha",
 )
 """The eight day-local markers a manual pin may correct."""
+
+
+def ensure_unique_manual_dates(pins: Sequence[ManualDay]) -> None:
+    """Reject duplicate pin dates; ``ValueError`` names the dupes.
+
+    Shared by the inline ``Schedule`` validator and the separate pins-file
+    loader so both sources enforce one candidate per day with identical
+    wording. Callers at the file boundary map ``ValueError`` to
+    ``ConfigError`` with the offending file's path.
+    """
+    dates = [pin.date for pin in pins]
+    dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})
+    if dupes:
+        raise ValueError(f"duplicate manual_day date: {dupes}")
 
 
 class Strict(BaseModel):
@@ -185,10 +200,7 @@ class Schedule(Strict):
         Pins are unique by date, so ``get_pin`` has one candidate per day.
         Reject the file loudly instead of serving divergent times.
         """
-        dates = [pin.date for pin in self.manual_days]
-        dupes = sorted({day.isoformat() for day in dates if dates.count(day) > 1})
-        if dupes:
-            raise ValueError(f"duplicate manual_day date: {dupes}")
+        ensure_unique_manual_dates(self.manual_days)
         return self
 
     @model_validator(mode="after")
