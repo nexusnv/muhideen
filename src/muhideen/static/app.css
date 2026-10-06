@@ -4,6 +4,13 @@
   --green-strip: rgba(0, 49, 38, .42);
   --white: #f8fbf9;
   --ink: #075743;
+  --glow: rgba(12, 112, 85, .34);
+  --cell-line: rgba(22, 132, 110, .78);
+  --muted-fg: rgba(248, 251, 249, .82);
+  --grad-a: #075440;
+  --grad-b: #075743;
+  --grad-c: #075541;
+  --accent: transparent;
 }
 
 * { box-sizing: border-box; }
@@ -52,8 +59,8 @@ body.state-salah_dim #badges { filter: brightness(.07); }
   gap: clamp(34px, 3.25vw, 56px);
   align-items: start;
   background:
-    radial-gradient(ellipse at 25% 35%, rgba(12, 112, 85, .34), transparent 55%),
-    linear-gradient(110deg, #075440 0%, #075743 52%, #075541 100%);
+    radial-gradient(ellipse at 25% 35%, var(--glow), transparent 55%),
+    linear-gradient(110deg, var(--grad-a) 0%, var(--grad-b) 52%, var(--grad-c) 100%);
 }
 
 .timetable-panel,
@@ -75,7 +82,7 @@ body.state-salah_dim #badges { filter: brightness(.07); }
 
 .prayer-row.header {
   min-height: clamp(50px, 3.4vw, 60px);
-  color: rgba(248, 251, 249, .82);
+  color: var(--muted-fg);
   font-size: clamp(16px, 1.8vw, 30px);
   font-weight: 700;
   text-transform: uppercase;
@@ -88,7 +95,7 @@ body.state-salah_dim #badges { filter: brightness(.07); }
   align-items: center;
   justify-content: flex-start;
   padding: 0 clamp(12px, 2.1vw, 36px);
-  border-right: 1px solid rgba(22, 132, 110, .78);
+  border-right: 1px solid var(--cell-line);
 }
 
 .cell:last-child { border-right: 0; }
@@ -120,6 +127,7 @@ body.state-salah_dim #badges { filter: brightness(.07); }
   color: var(--ink);
   background: #fff;
   border-bottom: 0;
+  box-shadow: inset 6px 0 0 var(--accent);
 }
 
 .prayer-row.current .cell { border-right-color: transparent; }
@@ -313,3 +321,69 @@ body.state-salah_dim #badges { filter: brightness(.07); }
   .countdown-label { font-size: 19px; }
   .countdown { font-size: clamp(42px, 11vw, 60px); }
 }
+
+body.palette-midnight {
+  --green: #0b0f0e;
+  --green-line: #2e3a36;
+  --green-strip: rgba(0, 0, 0, .45);
+  --white: #f2f2f2;
+  --ink: #0b0f0e;
+  --glow: rgba(0, 0, 0, .5);
+  --cell-line: rgba(120, 135, 130, .5);
+  --muted-fg: rgba(242, 242, 242, .75);
+  --grad-a: #0b0f0e;
+  --grad-b: #101615;
+  --grad-c: #0b0f0e;
+  --accent: #c9a227;
+}
+
+body.palette-sand {
+  --green: #ece4cf;
+  --green-line: #c2b694;
+  --green-strip: rgba(120, 100, 60, .16);
+  --white: #33302a;
+  --ink: #33302a;
+  --glow: rgba(150, 130, 80, .25);
+  --cell-line: rgba(120, 110, 85, .55);
+  --muted-fg: rgba(51, 48, 42, .72);
+  --grad-a: #e7dcc2;
+  --grad-b: #ece4cf;
+  --grad-c: #e3d7ba;
+  --accent: #8a6d1f;
+}
+
+@font-face {
+  font-family: Outfit;
+  font-weight: 400;
+  src: url(fonts/Outfit-400.woff2);
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Outfit;
+  font-weight: 700;
+  src: url(fonts/Outfit-700.woff2);
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Outfit;
+  font-weight: 800;
+  src: url(fonts/Outfit-800.woff2);
+  font-display: swap;
+}
+
+body.font-outfit { font-family: Outfit, Arial, Helvetica, sans-serif; }
+
+body.font-system { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+
+body.density-compact .prayer-screen {
+  padding: clamp(16px, 2vw, 36px) clamp(16px, 1.8vw, 32px);
+  gap: clamp(22px, 2.2vw, 36px);
+}
+
+body.density-compact .prayer-row { min-height: clamp(60px, 5vw, 84px); }
+
+body.density-compact .additional-time { min-height: clamp(72px, 6vw, 108px); }
+
+body.density-compact .clock { font-size: clamp(38px, 4.8vw, 80px); }

@@ -100,7 +100,10 @@ def test_custom_colors_style_only_when_set(file_client: TestClient) -> None:
     assert "<style>:root" not in en_html
     ms_html = file_client.get("/display", params={"id": "entrance"}).text
     assert "<style>:root" in ms_html
-    assert "#0b0f0e" in ms_html
+    assert "--green:#0b0f0e" in ms_html.replace(" ", "")
+    assert "--white:#f2f2f2" in ms_html.replace(" ", "")
+    assert "--accent:#c9a227" in ms_html.replace(" ", "")
+    assert "--custom-" not in ms_html
 
 
 def test_display_silent_without_adhan_file(tmp_path: Path) -> None:

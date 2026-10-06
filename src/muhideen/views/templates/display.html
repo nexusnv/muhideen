@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ masjid_name }} — Prayer Times</title>
-<link rel="stylesheet" href="/static/app.css">{% if custom_colors %}<style>:root{% for k, v in custom_colors.items() %}--custom-{{ k }}:{{ v }};{% endfor %}</style>{% endif %}
+<link rel="stylesheet" href="/static/app.css">{% if custom_colors %}<style>:root{{ '{' }}{% for k, v in custom_colors.items() %}{% if k == "background" %}--green:{{ v }};{% elif k == "foreground" %}--white:{{ v }};{% elif k == "accent" %}--accent:{{ v }};{% endif %}{% endfor %}{{ '}' }}</style>{% endif %}
 </head>
 <body class="{{ body_class }} state-{{ state|lower }}">
 <span id="hero-clock" hidden data-now="{{ now_iso }}" data-state="{{ state }}" data-next="{{ next_key }}" data-adhan="{{ adhan_iso }}"{% if tz_name %} data-tz="{{ tz_name }}"{% endif %}{% if tz_offset_min is not none %} data-tzoffset="{{ tz_offset_min }}"{% endif %}></span>
