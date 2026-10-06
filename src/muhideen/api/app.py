@@ -399,13 +399,28 @@ def create_app(deps: AppDeps) -> FastAPI:
                 except OSError:
                     return None
 
+            # Baseline first: these digests are the reference for the
+            # explicit ``_on_reload()`` after watcher assignment, which
+            # heals any edit landing between baselining and installation.
+            last_cfg_holder: list[str | None] = [_digest(cfg_path)]
+            initial_pins = manual_days_file_for_config(cfg_path)
+            last_pins_holder: list[str | None] = [_digest(initial_pins)]
+            # Every pins path ever watched (active + failed candidates).
+            # Pruned to the newly active path on each successful reload so
+            # abandoned candidates never accumulate wakeups.
+            known_pins_holder: list[set[Path]] = [
+                {initial_pins} if initial_pins is not None else set()
+            ]
+            watcher_holder: list[ConfigWatcher | None] = [None]
+
             # Reconcile boot TOCTOU: ``create_production_app`` loaded the
             # prayer-repo pins snapshot before this lifespan runs; a pins
             # edit in between would otherwise serve stale until the next
-            # change (the digests below would baseline the new file while
-            # the repo holds the old snapshot). Refresh from disk here
-            # with no publish: no subscribers exist yet, and the first
-            # requests read the swapped snapshot directly.
+            # change. Refresh from disk here with no publish: no
+            # subscribers exist yet, and the first requests read the
+            # swapped snapshot directly. Any edit landing after the
+            # baseline above is picked up by the explicit ``_on_reload()``
+            # below.
             try:
                 boot_cfg = load_config_file(cfg_path)
             except ConfigError as exc:
@@ -426,17 +441,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                     )
                 else:
                     deps.prayer_repo.set_manual_days(boot_cfg.schedule.manual_days)
-
-            last_cfg_holder: list[str | None] = [_digest(cfg_path)]
-            initial_pins = manual_days_file_for_config(cfg_path)
-            last_pins_holder: list[str | None] = [_digest(initial_pins)]
-            # Every pins path ever watched (active + failed candidates).
-            # Pruned to the newly active path on each successful reload so
-            # abandoned candidates never accumulate wakeups.
-            known_pins_holder: list[set[Path]] = [
-                {initial_pins} if initial_pins is not None else set()
-            ]
-            watcher_holder: list[ConfigWatcher | None] = [None]
 
             def _on_reload() -> None:
                 """Revalidate the config; publish config-update on success.
@@ -536,6 +540,11 @@ def create_app(deps: AppDeps) -> FastAPI:
             watcher = ConfigWatcher(watch_paths, _on_reload)
             watcher_holder[0] = watcher
             _app.state.config_watcher = watcher
+            # Heal the boot window: when clean this is a no-op (digests
+            # match → buffer check only, no publish); on a real divergence
+            # it converges and publishes. Runs before start() so the poll
+            # thread cannot double-fire it.
+            _on_reload()
             watcher.start()
         background: _Background | None = None
         if deps.run_background:
