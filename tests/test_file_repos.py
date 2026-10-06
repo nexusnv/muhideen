@@ -686,3 +686,17 @@ def test_playlist_get_hit_and_miss(tmp_path: Path):
     repo = FilePlaylistRepo(path)
     assert repo.get("announcements") is not None
     assert repo.get("no-such-playlist") is None
+
+
+def test_unordered_buffer_row_is_corrupt_everywhere(tmp_path: Path):
+    """Parseable-but-unordered rows fail loud, never serve wrong times."""
+    _buffer_file(tmp_path, {"days": {PINNED.isoformat(): _buffer_entry(fajr="14:00")}})
+    repo = FilePrayerRepo(tmp_path / "buffer.json", [])
+    with pytest.raises(ConfigError, match="corrupt buffer day"):
+        repo.get_day(PINNED, ZONE)
+    with pytest.raises(ConfigError, match="corrupt buffer day"):
+        repo.last_known(PINNED, ZONE)
+    with pytest.raises(ConfigError, match="corrupt buffer day"):
+        repo.validate_buffer()
+    with pytest.raises(ConfigError, match="corrupt buffer day"):
+        repo.delete_day(PINNED, ZONE)

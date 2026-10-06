@@ -401,7 +401,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                                 exc,
                             )
                     return
-                last_holder[0] = current_digest
                 try:
                     cfg = load_config_file(cfg_path)
                 except ConfigError as exc:
@@ -429,6 +428,12 @@ def create_app(deps: AppDeps) -> FastAPI:
                         "timezone changed to %s; restart required to apply",
                         new_tz,
                     )
+                # Record the digest only on success: a failed validation
+                # (e.g. a partial pin with no provider row yet) leaves the
+                # holder stale, so a later buffer arrival re-runs the full
+                # path and retries the pins instead of taking the
+                # digest-equal branch and leaving them unapplied.
+                last_holder[0] = current_digest
                 deps.event_bus.publish("config-update", ("settings",))
 
             watch_paths = [cfg_path, buf_path] if buf_path is not None else [cfg_path]

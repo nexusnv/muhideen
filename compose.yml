@@ -5,6 +5,12 @@ services:
   muhideen:
     build: .
     image: muhideen:${MUHIDEEN_VERSION:-1.0.0}
+    # Run as the host UID/GID so the bind-mounted config/media stay
+    # writable under the documented host-side chown below: the image
+    # otherwise runs as its own `muhideen` system user and the sync
+    # worker hits EACCES on prayer_buffer.json. Override with
+    # UID/GID in the environment when the host user differs.
+    user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "${MUHIDEEN_PORT:-8000}:8000"
     volumes:
@@ -16,10 +22,11 @@ services:
       #   cp config/muhideen.example.json config/muhideen.json
       # The service fails fast when /config/muhideen.json is missing and
       # hot-reloads hand-edits live (~1s), no rebuild.
-      # Permissions: the image runs as the unprivileged `muhideen` user but
-      # the bind mount masks the image-side chown, so the sync worker can
-      # only write prayer_buffer.json when the host dirs are writable by
-      # the container uid. Fix once after first boot:
+      # Permissions: the service runs as UID:GID `${UID:-1000}:${GID:-1000}`
+      # (see `user:` above), so the sync worker can only write
+      # prayer_buffer.json when the host dirs are owned by that same user.
+      # Fix once after first boot (matching the service UID/GID):
+      #   UID=$(id -u) GID=$(id -g) docker compose up -d
       #   sudo chown -R $(id -u):$(id -g) config media
       # (Without this the boot log warns and the timetable never caches —
       # the sync retries forever on EACCES.)

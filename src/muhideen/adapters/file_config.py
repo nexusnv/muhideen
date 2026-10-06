@@ -366,11 +366,13 @@ def _entry_to_day(
 
     ``ValueError``/``KeyError`` from corrupt entries become ``ConfigError``
     at the repo methods (the buffer is a cache, but silent invented
-    schedules are worse than a loud failure).
+    schedules are worse than a loud failure). Parseable-but-unordered
+    times are corrupt too: fetch adapters enforce ordering before any
+    write, so a violating row was hand-edited or damaged.
     """
     zone = str(entry.get("zone", top_zone))
     fetched_raw = entry.get("fetched_at", top_fetched)
-    return PrayerDay(
+    candidate = PrayerDay(
         date=day,
         zone=zone,
         imsak=time.fromisoformat(str(entry["imsak"])),
@@ -384,6 +386,10 @@ def _entry_to_day(
         source=ScheduleSource(str(entry.get("source", ScheduleSource.JAKIM.value))),
         fetched_at=datetime.fromisoformat(str(fetched_raw)),
     )
+    try:
+        return ensure_ordered(candidate)
+    except SyncError as exc:
+        raise ValueError(f"unordered buffer day {day.isoformat()}: {exc}") from exc
 
 
 def _top_defaults(data: Mapping[str, Any]) -> tuple[str, str]:

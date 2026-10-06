@@ -236,3 +236,73 @@ def test_production_app_factory_boots_full_surface(tmp_path: Path) -> None:
     from muhideen.adapters.file_config import FileSettingsRepo
 
     assert FileSettingsRepo(config_path).load().zone == "SGR01"
+
+
+def test_partial_pin_applies_when_its_row_arrives(tmp_path: Path) -> None:
+    """A partial pin added before its row syncs applies once the row lands.
+
+    Regression: the reload digest is recorded only after pin validation
+    succeeds — otherwise the later buffer arrival takes the digest-equal
+    branch and never retries the pins.
+    """
+    import json as json_mod
+    import queue
+    from datetime import date as day_date
+    from datetime import time as day_time
+
+    from muhideen.adapters.file_config import FilePrayerRepo, load_config_file
+    from muhideen.core.values import PrayerDay, ScheduleSource
+
+    config_path, deps = _file_deps(tmp_path, FakeClock())
+    assert isinstance(deps.prayer_repo, FilePrayerRepo)
+    app = create_app(deps)
+    with TestClient(app) as client:
+        subscriber = deps.event_bus.subscribe()
+        try:
+            # Phase 1: add a partial pin with no provider row for its date.
+            raw = json_mod.loads(config_path.read_text())
+            pin = raw["schedule"]["manual_days"][0]
+            raw["schedule"]["manual_days"] = [
+                {"date": pin["date"], "maghrib": pin["maghrib"]}
+            ]
+            config_path.write_text(json_mod.dumps(raw))
+            # The reload attempt fails loudly with no publish...
+            with pytest.raises(queue.Empty):
+                subscriber.get(timeout=3.0)
+            zone = load_config_file(config_path).schedule.effective_zone
+            pin_day = day_date.fromisoformat(pin["date"])
+            # ...and the live snapshot still holds the last-good pins.
+            assert deps.prayer_repo._manual_days[0].fajr is not None
+
+            # Phase 2: the provider row arrives — pins retry and publish.
+            deps.prayer_repo.save_day(
+                PrayerDay(
+                    date=pin_day,
+                    zone=zone,
+                    imsak=day_time(5, 48),
+                    fajr=day_time(5, 58),
+                    syuruq=day_time(7, 5),
+                    dhuha=day_time(7, 33),
+                    dhuhr=day_time(13, 15),
+                    asr=day_time(16, 30),
+                    maghrib=day_time(19, 15),
+                    isha=day_time(20, 30),
+                    source=ScheduleSource.JAKIM,
+                    fetched_at=PINNED,
+                )
+            )
+            name, changed = subscriber.get(timeout=8.0)
+            assert (name, changed) == ("config-update", ("settings",))
+            completed = deps.prayer_repo.get_pin(pin_day, zone)
+            assert completed is not None
+            assert completed.source is ScheduleSource.MANUAL
+            assert completed.maghrib == day_time(19, 15)
+            assert completed.fajr == day_time(5, 58)
+
+            # Phase 3: a corrupt buffer is logged with no publish, no outage.
+            (tmp_path / "prayer_buffer.json").write_text("{bogus")
+            with pytest.raises(queue.Empty):
+                subscriber.get(timeout=2.5)
+            assert client.get("/api/version").status_code == 200
+        finally:
+            deps.event_bus.unsubscribe(subscriber)

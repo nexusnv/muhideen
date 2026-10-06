@@ -44,13 +44,14 @@ What this does, in order:
 
    ```bash
    cp config/muhideen.example.json config/muhideen.json
-   # edit config/muhideen.json, then:
+   # edit config/muhideen.json, then (matching the service UID:GID):
+   UID=$(id -u) GID=$(id -g) docker compose up -d
    sudo chown -R $(id -u):$(id -g) config media
    ```
 
    The service fails fast when the file is missing and hot-reloads
    hand-edits live (~1s) — no login, no rebuild. The `chown` matters:
-   the image runs as the unprivileged `muhideen` user, so without it
+   the service runs as UID:GID `${UID:-1000}:${GID:-1000}` (see `user:` in compose.yml), so without matching ownership
    the sync worker cannot write `prayer_buffer.json` (the boot log
    warns and the timetable never caches). Without JAKIM reachability
    the scheduler retries; without coordinates the calc fallback stays
