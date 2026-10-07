@@ -664,6 +664,13 @@ def test_timezone_defaults_to_kl_and_rejects_unknown() -> None:
             hijri_offset=0,
             timezone="Mars/Olympus",
         )
+    with pytest.raises(ValueError, match="unknown timezone"):
+        Settings(
+            masjid_name="M",
+            zone="SGR01",
+            hijri_offset=0,
+            **{"timezone": None},
+        )
 
 
 @pytest.mark.unit
