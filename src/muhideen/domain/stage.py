@@ -101,7 +101,9 @@ def resolve_stage(
     activated in-window playlist wins; otherwise the Clock shows. A
     playlist counts only while active, non-empty, in-window, and inside
     its cycle budget (``repeat`` releases after ``max_cycles`` full loops
-    of the item set from the window start; ``indefinite`` loops forever).
+    of the item set from the window start; ``indefinite`` loops forever;
+    open-window (no start bound) ``repeat`` never exhausts and is equivalent
+    to ``indefinite``, by intent).
     Unknown window bounds raise ``ConfigError`` when the playlist is
     evaluated.
     """
