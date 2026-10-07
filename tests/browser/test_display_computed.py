@@ -13,6 +13,7 @@ computed cascade. There is no per-color override to test.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -49,6 +50,11 @@ def browser():
         try:
             launched = host.chromium.launch()
         except Exception as exc:  # missing binary / sandbox / libs
+            # CI installs Chromium up front, so a launch failure there
+            # means the cascade goes unchecked behind a green skip:
+            # fail instead. Local runs without a browser still skip.
+            if os.environ.get("CI") == "true" or "GITHUB_ACTIONS" in os.environ:
+                raise
             pytest.skip(f"Chromium unavailable: {exc}")
         yield launched
         launched.close()

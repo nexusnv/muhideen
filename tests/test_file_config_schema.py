@@ -325,8 +325,13 @@ def test_palettes_stay_distinguishable():
     rgba divider (``--cell-line``) and muted header text (``--muted-fg``)
     stay perceivable when blended over the background (dividers >= 1.5,
     muted text >= 4.5), so borders and headers always render as
-    distinct elements. Tokens are read from the shipped ``app.css`` so
-    a future palette edit that blends elements fails here.
+    distinct elements. Sand provenance badges (``.badge-offline`` /
+    ``.badge-calculated`` / ``.badge-manual``) keep the fixed mid-tone
+    hues unreadable on the light background (measured ~1.3-1.4 blended),
+    so the sand palette carries darker badge overrides that stay >= 4.5
+    when blended at the ``.badge`` opacity. Tokens are read from the
+    shipped ``app.css`` so a future palette edit that blends elements
+    fails here.
     """
 
     import re
@@ -407,6 +412,12 @@ def test_palettes_stay_distinguishable():
         assert _blended_ratio(background, cell_fg, cell_alpha) >= 1.5, name
         muted_fg, muted_alpha = _rgba_token(block, "--muted-fg")
         assert _blended_ratio(background, muted_fg, muted_alpha) >= 4.5, name
+    sand_bg = _token(palettes["sand"], "--green")
+    for kind in ("offline", "calculated", "manual"):
+        badge_block = _block(css, f"body.palette-sand .badge-{kind}")
+        badge_hex = _token(badge_block, "color")
+        badge_rgb = tuple(int(badge_hex[i : i + 2], 16) for i in (1, 3, 5))
+        assert _blended_ratio(sand_bg, badge_rgb, 0.7) >= 4.5, kind
 
 
 def test_playlist_repeat_needs_cycles_and_indefinite_forbids_them():
