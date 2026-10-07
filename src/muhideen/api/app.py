@@ -728,7 +728,6 @@ def create_app(deps: AppDeps) -> FastAPI:
         dim_source = "settings"
         show_carousel = True
         language = "en"
-        custom_colors: dict[str, str] | None = None
         cfg_path = deps.config_path
         if cfg_path is None and isinstance(deps.settings_repo, FileSettingsRepo):
             cfg_path = deps.settings_repo.path
@@ -759,9 +758,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                     dim_source = "display"
                 show_carousel = entry.carousel_enabled
                 language = entry.language
-                custom_colors = (
-                    dict(entry.custom_colors) if entry.custom_colors else None
-                )
         now = deps.clock.now()
         try:
             result = engine.resolve_day(now.date(), settings.zone, now)
@@ -856,7 +852,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                 adhan_audio_url=adhan_url,
                 adhan_volume=settings.adhan_volume,
                 language=language,
-                custom_colors=custom_colors,
             )
         except ConfigError:
             return _TEMPLATES.TemplateResponse(

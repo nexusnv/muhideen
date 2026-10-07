@@ -107,18 +107,24 @@ def test_unknown_id_falls_back_to_global(file_client: TestClient) -> None:
     assert 'lang="en"' in html
 
 
-def test_custom_colors_style_only_when_set(file_client: TestClient) -> None:
+def test_no_per_display_style_override(file_client: TestClient) -> None:
+    """Colors come only from the selected palette: no per-display <style>.
+
+    The template emits no inline token rebind; each display renders its
+    palette block (global or per-display ``theme.palette`` overlay).
+    """
     en_html = file_client.get("/display", params={"id": "main-hall"}).text
-    assert "<style>body" not in en_html
     ms_html = file_client.get("/display", params={"id": "entrance"}).text
-    assert "<style>body" in ms_html
-    assert "--green:#0b0f0e!important" in ms_html.replace(" ", "")
-    assert "--white:#f2f2f2!important" in ms_html.replace(" ", "")
-    assert "--accent:#c9a227!important" in ms_html.replace(" ", "")
+    assert "<style>" not in en_html
+    assert "<style>" not in ms_html
+    assert "--custom-" not in en_html
     assert "--custom-" not in ms_html
 
 
-def test_custom_colors_override_palette(tmp_path: Path) -> None:
+def test_per_display_palette_overlay_selects_full_token_set(
+    tmp_path: Path,
+) -> None:
+    """Operator picks a palette, not colors: sand overlay renders sand."""
     from muhideen.adapters.file_config import (
         FilePlaylistRepo,
         FilePrayerRepo,
@@ -133,7 +139,9 @@ def test_custom_colors_override_palette(tmp_path: Path) -> None:
     raw = json.loads(dest.read_text())
     raw["schedule"]["lat"] = 3.07
     raw["schedule"]["lon"] = 101.69
-    raw["displays"]["entrance"]["custom_colors"]["background"] = "#123456"
+    # Palette-only override (no per-color keys): the whole vetted token
+    # set follows, so dividers/tints cannot mix across palettes.
+    raw["displays"]["entrance"]["theme"]["palette"] = "sand"
     dest.write_text(json.dumps(raw, indent=2) + "\n")
     media = tmp_path / "media"
     media.mkdir(parents=True, exist_ok=True)
@@ -151,7 +159,8 @@ def test_custom_colors_override_palette(tmp_path: Path) -> None:
     app = create_app(deps)
     with TestClient(app) as client:
         html = client.get("/display", params={"id": "entrance"}).text
-        assert "--green:#123456!important" in html.replace(" ", "")
+        assert "palette-sand" in html
+        assert "<style>" not in html
 
 
 def test_display_silent_without_adhan_file(tmp_path: Path) -> None:

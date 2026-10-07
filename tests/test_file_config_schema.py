@@ -299,23 +299,78 @@ def test_display_theme_getitem():
         theme["bogus_knob"]
 
 
-def test_custom_colors_accept_none_and_valid_map():
+def test_display_rejects_custom_colors_key():
+    """Palette-only colors: per-color overrides are rejected.
+
+    Operators pick one of the vetted palettes via ``theme.palette``;
+    free ``custom_colors`` maps would allow mixing tokens across
+    palettes into indistinguishable elements.
+    """
     raw = _example_raw()
-    raw["displays"]["main-hall"]["custom_colors"] = None
-    assert ConfigFile.model_validate(raw).displays["main-hall"].custom_colors is None
-    raw["displays"]["main-hall"]["custom_colors"] = {"background": "#112233"}
-    validated = ConfigFile.model_validate(raw).displays["main-hall"].custom_colors
-    assert validated == {"background": "#112233"}
+    raw["displays"]["main-hall"]["custom_colors"] = {
+        "background": "#0b0f0e",
+        "foreground": "#f2f2f2",
+        "accent": "#c9a227",
+    }
+    with pytest.raises(ValidationError, match="custom_colors"):
+        ConfigFile.model_validate(raw)
 
 
-def test_custom_colors_reject_unknown_key_and_bad_hex():
-    raw = _example_raw()
-    raw["displays"]["main-hall"]["custom_colors"] = {"wallpaper": "#112233"}
-    with pytest.raises(ValidationError, match="unknown custom color"):
-        ConfigFile.model_validate(raw)
-    raw["displays"]["main-hall"]["custom_colors"] = {"background": "112233"}
-    with pytest.raises(ValidationError, match="#rrggbb"):
-        ConfigFile.model_validate(raw)
+def test_palettes_stay_distinguishable():
+    """Pin the vetting behind the stylesheet palettes.
+
+    Every palette keeps WCAG AAA body-text contrast and dark-on-white
+    contrast for the white current-row/clock blocks, and its background
+    never equals its divider color, so borders always render as a
+    distinct element. Tokens are read from the shipped ``app.css`` so a
+    future palette edit that blends elements fails here.
+    """
+
+    import re
+    from pathlib import Path
+
+    def _luminance(hex_value: str) -> float:
+        rgb = [int(hex_value[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+        lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    def _ratio(first: str, second: str) -> float:
+        light, dark = (
+            max(_luminance(first), _luminance(second)),
+            min(_luminance(first), _luminance(second)),
+        )
+        return (light + 0.05) / (dark + 0.05)
+
+    def _block(css: str, selector: str) -> str:
+        match = re.search(re.escape(selector) + r"\s*\{(.*?)\}", css, re.S)
+        assert match, f"missing rule for {selector}"
+        return match.group(1)
+
+    def _token(block: str, name: str) -> str:
+        match = re.search(re.escape(name) + r"\s*:\s*(#[0-9a-fA-F]{6})", block)
+        assert match, f"missing {name}"
+        return match.group(1).lower()
+
+    css = (
+        Path(__file__).resolve().parent.parent
+        / "src"
+        / "muhideen"
+        / "static"
+        / "app.css"
+    ).read_text()
+    palettes = {
+        "classic-green": _block(css, ":root"),
+        "midnight": _block(css, "body.palette-midnight"),
+        "sand": _block(css, "body.palette-sand"),
+    }
+    for name, block in palettes.items():
+        background = _token(block, "--green")
+        foreground = _token(block, "--white")
+        divider = _token(block, "--green-line")
+        ink = _token(block, "--ink")
+        assert _ratio(background, foreground) >= 7, name
+        assert _ratio("#ffffff", ink) >= 7, name
+        assert background != divider, name
 
 
 def test_playlist_repeat_needs_cycles_and_indefinite_forbids_them():

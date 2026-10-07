@@ -352,28 +352,20 @@ class DisplayTheme(Strict):
 
 
 class Display(Strict):
-    """One display entry: language, theme overlay, dim/carousel/color overrides."""
+    """One display entry: language, theme overlay, dim/carousel overrides.
+
+    Colors come only from the selected palette (global ``theme.palette``
+    unless this display's ``theme.palette`` overrides it): every surface,
+    border, tint, and accent token renders from that palette's vetted
+    stylesheet block, so no mixing of palettes can produce
+    indistinguishable elements.
+    """
 
     name: str | None = None
     language: Language = "en"
     theme: DisplayTheme = Field(default_factory=DisplayTheme)
     dim_minutes_override: Annotated[int | None, Field(ge=5, le=60)] = None
     carousel_enabled: bool = True
-    custom_colors: dict[str, str] | None = None
-
-    @field_validator("custom_colors")
-    @classmethod
-    def _colors_hex(cls, value: dict[str, str] | None) -> dict[str, str] | None:
-        """Custom colors are an optional #rrggbb map (background/foreground)."""
-        if value is None:
-            return None
-        allowed = {"background", "foreground", "accent"}
-        for key, hex_value in value.items():
-            if key not in allowed:
-                raise ValueError(f"unknown custom color key: {key!r}")
-            if not re.fullmatch(r"#[0-9a-fA-F]{6}", hex_value):
-                raise ValueError(f"custom color must be #rrggbb: {key}={hex_value!r}")
-        return value
 
 
 class PlaylistItemFile(Strict):

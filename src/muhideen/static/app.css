@@ -10,6 +10,8 @@
   --grad-a: #075440;
   --grad-b: #075743;
   --grad-c: #075541;
+  /* Classic keeps no accent bar (transparent preserves the pre-existing
+     look); midnight/sand define a visible inset ring below. */
   --accent: transparent;
 }
 
