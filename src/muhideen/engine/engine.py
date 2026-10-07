@@ -9,6 +9,7 @@ and `next_event`, and `tick` takes it from the injected `Clock`. It imports
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
@@ -34,6 +35,8 @@ from muhideen.domain.fallback import merge_days
 
 STATE_EVENT = "state"
 TICK_EVENT = "tick"
+
+logger = logging.getLogger(__name__)
 
 # TIME UNSYNCED (FR-1.6): a wall-clock step larger than `_DRIFT_STEP_S`
 # that monotonic time did not observe latches the display unsynced for
@@ -124,13 +127,18 @@ class Engine:
         fails, the connection drops, and the display falls back to its
         60s poll + reload into the route slate. Fingerprint and minute
         are untouched on failure, so the next healthy tick fans out as
-        `state` + `tick` normally.
+        `state` + `tick` normally. Unexpected errors publish the same
+        bare `tick` (logged at exception level) before re-raising.
         """
         now = self._clock.now()
         try:
             event = self.next_event(now)
         except MuhideenError:
             self._event_bus.publish(TICK_EVENT)
+            raise
+        except Exception as exc:
+            self._event_bus.publish(TICK_EVENT)
+            logger.exception("tick failed (unexpected): %s", exc)
             raise
         fingerprint: _Fingerprint = (
             event.state,

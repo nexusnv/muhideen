@@ -367,6 +367,42 @@ def test_published_tick_stage_surfaces_error_on_schedule_failure(
     )
 
 
+def test_published_tick_stage_surfaces_error_on_unexpected_failure(
+    surface: SimpleNamespace,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unexpected stage errors degrade to stage="error", stream continues (#63)."""
+    _seed_settings(surface, lat=3.07, lon=101.69)
+
+    def _boom(*args: object, **kwargs: object) -> str:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(app_module, "_tick_stage", _boom)
+    gen = _stream(surface)
+    with caplog.at_level(logging.ERROR):
+        next(gen)
+        surface.bus.publish("tick")
+        frame = next(gen)
+    event, data = _parse(frame)
+    assert event == "tick"
+    assert data["stage"] == "error"
+    assert any(record.levelno >= logging.ERROR for record in caplog.records), (
+        "unexpected failure must log at error level, never silently fall back"
+    )
+    # The stream survives: a healthy resolution yields the next tick frame.
+    monkeypatch.undo()
+    try:
+        surface.bus.publish("tick")
+        frame = next(gen)
+    finally:
+        gen.close()
+    event, data = _parse(frame)
+    assert event == "tick"
+    assert data["stage"] != "error"
+
+
 def test_ticker_tick_failure_drops_open_stream_to_route_slate(
     surface: SimpleNamespace,
     client: TestClient,

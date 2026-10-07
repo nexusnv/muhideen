@@ -365,6 +365,13 @@ async def _event_stream(
                             exc,
                         )
                         stage = "error"
+                    except Exception as exc:
+                        logger.exception(
+                            "tick stage error (unexpected): %s — display falls"
+                            " back to the route slate",
+                            exc,
+                        )
+                        stage = "error"
                     payload = TickEventDTO.from_domain(
                         current,
                         stage,
