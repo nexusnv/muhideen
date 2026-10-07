@@ -148,18 +148,26 @@ def test_background_without_sync_client_fails_fast(tmp_path: Path) -> None:
         client.__enter__()
 
 
-def test_background_shutdown_skips_stop_when_scheduler_never_started(
+def test_background_shutdown_stops_scheduler_even_when_never_running(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A scheduler whose thread dies before serving (broken start) must not
-    # take shutdown down with it: no running scheduler, no shutdown call.
+    # A scheduler whose thread dies before serving (broken start) must still
+    # be shut down: skipping shutdown on ``running is False`` races a slow
+    # start winning after the check, leaving the BlockingScheduler (and its
+    # non-daemon executor threads) alive after the port closes (#87).
     class _DeadScheduler:
         running = False
+        shutdown_called = False
 
         def start(self) -> None:
-            """Never serving: shutdown must skip the stop call."""
+            """Never serving: shutdown must still be attempted."""
             return
 
+        def shutdown(self, wait: bool = True) -> None:
+            """Record the teardown call instead of stopping a live loop."""
+            type(self).shutdown_called = True
+
+    _DeadScheduler.shutdown_called = False
     monkeypatch.setattr(
         app_module, "build_scheduler", lambda **kwargs: _DeadScheduler()
     )
@@ -168,6 +176,7 @@ def test_background_shutdown_skips_stop_when_scheduler_never_started(
     )
     with TestClient(create_app(deps)) as client:
         assert client.get("/api/version").status_code == 200
+    assert _DeadScheduler.shutdown_called is True
 
 
 class _ScriptedEngine:
@@ -517,3 +526,54 @@ def test_failed_pins_candidate_is_unwatched_after_recovery(
             assert Path(pins_next) in watcher._paths
         finally:
             deps.event_bus.unsubscribe(subscriber)
+
+
+def test_background_shutdown_survives_late_scheduler_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scheduler start landing after the first shutdown still exits (#87).
+
+    Slow ``start()`` (running flips True 0.3s in) means the first teardown
+    ``shutdown()`` raises ``SchedulerNotRunningError``; teardown must
+    re-attempt until the thread exits instead of leaving a serving
+    scheduler behind the closed port.
+    """
+    import time as time_mod
+
+    from apscheduler.schedulers.base import SchedulerNotRunningError
+
+    class _LateScheduler:
+        def __init__(self) -> None:
+            self.running = False
+            self.shutdown_calls = 0
+            self._release = threading.Event()
+
+        def start(self) -> None:
+            """Boot slowly, then serve until shutdown releases the loop."""
+            time_mod.sleep(0.3)
+            self.running = True
+            self._release.wait(5.0)
+
+        def shutdown(self, wait: bool = True) -> None:
+            """Raise until started (like APScheduler), then release."""
+            del wait
+            self.shutdown_calls += 1
+            if not self.running:
+                raise SchedulerNotRunningError("not running")
+            self.running = False
+            self._release.set()
+
+    late = _LateScheduler()
+    monkeypatch.setattr(app_module, "build_scheduler", lambda **kwargs: late)
+    _, deps = _file_deps(
+        tmp_path, FakeClock(), run_background=True, sync_client=FakeScheduleClient()
+    )
+    app = create_app(deps)
+    started = time.monotonic()
+    with TestClient(app) as client:
+        assert client.get("/api/version").status_code == 200
+    elapsed = time.monotonic() - started
+    assert late.shutdown_calls >= 2
+    assert late.running is False
+    assert app.state.background.scheduler_thread.is_alive() is False
+    assert elapsed < 6.0

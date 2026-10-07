@@ -15,11 +15,12 @@ import os
 import queue
 import re
 import threading
+import time
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from dataclasses import replace as _replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Annotated, Protocol, cast
@@ -614,12 +615,37 @@ def create_app(deps: AppDeps) -> FastAPI:
             if watcher is not None:
                 watcher.stop()
             if background is not None:
+                # Wake the scheduler before joining anything: shutdown is
+                # unconditional (no `running` check) because the check races
+                # a slow start winning after it — the skipped shutdown then
+                # leaves the BlockingScheduler and its non-daemon executor
+                # threads alive after the port closes, wedging the process
+                # (#87). Shutdown from the lifespan thread never blocks
+                # (wait=False wakes the scheduler loop); a never-started
+                # scheduler raises and is logged, never fatal. The first
+                # attempt can still land before a slow start transitions to
+                # running (APScheduler raises SchedulerNotRunningError), so
+                # re-attempt until the thread exits or the deadline passes —
+                # a late start cannot survive teardown. Joins stay bounded
+                # so teardown cannot outlive uvicorn's grace period.
                 background.stop.set()
-                background.ticker.join(2.0)
-                background.scheduler_thread.join(0.5)
-                if background.scheduler.running:
+                try:
                     background.scheduler.shutdown(wait=False)
-                background.scheduler_thread.join(2.0)
+                except Exception:
+                    logger.debug("scheduler shutdown failed; continuing", exc_info=True)
+                background.ticker.join(2.0)
+                deadline = time.monotonic() + 2.0
+                while (
+                    background.scheduler_thread.is_alive()
+                    and time.monotonic() < deadline
+                ):
+                    try:
+                        background.scheduler.shutdown(wait=False)
+                    except Exception:
+                        logger.debug(
+                            "scheduler shutdown failed; continuing", exc_info=True
+                        )
+                    background.scheduler_thread.join(0.5)
 
     app = FastAPI(
         title="muhideen",
@@ -791,7 +817,14 @@ def create_app(deps: AppDeps) -> FastAPI:
         now = deps.clock.now()
         try:
             result = engine.resolve_day(now.date(), settings.zone, now)
-            event = engine.next_event(now)
+            # The display pin overrides the salah-dim length for this render
+            # only; global state and other displays keep the configured dim.
+            # Resolved through the engine seam so state selection and
+            # dim_until agree (#93) — never patched post-hoc.
+            event = engine.next_event(
+                now,
+                dim_minutes=dim_minutes if dim_source != "settings" else None,
+            )
         except ScheduleError:
             if settings.lat is None and settings.lon is None:
                 message = (
@@ -812,17 +845,6 @@ def create_app(deps: AppDeps) -> FastAPI:
                 "error.html",
                 {"code": 503, "message": "Setup required"},
                 status_code=503,
-            )
-        if (
-            dim_source != "settings"
-            and event.iqamah_at is not None
-            and event.dim_until is not None
-        ):
-            # The pin overrides the salah-dim length for this render only;
-            # global state and other displays keep the configured dim.
-            event = _replace(
-                event,
-                dim_until=event.iqamah_at + timedelta(minutes=dim_minutes),
             )
         effective_settings = (
             settings

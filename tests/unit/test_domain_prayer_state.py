@@ -535,3 +535,38 @@ def test_fixed_fajr_drift_degrades_to_iqamah_less_carry() -> None:
     assert event.state == PrayerState.NORMAL
     assert event.next_prayer == MarkerName.FAJR
     assert event.iqamah_at is None
+
+
+@pytest.mark.unit
+def test_dim_override_extends_salah_dim_past_global_end() -> None:
+    """A longer per-display pin reselects state, not just dim_until (#93).
+
+    Dhuhr adhan 12:15 + 10m iqamah delay places iqamah at 12:25; the
+    global 20m dim ends at 12:45, so 12:50 is NORMAL globally but still
+    SALAH_DIM under a 30m display pin.
+    """
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    event = resolve_next_event(
+        _at(12, 50), _day(), None, _rules(), _settings(), False, dim_minutes=30
+    )
+    assert event.state == PrayerState.SALAH_DIM
+    assert event.next_prayer == MarkerName.DHUHR
+    assert event.dim_until == datetime(2025, 10, 22, 12, 55, tzinfo=TZ)
+
+
+@pytest.mark.unit
+def test_dim_override_shrinks_salah_dim_before_global_end() -> None:
+    """A shorter per-display pin ends SALAH_DIM early (#93).
+
+    At 12:40 the global 20m dim still holds, but a 5m display pin ended
+    at 12:30, so the display resolves NORMAL toward Asr.
+    """
+    from muhideen.domain.prayer_state import resolve_next_event
+
+    event = resolve_next_event(
+        _at(12, 40), _day(), None, _rules(), _settings(), False, dim_minutes=5
+    )
+    assert event.state == PrayerState.NORMAL
+    assert event.next_prayer == MarkerName.ASR
+    assert event.dim_until == datetime(2025, 10, 22, 15, 45, tzinfo=TZ)

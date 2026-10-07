@@ -419,3 +419,66 @@ def test_coords_present_missing_timetable_keeps_bare_slate(
         assert "No schedule" in response.text
         assert "coordinates" not in response.text
         assert "muhideen.json" not in response.text
+
+
+def test_per_display_dim_override_reselects_state_at_boundary(
+    tmp_path: Path,
+) -> None:
+    """The display pin reselects SALAH_DIM, not just dim_until (#93).
+
+    Full manual pin (dhuhr 13:15, 10m iqamah delay → iqamah 13:25) with the
+    global 20m dim ending at 13:45: at 13:50 the global render is NORMAL,
+    but ``entrance`` (30m pin, dim until 13:55) must render SALAH_DIM.
+    The old post-hoc patch kept the global NORMAL state with a future
+    dim_until — an inconsistent pair.
+    """
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
+    )
+    from muhideen.adapters.sse_bus import SSEBus
+    from muhideen.api.app import AppDeps, create_app
+
+    dest = tmp_path / "muhideen.json"
+    shutil.copy(EXAMPLE, dest)
+    raw = json.loads(dest.read_text())
+    raw["schedule"]["manual_days"] = [
+        {
+            "date": "2025-10-20",
+            "imsak": "05:48",
+            "fajr": "05:58",
+            "syuruq": "07:05",
+            "dhuha": "07:33",
+            "dhuhr": "13:15",
+            "asr": "16:30",
+            "maghrib": "19:15",
+            "isha": "20:30",
+        }
+    ]
+    dest.write_text(json.dumps(raw, indent=2) + "\n")
+    cfg = load_config_file(dest)
+    media = tmp_path / "media"
+    media.mkdir(parents=True, exist_ok=True)
+    clock = FakeClock(datetime(2025, 10, 20, 13, 50, tzinfo=KL))
+    deps = AppDeps(
+        settings_repo=FileSettingsRepo(dest),
+        prayer_repo=FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days),
+        clock=clock,  # type: ignore[arg-type]
+        event_bus=SSEBus(),
+        playlist_repo=FilePlaylistRepo(dest),
+        media_dir=media,
+        config_path=dest,
+    )
+    app = create_app(deps)
+    with TestClient(app) as client:
+        pinned = client.get("/display", params={"id": "entrance"})
+        assert pinned.status_code == 200
+        assert "state-salah_dim" in pinned.text
+        assert 'data-state="SALAH_DIM"' in pinned.text
+        assert 'id="dim-skip"' in pinned.text
+        worldwide = client.get("/display", params={"id": "main-hall"})
+        assert worldwide.status_code == 200
+        assert "state-salah_dim" not in worldwide.text
+        assert 'data-state="NORMAL"' in worldwide.text
