@@ -19,8 +19,9 @@ Out: everything else. No behavior change beyond `None` → `ValueError`.
   contract airtight).
 - `src/muhideen/adapters/file_models.py:19,95`: add `TIMEZONE_DEFAULT`
   to the existing `core.values` import; `Masjid.timezone` default becomes
-  `TIMEZONE_DEFAULT`. Last hardcoded literal in `src/` (DTO axis already
-  gone, `install.sh` never hardcoded it).
+  `TIMEZONE_DEFAULT`. Last hardcoded *config default* in `src/` (DTO axis
+  already gone, `install.sh` never hardcoded it; the runtime fallback
+  `_PROD_TZ` in `api/app.py` is a separate axis, out of scope).
 
 ## 3. Tests
 
