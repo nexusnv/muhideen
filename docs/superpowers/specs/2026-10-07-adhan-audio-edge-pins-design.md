@@ -21,14 +21,21 @@ Extract the inline effective-audio condition at the display route
 predicate next to `_in_quiet_hours` (`:164`):
 
 ```python
-def _adhan_eligible(
-    next_prayer, muted_prayers, now_hhmm, quiet_start, quiet_end, has_file
+def _adhan_playback_allowed(
+    *,
+    enabled: bool,
+    next_prayer: str | None,
+    muted_prayers: Sequence[str],
+    now_hhmm: str,
+    quiet_start: str | None,
+    quiet_end: str | None,
 ) -> bool: ...
 ```
 
-Body = the existing conjunction, moved verbatim
-(`next_prayer not in muted` + `not _in_quiet_hours(...)` + file-exists);
-the route calls it with the same arguments. No caller-visible change.
+Body = the existing pure conjunction, moved verbatim
+(`enabled` + `next_prayer not in muted` + `not _in_quiet_hours(...)`);
+file resolution/existence stays in the route (I/O + 503 mapping).
+The route calls it with the same arguments. No caller-visible change.
 
 ## 3. Tests (`tests/unit/test_adhan_audio.py`)
 
