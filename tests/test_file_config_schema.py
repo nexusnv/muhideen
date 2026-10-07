@@ -465,3 +465,10 @@ def test_adhan_file_rejects_absolute_and_traversal() -> None:
         allowed = copy.deepcopy(base)
         allowed["adhan_audio"] = {"enabled": False, "file": bad}
         assert ConfigFile.model_validate(allowed).adhan_audio.file == bad
+
+
+def test_masjid_timezone_defaults_to_single_owner() -> None:
+    from muhideen.adapters.file_models import Masjid
+    from muhideen.core.values import TIMEZONE_DEFAULT
+
+    assert Masjid(name="M").timezone == TIMEZONE_DEFAULT
