@@ -289,9 +289,11 @@ class FileSettingsRepo:
     def __init__(self, path: str | Path) -> None:
         """Hold the config file path (reads are fresh on every call)."""
         self._path = Path(path)
-        # Guards the read-modify-write in ``save`` so two in-process
-        # savers cannot lose updates. Cross-process writers still rely
-        # on tmp+rename (last writer wins, readers never tear).
+        # Guards the read-modify-write in ``save`` so in-process savers
+        # sharing this instance cannot lose updates. Separate instances
+        # over the same path do not serialize (same as ``FilePrayerRepo``).
+        # Cross-process writers still rely on tmp+rename (last writer
+        # wins, readers never tear).
         self._lock = threading.Lock()
 
     @property
