@@ -12,6 +12,7 @@ Tests mirror `ARCHITECTURE.md` layers. Organized by scope, run with `uv`. No ski
 | `tests/property/` | `property` | Hypothesis invariants: monotonic countdown targets, no overlapping states, Boundary Time Markers never adhan/iqamah/dim/leave NORMAL, opt-in pointer gates exactly, midnight crossover always resolves next-day Fajr, re-render idempotence. |
 | `tests/e2e/` | `e2e` | Served surface: landed slice 1A-7 (API surface, SSE, auth/rate limits, docs gate) plus slice 1A-8 lifespan/production wiring — ASGI test client, plus 2 live-TCP stream tests (disconnect + 40-stream starvation); `/display` and `/admin` join with their frontend slices. No Chromium. |
 | `tests/device/` | `device` | Deployment surface: systemd unit files, `install.sh`/`update.sh`/`tools/build_vendor.sh` behaviour, spawned-entrypoint boot (`service`/`seed` mains). PATH shims over system tools; no network, no Chromium. |
+| `tests/browser/` | `browser` | Headless Chromium computed-style checks (presentation wiring); file:// stylesheet, no test server. |
 
 ## Shared Infrastructure
 
