@@ -549,6 +549,25 @@ def test_tick_failure_publishes_tick_and_raises() -> None:
     assert harness.bus.events == ["state", "tick"]
 
 
+def test_tick_unexpected_error_publishes_tick_and_raises() -> None:
+    """Unexpected tick failures still wake the stream, then re-raise (#63).
+
+    `MuhideenError` already publishes a bare `tick`; an unexpected error
+    (e.g. `RuntimeError` from a broken double) must do the same so the
+    open SSE stream wakes instead of sitting silent on a frozen view.
+    """
+    harness = _tick_harness(datetime(2025, 10, 20, 12, 9, tzinfo=TZ))
+    harness.settings.error = RuntimeError("boom")
+    with pytest.raises(RuntimeError, match="boom"):
+        harness.engine.tick()
+    assert harness.bus.events == ["tick"]
+    # No fingerprint/minute updates on failure: recovery fans out fully.
+    harness.settings.error = None
+    harness.bus.events.clear()
+    harness.engine.tick()
+    assert harness.bus.events == ["state", "tick"]
+
+
 def test_engine_never_publishes_config_update() -> None:
     harness = _tick_harness(datetime(2025, 10, 20, 12, 9, tzinfo=TZ))
     for minute in (9, 10, 12, 15, 18, 25, 45, 46):
