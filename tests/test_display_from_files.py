@@ -257,7 +257,7 @@ def test_countdown_format_unified_across_styles(tmp_path: Path) -> None:
     from muhideen.adapters.sse_bus import SSEBus
     from muhideen.api.app import AppDeps, create_app
 
-    bodies = []
+    bodies: list[str] = []
     for style in ("boxes", "inline"):
         dest = tmp_path / f"muhideen-{style}.json"
         shutil.copy(EXAMPLE, dest)
@@ -267,22 +267,40 @@ def test_countdown_format_unified_across_styles(tmp_path: Path) -> None:
         raw["theme"]["countdown_style"] = style
         dest.write_text(json.dumps(raw, indent=2) + "\n")
         cfg = load_config_file(dest)
+        zone = FileSettingsRepo(dest).load().zone
         media = tmp_path / f"media-{style}"
         media.mkdir(exist_ok=True)
+        clock = FakeClock(PINNED_START)
         deps = AppDeps(
             settings_repo=FileSettingsRepo(dest),
-            prayer_repo=FilePrayerRepo(tmp_path / f"buffer-{style}.json", cfg.schedule.manual_days),
-            clock=FakeClock(PINNED_START),  # type: ignore[arg-type]
+            prayer_repo=FilePrayerRepo(
+                tmp_path / f"buffer-{style}.json", cfg.schedule.manual_days
+            ),
+            clock=clock,  # type: ignore[arg-type]
             event_bus=SSEBus(),
             playlist_repo=FilePlaylistRepo(dest),
             media_dir=media,
             config_path=dest,
         )
-        with TestClient(create_app(deps)) as client:
-            bodies.append(client.get("/display", params={"id": "main-hall"}).text)
-    # Deviation from plan-literal `== 1`: the countdown block only renders
-    # `{% if countdown_target %}`, which is blank at PINNED_START (NORMAL),
-    # so the count is 0 for both. Pin equality (no fork) without depending
-    # on clock state.
-    assert bodies[0].count('class="countdown"') == bodies[1].count('class="countdown"')
+        app = create_app(deps)
+        with TestClient(app) as client:
+            day = client.get(
+                "/api/prayer-day", params={"date": "2025-10-20", "zone": zone}
+            ).json()
+            hour, minute = (int(part) for part in day["prayers"]["fajr"].split(":"))
+            # Pin 3 minutes before fajr (inside the 10-min fajr countdown
+            # override) so the state is PRE_ADHAN and the countdown renders.
+            clock._now = datetime(2025, 10, 20, hour, minute, tzinfo=KL) - timedelta(
+                minutes=3
+            )
+            response = client.get("/display", params={"id": "main-hall"})
+            assert response.status_code == 200
+            bodies.append(response.text)
+    # PRE_ADHAN renders the block, so `== 1` holds for both styles; the
+    # absence check proves there is no boxes/inline fork.
+    assert (
+        bodies[0].count('class="countdown"')
+        == bodies[1].count('class="countdown"')
+        == 1
+    )
     assert "countdown-inline" not in bodies[0] and "countdown-inline" not in bodies[1]
