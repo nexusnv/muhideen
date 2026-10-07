@@ -50,7 +50,9 @@ What this does, in order:
    ```
 
    The service fails fast when the file is missing and hot-reloads
-   hand-edits live (~1s) — no login, no rebuild. The `chown` matters:
+   hand-edits live (~1s) — no login, no rebuild. Two operators editing
+   at once (or an edit racing a settings save) resolve
+   last-writer-wins, so save one at a time. The `chown` matters:
    the service runs as UID:GID `${UID:-1000}:${GID:-1000}` (see `user:` in compose.yml), so without matching ownership
    the sync worker cannot write `prayer_buffer.json` (the boot log
    warns and the timetable never caches). Without JAKIM reachability
