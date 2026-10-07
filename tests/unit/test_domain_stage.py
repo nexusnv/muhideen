@@ -393,6 +393,16 @@ def test_max_cycles_two_boundary() -> None:
 
 
 @pytest.mark.unit
+def test_open_window_repeat_never_exhausts() -> None:
+    from muhideen.domain.stage import PlaylistOccupant, resolve_stage
+
+    open_repeat = _playlist("open", None, None, cycle_mode="repeat", max_cycles=1)
+    now = _at(10, 0)
+    got = resolve_stage(now, _day(), _settings(), _dhuhr_event(now), (open_repeat,))
+    assert got == PlaylistOccupant(playlist_id="open")
+
+
+@pytest.mark.unit
 def test_max_cycles_empty_items_stays_clock() -> None:
     from muhideen.domain.stage import ClockOccupant, resolve_stage
 
