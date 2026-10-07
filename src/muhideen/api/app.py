@@ -15,7 +15,7 @@ import os
 import queue
 import re
 import threading
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from dataclasses import replace as _replace
@@ -172,6 +172,29 @@ def _in_quiet_hours(now: str, start: str | None, end: str | None) -> bool:
     if start <= end:
         return start <= now < end
     return now >= start or now < end
+
+
+def _adhan_playback_allowed(
+    *,
+    enabled: bool,
+    next_prayer: str | None,
+    muted_prayers: Sequence[str],
+    now_hhmm: str,
+    quiet_start: str | None,
+    quiet_end: str | None,
+) -> bool:
+    """Pure eligibility leg of the display adhan-audio rule (#58, #60).
+
+    ``None`` next prayer falls through as not-muted (safe default: the
+    overlay only renders during ADHAN, which always has a next prayer).
+    ``start == end`` quiet bounds match nothing (half-open ``[start, end)``).
+    File resolution/existence stays in the route (I/O + 503 mapping).
+    """
+    return (
+        enabled
+        and next_prayer not in muted_prayers
+        and not _in_quiet_hours(now_hhmm, quiet_start, quiet_end)
+    )
 
 
 @dataclass
@@ -820,14 +843,13 @@ def create_app(deps: AppDeps) -> FastAPI:
                 status_code=503,
             )
         adhan_url: str | None = None
-        if (
-            settings.adhan_audio_enabled
-            and event_dto.next_prayer not in settings.adhan_muted_prayers
-            and not _in_quiet_hours(
-                event_dto.now.strftime("%H:%M"),
-                settings.quiet_hours_start,
-                settings.quiet_hours_end,
-            )
+        if _adhan_playback_allowed(
+            enabled=settings.adhan_audio_enabled,
+            next_prayer=event_dto.next_prayer,
+            muted_prayers=settings.adhan_muted_prayers,
+            now_hhmm=event_dto.now.strftime("%H:%M"),
+            quiet_start=settings.quiet_hours_start,
+            quiet_end=settings.quiet_hours_end,
         ):
             try:
                 adhan_path = resolve_adhan_path(settings.adhan_audio_file, media_dir)
