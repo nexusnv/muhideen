@@ -65,6 +65,11 @@ def test_font_face_and_font_rules() -> None:
     assert re.search(r"font-display\s*:\s*swap", css)
     _block(css, "body.font-outfit")
     _block(css, "body.font-system")
+    # The @font-face URLs are relative to app.css: the files must ship
+    # under static/fonts or every display falls back to Arial.
+    fonts = CSS.parent / "fonts"
+    for weight in ("400", "700", "800"):
+        assert (fonts / f"Outfit-{weight}.woff2").is_file()
 
 
 def test_density_compact_rules() -> None:
@@ -73,3 +78,15 @@ def test_density_compact_rules() -> None:
     assert "body.density-compact .prayer-screen" in css
     assert re.search(r"min-height\s*:", _block(css, "body.density-compact .prayer-row"))
     assert re.search(r"padding\s*:", _block(css, "body.density-compact .prayer-screen"))
+
+
+def test_density_compact_header_stays_compact() -> None:
+    """The body-row minimum must not leak into the timetable header.
+
+    ``body.density-compact .prayer-row`` outranks ``.prayer-row.header``
+    at every width (including the 42px mobile rule), so without its own
+    header rule compact mode renders a taller header than comfortable.
+    """
+    css = CSS.read_text()
+    header = _block(css, "body.density-compact .prayer-row.header")
+    assert re.search(r"min-height\s*:", header)
