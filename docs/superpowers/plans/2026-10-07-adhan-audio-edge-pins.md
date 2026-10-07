@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Pin the decided-keep-current semantics of #58, #59, #60 with unit tests, extracting one pure predicate so the `None` case is testable.
+**Goal:** Pin the decided-keep-current semantics of #58 and #60 with unit tests, extracting one pure predicate so the `None` case is testable. (#59 dropped 2026-10-07: `_is_mp3` was deleted by PR #94 — nothing left to pin; issue closed as obsolete.)
 
-**Architecture:** One verbatim-move extraction (`_adhan_playback_allowed` next to `_in_quiet_hours` in `api/app.py`; route calls it with identical arguments) plus three additive tests in the existing `tests/unit/test_adhan_audio.py`. No behavior change anywhere.
+**Architecture:** One verbatim-move extraction (`_adhan_playback_allowed` next to `_in_quiet_hours` in `api/app.py`; route calls it with identical arguments) plus two additive tests in the existing `tests/unit/test_adhan_audio.py`. No behavior change anywhere.
 
 **Tech Stack:** Python 3.12, pytest (unit mark), stdlib only.
 
@@ -55,45 +55,11 @@ git add tests/unit/test_adhan_audio.py
 git commit -m "test(audio): pin quiet-hours start==end as never quiet (#58)"
 ```
 
-### Task 2: Pin MP3 sniff vectors (#59)
+### Task 2: DROPPED — MP3 sniff vectors (#59)
 
-No prod change: `_is_mp3` keeps the lenient mask; the reserved-bit row documents accepted-today.
-
-**Files:**
-- Modify: `tests/unit/test_adhan_audio.py` (append at end)
-- Test: `tests/unit/test_adhan_audio.py::test_is_mp3_frame_sync_vectors`
-
-- [ ] **Step 1: Append the vector test**
-
-```python
-@pytest.mark.parametrize(
-    ("blob", "expected"),
-    [
-        (b"ID3\x04\x00" + b"\x00" * 64, True),
-        (b"\xff\xfb\x90\x00" + b"\x00" * 64, True),
-        (b"\xff\xe0\x00\x00" + b"\x00" * 64, True),  # reserved-bit pattern: accepted-today (#59)
-        (b"\x00\x01\x02\x03" + b"\x00" * 64, False),
-        (b"\xff\xd8", False),
-        (b"", False),
-    ],
-)
-def test_is_mp3_frame_sync_vectors(blob: bytes, expected: bool) -> None:  # Issue #59
-    from muhideen.adapters.adhan_audio import _is_mp3
-
-    assert _is_mp3(blob) is expected
-```
-
-- [ ] **Step 2: Run the test to verify the pin holds**
-
-Run: `uv run pytest tests/unit/test_adhan_audio.py::test_is_mp3_frame_sync_vectors -v`
-Expected: PASS (6/6 parametrized cases; a FAIL means the sniff drifted)
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/unit/test_adhan_audio.py
-git commit -m "test(audio): pin MP3 frame-sync vectors incl. reserved-bit accept (#59)"
-```
+Struck 2026-10-07: `_is_mp3` does not exist on `main` (deleted by PR #94,
+which replaced byte-sniff upload validation with media-relative path
+validation). No test to write; issue #59 closed as obsolete. No commit.
 
 ### Task 3: Extract `_adhan_playback_allowed` and pin the `None` path (#60)
 
@@ -231,7 +197,7 @@ Expected: clean
 - [ ] **Step 2: Final review of the diff**
 
 Run: `git log --oneline main..HEAD && git diff main --stat`
-Expected: branch commits = design-spec commit + 3 task commits; diff touches only `src/muhideen/api/app.py` (import + predicate + call-site) and `tests/unit/test_adhan_audio.py` (3 appended tests)
+Expected: branch commits = design-spec + plan + task commits; diff touches only `src/muhideen/api/app.py` (import + predicate + call-site) and `tests/unit/test_adhan_audio.py` (2 appended tests)
 
 - [ ] **Step 3: Push and open the PR**
 
@@ -239,4 +205,4 @@ Expected: branch commits = design-spec commit + 3 task commits; diff touches onl
 git push -u origin test/adhan-audio-edge-pins-58-59-60
 ```
 
-PR body closes #58, #59, #60 with the recorded decisions (keep never-quiet, keep lenient + vectors, pin passthrough) and notes the zero-behavior-change predicate move. Open with `gh pr create` (or push and open via web) — whichever the engineer prefers; the body must list the three closed issues and the gate evidence.
+PR body closes #58 and #60 with the recorded decisions (keep never-quiet, pin passthrough) and notes the zero-behavior-change predicate move. Open with `gh pr create` (or push and open via web) — whichever the engineer prefers; the body must list the two closed issues and the gate evidence.

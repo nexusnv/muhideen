@@ -1,17 +1,18 @@
-# Adhan-audio edge pins (#58, #59, #60) — design
+# Adhan-audio edge pins (#58, #60) — design
 
 Date: 2026-10-07 | Branch: `test/adhan-audio-edge-pins-58-59-60` | Approach: A (predicate helper)
 
-Closes #58, #59, #60 in one PR. Zero behavior change: every pin asserts
-current behavior, and the single prod touch is a verbatim move of the
-existing display-route condition into a testable pure predicate.
+Closes #58 and #60 in one PR. (#59 struck 2026-10-07: `_is_mp3` was
+deleted by PR #94 — nothing left to pin; closed as obsolete.) Zero
+behavior change: every pin asserts current behavior, and the single
+prod touch is a verbatim move of the existing display-route condition
+into a testable pure predicate.
 
 ## 1. Scope
 
-In: three unit-test pins for decided-keep-current semantics
+In: two unit-test pins for decided-keep-current semantics
 (GitHub decisions recorded 2026-10-06).
-Out: #91 follow-ups, #61 (display domain), any `_is_mp3` tightening,
-any quiet-hours contract change.
+Out: #91 follow-ups, #61 (display domain).
 
 ## 2. Prod change (`src/muhideen/api/app.py`)
 
@@ -34,10 +35,6 @@ cites its issue number.
 
 - #58: `start == end` yields never-quiet, plus overnight (`22:00–06:00`)
   and same-day sanity rows through `_in_quiet_hours`.
-- #59: synthetic header vectors through `_is_mp3` — `ID3` magic accept,
-  valid sync (`0xFF 0xFB`) accept, reserved-bit pattern (`0xFF 0xE0`)
-  accepted-today (pinned, not tightened), short/garbage reject.
-  Inline bytes; no fixture files (stdlib-only constraint stands).
 - #60: `next_prayer=None` → eligible through `_adhan_eligible`
   (safe default; the overlay only renders during ADHAN, which always
   has a next prayer). Also pin one muted-prayer negative for contrast.
