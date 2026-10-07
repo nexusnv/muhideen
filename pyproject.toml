@@ -44,6 +44,7 @@ markers = [
     "property: hypothesis invariants",
     "e2e: served surface",
     "device: spawned entrypoint, scripts, packaging units",
+    "browser: headless Chromium computed-style checks",
 ]
 testpaths = ["tests"]
 
@@ -107,4 +108,5 @@ dev = [
     "ruff>=0.5",
     "pyright>=1.1",
     "import-linter>=2.13",
+    "playwright>=1.49",
 ]
