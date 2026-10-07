@@ -17,6 +17,7 @@ from pydantic import (
 )
 
 from muhideen.core.values import (
+    TIMEZONE_DEFAULT,
     SyncProvider,
     ThemeBoundaryStrip,
     ThemeClockFormat,
@@ -92,7 +93,7 @@ class Masjid(Strict):
     """
 
     name: Annotated[str, Field(min_length=1, max_length=200)]
-    timezone: str = "Asia/Kuala_Lumpur"
+    timezone: str = TIMEZONE_DEFAULT
 
 
 class ManualDay(Strict):
