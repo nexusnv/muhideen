@@ -196,3 +196,16 @@ def test_adhan_audio_url_rejects_symlink_escape(tmp_path) -> None:
     os.symlink("/etc", media / "link")
     with pytest.raises(ConfigError, match="escapes"):
         _adhan_audio_url(media, "link/passwd")
+
+
+def test_quiet_hours_start_eq_end_never_quiet() -> None:  # Issue #58
+    from muhideen.api.app import _in_quiet_hours
+
+    assert _in_quiet_hours("12:00", "12:00", "12:00") is False
+    assert _in_quiet_hours("00:00", "00:00", "00:00") is False
+    # Sanity rows: established ranges keep behaving.
+    assert _in_quiet_hours("23:00", "22:00", "06:00") is True
+    assert _in_quiet_hours("07:00", "22:00", "06:00") is False
+    assert _in_quiet_hours("12:00", "09:00", "17:00") is True
+    assert _in_quiet_hours("08:59", "09:00", "17:00") is False
+    assert _in_quiet_hours("12:00", None, None) is False
