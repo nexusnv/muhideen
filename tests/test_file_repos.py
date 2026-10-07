@@ -116,6 +116,68 @@ def test_settings_save_round_trips_preserving_file_sections(tmp_path: Path):
     assert reloaded.adhan_volume == 42
 
 
+def test_settings_concurrent_save_serializes_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Concurrent saves through one repo never overlap their read-modify-write."""
+    import threading
+
+    import muhideen.adapters.file_config as file_config_module
+
+    repo, path = _settings_repo(tmp_path)
+    base = repo.load()
+    workers = 8
+    rounds = 20
+    start = threading.Barrier(workers)
+    active = 0
+    peak = 0
+    count_lock = threading.Lock()
+    real_write = file_config_module._atomic_write_json
+
+    def _tracking_write(target: Path, payload: dict) -> None:
+        nonlocal active, peak
+        with count_lock:
+            active += 1
+            peak = max(peak, active)
+        try:
+            real_write(target, payload)
+        finally:
+            with count_lock:
+                active -= 1
+
+    monkeypatch.setattr(file_config_module, "_atomic_write_json", _tracking_write)
+    names = {
+        f"Masjid Race {worker}-{round_}"
+        for worker in range(workers)
+        for round_ in range(rounds)
+    }
+    errors: list[Exception] = []
+
+    def _race(worker: int) -> None:
+        try:
+            start.wait()
+            for round_ in range(rounds):
+                repo.save(replace(base, masjid_name=f"Masjid Race {worker}-{round_}"))
+                repo.load()
+        except Exception as exc:  # pragma: no cover - failure path asserts below
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=_race, args=(worker,)) for worker in range(workers)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert not errors
+    # Atomic renames keep every write a complete payload: the file always
+    # parses and the winner is one intact save, never a torn mix.
+    assert json.loads(path.read_text())["masjid"]["name"] in names
+    assert repo.load().masjid_name in names
+    # The read-modify-write bodies never overlapped: serialized in-process.
+    assert peak == 1, f"overlapping concurrent saves observed (peak={peak})"
+
+
 # Prayer buffer + manual pins
 
 

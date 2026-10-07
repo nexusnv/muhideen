@@ -289,6 +289,10 @@ class FileSettingsRepo:
     def __init__(self, path: str | Path) -> None:
         """Hold the config file path (reads are fresh on every call)."""
         self._path = Path(path)
+        # Guards the read-modify-write in ``save`` so two in-process
+        # savers cannot lose updates. Cross-process writers still rely
+        # on tmp+rename (last writer wins, readers never tear).
+        self._lock = threading.Lock()
 
     @property
     def path(self) -> Path:
@@ -305,125 +309,134 @@ class FileSettingsRepo:
 
     def save(self, settings: Settings) -> None:
         """Persist settings as one atomic full-file replacement."""
-        try:
-            raw_data: object = json.loads(self._path.read_text())
-        except OSError as exc:
-            raise ConfigError(f"{self._path}: cannot read config file: {exc}") from exc
-        except json.JSONDecodeError as exc:
-            raise ConfigError(f"{self._path}: invalid JSON: {exc}") from exc
-        if not isinstance(raw_data, dict):
-            raise ConfigError(f"{self._path}: config root must be an object")
-        data = cast(dict[str, Any], raw_data)
-        # Raw-dict surgery: only the mapped settings sections are replaced,
-        # so hand-edited displays/playlists/manual_days/manual_days_file
-        # survive byte-for-byte.
-        data["masjid"] = {
-            "name": settings.masjid_name,
-            "timezone": settings.timezone,
-        }
-        schedule_raw = data.get("schedule")
-        audio_raw = data.get("adhan_audio")
-        if not isinstance(schedule_raw, dict) or (
-            audio_raw is not None and not isinstance(audio_raw, dict)
-        ):
-            raise ConfigError(f"{self._path}: config missing schedule/audio sections")
-        schedule = cast(dict[str, Any], schedule_raw)
-        if audio_raw is None:
-            audio_raw = {}
-            data["adhan_audio"] = audio_raw
-        audio = cast(dict[str, Any], audio_raw)
-        schedule.update(
-            {
-                "method": settings.method,
-                "asr_juristic": settings.asr_juristic,
-                "lat": settings.lat,
-                "lon": settings.lon,
-                "calc_only": settings.calc_only,
-                "hijri_offset": settings.hijri_offset,
-                "imsak_offset_min": settings.imsak_offset_min,
-                "dhuha_offset_min": settings.dhuha_offset_min,
-                "boundary_countdown": settings.boundary_countdown,
+        with self._lock:
+            try:
+                raw_data: object = json.loads(self._path.read_text())
+            except OSError as exc:
+                raise ConfigError(
+                    f"{self._path}: cannot read config file: {exc}"
+                ) from exc
+            except json.JSONDecodeError as exc:
+                raise ConfigError(f"{self._path}: invalid JSON: {exc}") from exc
+            if not isinstance(raw_data, dict):
+                raise ConfigError(f"{self._path}: config root must be an object")
+            data = cast(dict[str, Any], raw_data)
+            # Raw-dict surgery: only the mapped settings sections are replaced,
+            # so hand-edited displays/playlists/manual_days/manual_days_file
+            # survive byte-for-byte.
+            data["masjid"] = {
+                "name": settings.masjid_name,
+                "timezone": settings.timezone,
             }
-        )
-        # The served label doubles as the JAKIM fetch key when no explicit
-        # fetch key is set ("local" is never a fetch key). Hand-built
-        # Settings (e.g. zone-only seeds) predate the split; without this
-        # the jakim provider would fail its own file validation.
-        fetch_key = settings.jakim_zone
-        if (
-            settings.sync_provider == "jakim"
-            and fetch_key is None
-            and settings.zone != "local"
-        ):
-            fetch_key = settings.zone
-        if settings.zone == fetch_key or (
-            fetch_key is None and settings.zone == "local"
-        ):
-            schedule["zone"] = None
-        else:
-            schedule["zone"] = settings.zone
-        schedule["sync_provider"] = settings.sync_provider
-        jakim_raw = schedule.get("jakim")
-        if jakim_raw is None:
-            jakim_raw = {}
-            schedule["jakim"] = jakim_raw
-        if not isinstance(jakim_raw, dict):
-            raise ConfigError(f"{self._path}: config missing schedule.jakim section")
-        jakim_raw["zone"] = fetch_key
-        aladhan_raw = schedule.get("aladhan")
-        if aladhan_raw is None:
-            aladhan_raw = {}
-            schedule["aladhan"] = aladhan_raw
-        if not isinstance(aladhan_raw, dict):
-            raise ConfigError(f"{self._path}: config missing schedule.aladhan section")
-        aladhan_raw["base_url"] = settings.aladhan_base_url
-        aladhan_raw["method"] = settings.aladhan_method
-        data["timing"] = {
-            "adhan_duration_s": settings.adhan_duration_s,
-            "dim_minutes_default": settings.dim_minutes_default,
-            "dim_minutes_jumuah": settings.dim_minutes_jumuah,
-            "countdown_before_adhan_min": settings.countdown_before_adhan_min,
-            "countdown_before_adhan_overrides": dict(
-                settings.countdown_before_adhan_overrides
-            ),
-            "iqamah_rules": [
+            schedule_raw = data.get("schedule")
+            audio_raw = data.get("adhan_audio")
+            if not isinstance(schedule_raw, dict) or (
+                audio_raw is not None and not isinstance(audio_raw, dict)
+            ):
+                raise ConfigError(
+                    f"{self._path}: config missing schedule/audio sections"
+                )
+            schedule = cast(dict[str, Any], schedule_raw)
+            if audio_raw is None:
+                audio_raw = {}
+                data["adhan_audio"] = audio_raw
+            audio = cast(dict[str, Any], audio_raw)
+            schedule.update(
                 {
-                    "prayer": rule.prayer.value,
-                    "mode": rule.mode,
-                    "delay_minutes": rule.delay_minutes,
-                    "fixed_time": (
-                        rule.fixed_time.strftime("%H:%M")
-                        if rule.fixed_time is not None
-                        else None
-                    ),
+                    "method": settings.method,
+                    "asr_juristic": settings.asr_juristic,
+                    "lat": settings.lat,
+                    "lon": settings.lon,
+                    "calc_only": settings.calc_only,
+                    "hijri_offset": settings.hijri_offset,
+                    "imsak_offset_min": settings.imsak_offset_min,
+                    "dhuha_offset_min": settings.dhuha_offset_min,
+                    "boundary_countdown": settings.boundary_countdown,
                 }
-                for rule in settings.iqamah_rules
-            ],
-        }
-        audio.update(
-            {
-                "enabled": settings.adhan_audio_enabled,
-                "volume": settings.adhan_volume,
-                "quiet_hours_start": settings.quiet_hours_start,
-                "quiet_hours_end": settings.quiet_hours_end,
-                "muted_prayers": list(settings.adhan_muted_prayers),
-                "file": settings.adhan_audio_file,
+            )
+            # The served label doubles as the JAKIM fetch key when no explicit
+            # fetch key is set ("local" is never a fetch key). Hand-built
+            # Settings (e.g. zone-only seeds) predate the split; without this
+            # the jakim provider would fail its own file validation.
+            fetch_key = settings.jakim_zone
+            if (
+                settings.sync_provider == "jakim"
+                and fetch_key is None
+                and settings.zone != "local"
+            ):
+                fetch_key = settings.zone
+            if settings.zone == fetch_key or (
+                fetch_key is None and settings.zone == "local"
+            ):
+                schedule["zone"] = None
+            else:
+                schedule["zone"] = settings.zone
+            schedule["sync_provider"] = settings.sync_provider
+            jakim_raw = schedule.get("jakim")
+            if jakim_raw is None:
+                jakim_raw = {}
+                schedule["jakim"] = jakim_raw
+            if not isinstance(jakim_raw, dict):
+                raise ConfigError(
+                    f"{self._path}: config missing schedule.jakim section"
+                )
+            jakim_raw["zone"] = fetch_key
+            aladhan_raw = schedule.get("aladhan")
+            if aladhan_raw is None:
+                aladhan_raw = {}
+                schedule["aladhan"] = aladhan_raw
+            if not isinstance(aladhan_raw, dict):
+                raise ConfigError(
+                    f"{self._path}: config missing schedule.aladhan section"
+                )
+            aladhan_raw["base_url"] = settings.aladhan_base_url
+            aladhan_raw["method"] = settings.aladhan_method
+            data["timing"] = {
+                "adhan_duration_s": settings.adhan_duration_s,
+                "dim_minutes_default": settings.dim_minutes_default,
+                "dim_minutes_jumuah": settings.dim_minutes_jumuah,
+                "countdown_before_adhan_min": settings.countdown_before_adhan_min,
+                "countdown_before_adhan_overrides": dict(
+                    settings.countdown_before_adhan_overrides
+                ),
+                "iqamah_rules": [
+                    {
+                        "prayer": rule.prayer.value,
+                        "mode": rule.mode,
+                        "delay_minutes": rule.delay_minutes,
+                        "fixed_time": (
+                            rule.fixed_time.strftime("%H:%M")
+                            if rule.fixed_time is not None
+                            else None
+                        ),
+                    }
+                    for rule in settings.iqamah_rules
+                ],
             }
-        )
-        data["theme"] = {
-            "palette": settings.theme.palette,
-            "font": settings.theme.font,
-            "countdown_style": settings.theme.countdown_style,
-            "clock_format": settings.theme.clock_format,
-            "hijri_form": settings.theme.hijri_form,
-            "boundary_strip": settings.theme.boundary_strip,
-            "density": settings.theme.density,
-        }
-        try:
-            ConfigFile.model_validate(data)
-        except ValidationError as exc:
-            raise ConfigError(f"{self._path}: {exc}") from exc
-        _atomic_write_json(self._path, data)
+            audio.update(
+                {
+                    "enabled": settings.adhan_audio_enabled,
+                    "volume": settings.adhan_volume,
+                    "quiet_hours_start": settings.quiet_hours_start,
+                    "quiet_hours_end": settings.quiet_hours_end,
+                    "muted_prayers": list(settings.adhan_muted_prayers),
+                    "file": settings.adhan_audio_file,
+                }
+            )
+            data["theme"] = {
+                "palette": settings.theme.palette,
+                "font": settings.theme.font,
+                "countdown_style": settings.theme.countdown_style,
+                "clock_format": settings.theme.clock_format,
+                "hijri_form": settings.theme.hijri_form,
+                "boundary_strip": settings.theme.boundary_strip,
+                "density": settings.theme.density,
+            }
+            try:
+                ConfigFile.model_validate(data)
+            except ValidationError as exc:
+                raise ConfigError(f"{self._path}: {exc}") from exc
+            _atomic_write_json(self._path, data)
 
 
 _DAY_KEYS: tuple[str, ...] = (
