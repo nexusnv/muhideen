@@ -209,3 +209,38 @@ def test_quiet_hours_start_eq_end_never_quiet() -> None:  # Issue #58
     assert _in_quiet_hours("12:00", "09:00", "17:00") is True
     assert _in_quiet_hours("08:59", "09:00", "17:00") is False
     assert _in_quiet_hours("12:00", None, None) is False
+
+
+def test_adhan_playback_allows_none_next_prayer() -> None:  # Issue #60
+    from muhideen.api.app import _adhan_playback_allowed
+
+    assert _adhan_playback_allowed(
+        enabled=True,
+        next_prayer=None,
+        muted_prayers=["fajr"],
+        now_hhmm="12:00",
+        quiet_start=None,
+        quiet_end=None,
+    ) is True
+
+
+def test_adhan_playback_respects_muted_quiet_and_enabled() -> None:  # Issue #60
+    from muhideen.api.app import _adhan_playback_allowed
+
+    allowed = dict(
+        enabled=True,
+        next_prayer="fajr",
+        muted_prayers=[],
+        now_hhmm="12:00",
+        quiet_start=None,
+        quiet_end=None,
+    )
+    assert _adhan_playback_allowed(**allowed) is True
+    assert _adhan_playback_allowed(**{**allowed, "muted_prayers": ["fajr"]}) is False
+    assert (
+        _adhan_playback_allowed(
+            **{**allowed, "quiet_start": "09:00", "quiet_end": "17:00"}
+        )
+        is False
+    )
+    assert _adhan_playback_allowed(**{**allowed, "enabled": False}) is False
