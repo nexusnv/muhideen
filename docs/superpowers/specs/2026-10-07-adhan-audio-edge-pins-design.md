@@ -21,7 +21,9 @@ Extract the inline effective-audio condition at the display route
 predicate next to `_in_quiet_hours` (`:164`):
 
 ```python
-def _adhan_eligible(next_prayer, muted_prayers, now_hhmm, quiet_start, quiet_end, has_file) -> bool: ...
+def _adhan_eligible(
+    next_prayer, muted_prayers, now_hhmm, quiet_start, quiet_end, has_file
+) -> bool: ...
 ```
 
 Body = the existing conjunction, moved verbatim
