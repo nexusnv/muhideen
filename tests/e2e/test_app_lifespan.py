@@ -148,18 +148,26 @@ def test_background_without_sync_client_fails_fast(tmp_path: Path) -> None:
         client.__enter__()
 
 
-def test_background_shutdown_skips_stop_when_scheduler_never_started(
+def test_background_shutdown_stops_scheduler_even_when_never_running(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A scheduler whose thread dies before serving (broken start) must not
-    # take shutdown down with it: no running scheduler, no shutdown call.
+    # A scheduler whose thread dies before serving (broken start) must still
+    # be shut down: skipping shutdown on ``running is False`` races a slow
+    # start winning after the check, leaving the BlockingScheduler (and its
+    # non-daemon executor threads) alive after the port closes (#87).
     class _DeadScheduler:
         running = False
+        shutdown_called = False
 
         def start(self) -> None:
-            """Never serving: shutdown must skip the stop call."""
+            """Never serving: shutdown must still be attempted."""
             return
 
+        def shutdown(self, wait: bool = True) -> None:
+            """Record the teardown call instead of stopping a live loop."""
+            type(self).shutdown_called = True
+
+    _DeadScheduler.shutdown_called = False
     monkeypatch.setattr(
         app_module, "build_scheduler", lambda **kwargs: _DeadScheduler()
     )
@@ -168,6 +176,7 @@ def test_background_shutdown_skips_stop_when_scheduler_never_started(
     )
     with TestClient(create_app(deps)) as client:
         assert client.get("/api/version").status_code == 200
+    assert _DeadScheduler.shutdown_called is True
 
 
 class _ScriptedEngine:

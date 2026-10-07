@@ -71,6 +71,7 @@ def resolve_next_event(
     rules: dict[MarkerName, IqamahRule],
     settings: Settings,
     stale: bool,
+    dim_minutes: int | None = None,
 ) -> NextEvent:
     """Compute the display state for one pinned instant.
 
@@ -84,37 +85,52 @@ def resolve_next_event(
 
     The boundary pointer is gated by ``settings.boundary_countdown`` and is
     never an input to the state decision.
+
+    ``dim_minutes`` is the per-display salah-dim pin (#93): when set it
+    replaces every dim length for this resolution — default, Jumuah, and
+    the post-Isha Fajr carry — so state selection and ``dim_until`` agree.
+    ``None`` keeps the configured schedule (global routes, ticks, SSE).
     """
     adhan_duration = timedelta(seconds=settings.adhan_duration_s)
     tz = now.tzinfo
     effective = now.date()
     is_friday = effective.weekday() == 4
     dhuhr_label = MarkerName.JUMUAH if is_friday else MarkerName.DHUHR
+    default_dim = (
+        dim_minutes if dim_minutes is not None else settings.dim_minutes_default
+    )
+    jumuah_dim = (
+        dim_minutes
+        if dim_minutes is not None
+        else (
+            settings.dim_minutes_jumuah if is_friday else settings.dim_minutes_default
+        )
+    )
     slots: list[tuple[MarkerName, datetime, int]] = [
         (
             MarkerName.FAJR,
             _adhan_dt(effective, today.fajr, tz),
-            settings.dim_minutes_default,
+            default_dim,
         ),
         (
             dhuhr_label,
             _adhan_dt(effective, today.dhuhr, tz),
-            settings.dim_minutes_jumuah if is_friday else settings.dim_minutes_default,
+            jumuah_dim,
         ),
         (
             MarkerName.ASR,
             _adhan_dt(effective, today.asr, tz),
-            settings.dim_minutes_default,
+            default_dim,
         ),
         (
             MarkerName.MAGHRIB,
             _adhan_dt(effective, today.maghrib, tz),
-            settings.dim_minutes_default,
+            default_dim,
         ),
         (
             MarkerName.ISHA,
             _adhan_dt(effective, today.isha, tz),
-            settings.dim_minutes_default,
+            default_dim,
         ),
     ]
     next_boundary, boundary_at = (
@@ -190,5 +206,5 @@ def resolve_next_event(
         # tomorrow's adhan as prayer times move seasonally. Degrade to an
         # iqamah-less carry instead of 503ing every read after Isha.
         return _event(PrayerState.NORMAL, MarkerName.FAJR, fajr_dt, None, None)
-    dim_until = iqamah_at + timedelta(minutes=settings.dim_minutes_default)
+    dim_until = iqamah_at + timedelta(minutes=default_dim)
     return _event(PrayerState.NORMAL, MarkerName.FAJR, fajr_dt, iqamah_at, dim_until)

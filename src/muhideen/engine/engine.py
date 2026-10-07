@@ -100,12 +100,17 @@ class Engine:
             raise ScheduleError(f"unknown zone: {zone}", zone, requested.isoformat())
         return self._resolve_day(requested, zone, now, settings)
 
-    def next_event(self, now: datetime) -> NextEvent:
+    def next_event(self, now: datetime, dim_minutes: int | None = None) -> NextEvent:
         """Compute the PRD §8 display state for one pinned instant.
 
         Carries the boundary pointer when `Settings.boundary_countdown` is
         on; toggling that opt-in fans out as `state` via the tick
         fingerprint (FR-6.1 live reload).
+
+        `dim_minutes` is the per-display salah-dim pin (#93): when set it
+        replaces every dim length for this resolution so state selection
+        and `dim_until` agree. `None` (global routes, ticks, SSE) keeps
+        the configured schedule.
         """
         settings = self._settings_repo.load()
         zone = settings.zone  # one zone per installation
@@ -113,7 +118,13 @@ class Engine:
         tomorrow = self._tomorrow(now.date() + timedelta(days=1), zone, settings)
         rules = {rule.prayer: rule for rule in settings.iqamah_rules}
         event = resolve_next_event(
-            now, today.day, tomorrow, rules, settings, today.stale
+            now,
+            today.day,
+            tomorrow,
+            rules,
+            settings,
+            today.stale,
+            dim_minutes=dim_minutes,
         )
         return replace(event, time_synced=self._time_synced())
 
