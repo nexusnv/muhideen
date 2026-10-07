@@ -243,3 +243,46 @@ def test_display_serves_configured_adhan_file(tmp_path: Path) -> None:
         assert 'src="/media/custom/adhan2.mp3"' in html
         audio = client.get("/media/custom/adhan2.mp3")
         assert audio.status_code == 200
+
+
+def test_countdown_format_unified_across_styles(tmp_path: Path) -> None:
+    """countdown_style is accepted for compat; the screen renders the single
+    design-locked HH:MM:SS format either way (no boxes/inline fork)."""
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
+    )
+    from muhideen.adapters.sse_bus import SSEBus
+    from muhideen.api.app import AppDeps, create_app
+
+    bodies = []
+    for style in ("boxes", "inline"):
+        dest = tmp_path / f"muhideen-{style}.json"
+        shutil.copy(EXAMPLE, dest)
+        raw = json.loads(dest.read_text())
+        raw["schedule"]["lat"] = 3.07
+        raw["schedule"]["lon"] = 101.69
+        raw["theme"]["countdown_style"] = style
+        dest.write_text(json.dumps(raw, indent=2) + "\n")
+        cfg = load_config_file(dest)
+        media = tmp_path / f"media-{style}"
+        media.mkdir(exist_ok=True)
+        deps = AppDeps(
+            settings_repo=FileSettingsRepo(dest),
+            prayer_repo=FilePrayerRepo(tmp_path / f"buffer-{style}.json", cfg.schedule.manual_days),
+            clock=FakeClock(PINNED_START),  # type: ignore[arg-type]
+            event_bus=SSEBus(),
+            playlist_repo=FilePlaylistRepo(dest),
+            media_dir=media,
+            config_path=dest,
+        )
+        with TestClient(create_app(deps)) as client:
+            bodies.append(client.get("/display", params={"id": "main-hall"}).text)
+    # Deviation from plan-literal `== 1`: the countdown block only renders
+    # `{% if countdown_target %}`, which is blank at PINNED_START (NORMAL),
+    # so the count is 0 for both. Pin equality (no fork) without depending
+    # on clock state.
+    assert bodies[0].count('class="countdown"') == bodies[1].count('class="countdown"')
+    assert "countdown-inline" not in bodies[0] and "countdown-inline" not in bodies[1]
