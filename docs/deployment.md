@@ -80,6 +80,17 @@ schedule. First boot must satisfy **one** of:
   429 rate limits stay transient and retry; other, unrecoverable 4xx
   rejections never retry — recheck the zone code instead of waiting).
 
+### No-coordinates timetable slate (404)
+
+When the zone timetable is missing and no coordinates are set
+(`schedule.lat`/`schedule.lon` null in `muhideen.json`), `GET /display`
+answers 404 with a slate naming the remedy instead of the bare
+"No schedule": enter coordinates (`schedule.lat`/`schedule.lon` in
+`muhideen.json`, hot-reloaded — the on-device calculator then resolves
+each day with no network) or retry the zone sync (daily 02:00 run, 6h
+retry on transient failures). Coordinates present but timetable still
+missing keeps the bare slate — that failure is timetable-only.
+
 ## Schedule providers (JAKIM or Aladhan)
 
 `schedule.sync_provider` selects the sync source — it has **no default**,
