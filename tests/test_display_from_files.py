@@ -81,12 +81,24 @@ def test_en_display_renders_global_palette_and_lang(file_client: TestClient) -> 
     assert "Fajr" in html
 
 
+def _row_segment(html: str, row_id: str) -> str:
+    """HTML slice belonging to one prayer row (up to the next row/bound)."""
+    parts = html.split(f'id="{row_id}"')
+    assert len(parts) == 2, f"expected exactly one element with {row_id}"
+    tail = parts[1].split('id="row-')[0].split('id="bound-')[0]
+    return tail
+
+
 def test_ms_display_renders_midnight_and_malay(file_client: TestClient) -> None:
     html = file_client.get("/display", params={"id": "entrance"}).text
     assert "palette-midnight" in html
     assert 'lang="ms"' in html
-    assert "Zohor" in html
-    assert "Subuh" in html
+    fajr_row = _row_segment(html, "row-fajr")
+    assert "Subuh" in fajr_row
+    assert "Zohor" not in fajr_row
+    dhuhr_row = _row_segment(html, "row-dhuhr")
+    assert "Zohor" in dhuhr_row
+    assert "Subuh" not in dhuhr_row
 
 
 def test_unknown_id_falls_back_to_global(file_client: TestClient) -> None:
