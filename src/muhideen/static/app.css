@@ -322,6 +322,8 @@ body.state-salah_dim #badges { filter: brightness(.07); }
   .countdown { font-size: clamp(42px, 11vw, 60px); }
 }
 
+/* Token names are historical (e.g. --white holds dark ink under sand). */
+/* Classic-green has no body.palette-classic-green rule: :root defaults are classic. */
 body.palette-midnight {
   --green: #0b0f0e;
   --green-line: #2e3a36;
@@ -355,21 +357,21 @@ body.palette-sand {
 @font-face {
   font-family: Outfit;
   font-weight: 400;
-  src: url(fonts/Outfit-400.woff2);
+  src: url(fonts/Outfit-400.woff2) format("woff2");
   font-display: swap;
 }
 
 @font-face {
   font-family: Outfit;
   font-weight: 700;
-  src: url(fonts/Outfit-700.woff2);
+  src: url(fonts/Outfit-700.woff2) format("woff2");
   font-display: swap;
 }
 
 @font-face {
   font-family: Outfit;
   font-weight: 800;
-  src: url(fonts/Outfit-800.woff2);
+  src: url(fonts/Outfit-800.woff2) format("woff2");
   font-display: swap;
 }
 
