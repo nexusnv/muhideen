@@ -214,7 +214,12 @@ reloads into the route slate (see `docs/api-contract.md`).
   complete against fails loudly until the row syncs. Rollout order:
   deploy the release carrying `manual_days_file` support before adding
   the key — older builds reject it as an unknown key under the
-  fail-closed schema and serve 503 until the image is updated.
+  fail-closed schema and serve 503 until the image is updated. On the
+  read path the contract is the same fail-closed one: a pins-file
+  error (malformed JSON, deleted file, bad marker) fails the whole
+  config load and the surface serves 503 by design — the same
+  contract as an invalid main-config edit — unlike the watcher path,
+  which keeps last-good pins serving on bad edits.
 * **Auto-recovery (January).** The first successful daily sync in the
   new year fetches that year's full table, so unpinned January dates
   resolve automatically again — no action needed.
