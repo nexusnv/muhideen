@@ -119,12 +119,7 @@
         "density": "compact"
       },
       "dim_minutes_override": 30,
-      "carousel_enabled": false,
-      "custom_colors": {
-        "background": "#0b0f0e",
-        "foreground": "#f2f2f2",
-        "accent": "#c9a227"
-      }
+      "carousel_enabled": false
     }
   },
   "playlists": [

@@ -102,7 +102,6 @@ def build_display_context(
     adhan_audio_url: str | None = None,
     adhan_volume: int = 70,
     language: str = "en",
-    custom_colors: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Map resolved DTOs to the display template context (no time reads).
 
@@ -114,8 +113,14 @@ def build_display_context(
     carousel flag (group pin, else default-on); the caller resolves the
     precedence, the builder only renders it. ``language`` selects the
     primary prayer name (``en``→0, ``ar``→1, ``ms``/``bm``→2) while
-    keeping all three labels for compat; ``custom_colors`` passes the
-    optional ``{background, foreground, accent}`` map to the template.
+    keeping all three labels for compat.
+    Colors come only from the effective theme palette (``body_class``
+    selects the stylesheet block): the template emits no per-display
+    ``<style>`` override, so every surface, border, tint, and accent
+    renders from one vetted palette and cannot blend into
+    indistinguishability.
+    ``countdown_inline`` is retained for compat (unit-pinned) while the
+    screen renders the single design-locked ``HH:MM:SS`` format.
     """
     times = {
         "fajr": day.prayers.fajr,
@@ -225,7 +230,6 @@ def build_display_context(
         "masjid_name": settings.masjid_name,
         "zone": settings.zone,
         "language": html_lang,
-        "custom_colors": dict(custom_colors) if custom_colors else None,
         "gregorian": day.date.isoformat(),
         "gregorian_long": gregorian_long,
         "hijri": day.hijri_date or "—",
@@ -237,6 +241,9 @@ def build_display_context(
         "clock_hm": clock_hm,
         "clock_period": clock_period,
         "clock_format": theme.clock_format,
+        # Compat-only: the screen renders the unified HH:MM:SS format either
+        # way (pinned by test_countdown_format_unified_across_styles); the
+        # flag stays for future surfaces / unit pins, the template ignores it.
         "countdown_inline": theme.countdown_style == "inline",
         "show_boundaries": theme.boundary_strip == "show",
         "body_class": theme_css_class(theme),
