@@ -403,7 +403,7 @@ class Settings:
             )
         try:
             ZoneInfo(self.timezone)
-        except (ValueError, ZoneInfoNotFoundError, KeyError) as exc:
+        except (ValueError, TypeError, ZoneInfoNotFoundError, KeyError) as exc:
             raise ValueError(f"unknown timezone: {self.timezone!r}") from exc
         if self.asr_juristic not in ("shafi", "hanafi"):
             raise ValueError(f"unknown asr juristic setting: {self.asr_juristic!r}")
