@@ -119,8 +119,11 @@ def build_display_context(
     ``<style>`` override, so every surface, border, tint, and accent
     renders from one vetted palette and cannot blend into
     indistinguishability.
-    ``countdown_inline`` is retained for compat (unit-pinned) while the
-    screen renders the single design-locked ``HH:MM:SS`` format.
+    ``countdown_inline`` is retired: ``countdown_style`` stays accepted for
+    compat but the screen renders the single design-locked ``HH:MM:SS``
+    format either way (pinned by
+    ``test_countdown_format_unified_across_styles``); the template
+    ignores the knob.
     """
     times = {
         "fajr": day.prayers.fajr,
@@ -241,10 +244,6 @@ def build_display_context(
         "clock_hm": clock_hm,
         "clock_period": clock_period,
         "clock_format": theme.clock_format,
-        # Compat-only: the screen renders the unified HH:MM:SS format either
-        # way (pinned by test_countdown_format_unified_across_styles); the
-        # flag stays for future surfaces / unit pins, the template ignores it.
-        "countdown_inline": theme.countdown_style == "inline",
         "show_boundaries": theme.boundary_strip == "show",
         "body_class": theme_css_class(theme),
         "dim_minutes": (
