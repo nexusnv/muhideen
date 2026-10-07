@@ -320,19 +320,28 @@ def test_palettes_stay_distinguishable():
     """Pin the vetting behind the stylesheet palettes.
 
     Every palette keeps WCAG AAA body-text contrast and dark-on-white
-    contrast for the white current-row/clock blocks, and its background
-    never equals its divider color, so borders always render as a
-    distinct element. Tokens are read from the shipped ``app.css`` so a
-    future palette edit that blends elements fails here.
+    contrast for the white current-row/clock blocks. The hex divider
+    (``--green-line``) is a distinct hex from the background, and the
+    rgba divider (``--cell-line``) and muted header text (``--muted-fg``)
+    stay perceivable when blended over the background (dividers >= 1.5,
+    muted text >= 4.5), so borders and headers always render as
+    distinct elements. Tokens are read from the shipped ``app.css`` so
+    a future palette edit that blends elements fails here.
     """
 
     import re
     from pathlib import Path
 
-    def _luminance(hex_value: str) -> float:
-        rgb = [int(hex_value[i : i + 2], 16) / 255 for i in (1, 3, 5)]
-        lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+    def _luminance_rgb(rgb: tuple[float, float, float]) -> float:
+        lin = [
+            c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+            for c in (v / 255 for v in rgb)
+        ]
         return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    def _luminance(hex_value: str) -> float:
+        rgb = tuple(int(hex_value[i : i + 2], 16) for i in (1, 3, 5))
+        return _luminance_rgb(rgb)
 
     def _ratio(first: str, second: str) -> float:
         light, dark = (
@@ -350,6 +359,29 @@ def test_palettes_stay_distinguishable():
         match = re.search(re.escape(name) + r"\s*:\s*(#[0-9a-fA-F]{6})", block)
         assert match, f"missing {name}"
         return match.group(1).lower()
+
+    def _rgba_token(block: str, name: str) -> tuple[tuple[float, float, float], float]:
+        rgba = (
+            r"\s*:\s*rgba\(\s*([\d.]+)\s*,\s*([\d.]+)"
+            r"\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)"
+        )
+        match = re.search(re.escape(name) + rgba, block)
+        assert match, f"missing {name}"
+        return (
+            (float(match.group(1)), float(match.group(2)), float(match.group(3))),
+            float(match.group(4)),
+        )
+
+    def _blended_ratio(
+        background_hex: str,
+        fg: tuple[float, float, float],
+        alpha: float,
+    ) -> float:
+        bg = tuple(int(background_hex[i : i + 2], 16) for i in (1, 3, 5))
+        blended = tuple(fg[i] * alpha + bg[i] * (1 - alpha) for i in range(3))
+        light = max(_luminance_rgb(blended), _luminance(background_hex))
+        dark = min(_luminance_rgb(blended), _luminance(background_hex))
+        return (light + 0.05) / (dark + 0.05)
 
     css = (
         Path(__file__).resolve().parent.parent
@@ -371,6 +403,10 @@ def test_palettes_stay_distinguishable():
         assert _ratio(background, foreground) >= 7, name
         assert _ratio("#ffffff", ink) >= 7, name
         assert background != divider, name
+        cell_fg, cell_alpha = _rgba_token(block, "--cell-line")
+        assert _blended_ratio(background, cell_fg, cell_alpha) >= 1.5, name
+        muted_fg, muted_alpha = _rgba_token(block, "--muted-fg")
+        assert _blended_ratio(background, muted_fg, muted_alpha) >= 4.5, name
 
 
 def test_playlist_repeat_needs_cycles_and_indefinite_forbids_them():

@@ -154,14 +154,22 @@ def _settings_with_theme(**knobs):
     )
 
 
-def test_countdown_style_maps_to_template_flag() -> None:
+def test_countdown_style_ignored_unified_format() -> None:
+    """``countdown_style`` is accepted but ignored: no context flag.
+
+    The screen renders the single design-locked ``HH:MM:SS`` format
+    either way (pinned end-to-end by
+    ``test_countdown_format_unified_across_styles``); the builder emits
+    no per-style flag and the template carries no ``countdown-inline``
+    branch.
+    """
 
     day, event = _dtos(KL)
-    assert _ctx(day=day, event=event, settings=_settings())["countdown_inline"] is False
+    assert "countdown_inline" not in _ctx(day=day, event=event, settings=_settings())
     ctx = _ctx(
         day=day, event=event, settings=_settings_with_theme(countdown_style="inline")
     )
-    assert ctx["countdown_inline"] is True
+    assert "countdown_inline" not in ctx
 
 
 def test_clock_format_variants() -> None:

@@ -112,11 +112,13 @@ def test_no_per_display_style_override(file_client: TestClient) -> None:
 
     The template emits no inline token rebind; each display renders its
     palette block (global or per-display ``theme.palette`` overlay).
+    The assertion targets the rebind shape (``<style>body``), not any
+    ``<style>`` tag, so future legitimate inline styles stay allowed.
     """
     en_html = file_client.get("/display", params={"id": "main-hall"}).text
     ms_html = file_client.get("/display", params={"id": "entrance"}).text
-    assert "<style>" not in en_html
-    assert "<style>" not in ms_html
+    assert "<style>body" not in en_html
+    assert "<style>body" not in ms_html
     assert "--custom-" not in en_html
     assert "--custom-" not in ms_html
 
@@ -160,7 +162,7 @@ def test_per_display_palette_overlay_selects_full_token_set(
     with TestClient(app) as client:
         html = client.get("/display", params={"id": "entrance"}).text
         assert "palette-sand" in html
-        assert "<style>" not in html
+        assert "<style>body" not in html
 
 
 def test_display_silent_without_adhan_file(tmp_path: Path) -> None:
