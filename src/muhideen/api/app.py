@@ -793,10 +793,17 @@ def create_app(deps: AppDeps) -> FastAPI:
             result = engine.resolve_day(now.date(), settings.zone, now)
             event = engine.next_event(now)
         except ScheduleError:
+            if settings.lat is None and settings.lon is None:
+                message = (
+                    "No schedule: set coordinates in muhideen.json "
+                    "or sync the zone timetable"
+                )
+            else:
+                message = "No schedule"
             return _TEMPLATES.TemplateResponse(
                 request,
                 "error.html",
-                {"code": 404, "message": "No schedule"},
+                {"code": 404, "message": message},
                 status_code=404,
             )
         except ConfigError:

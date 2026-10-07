@@ -327,3 +327,95 @@ def test_countdown_format_unified_across_styles(tmp_path: Path) -> None:
         == 1
     )
     assert "countdown-inline" not in bodies[0] and "countdown-inline" not in bodies[1]
+
+
+def test_no_coords_missing_timetable_guides_operator(tmp_path: Path) -> None:
+    """No-coords + empty timetable: the 404 slate carries guidance (#86).
+
+    The example config ships ``lat``/``lon`` null and the tmp buffer has
+    no synced rows, so nothing resolves for the pinned date: the slate
+    must tell the operator to set coordinates in ``muhideen.json`` or
+    sync the zone timetable (status stays 404 — no contract change).
+    """
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
+    )
+    from muhideen.adapters.sse_bus import SSEBus
+    from muhideen.api.app import AppDeps, create_app
+
+    dest = tmp_path / "muhideen.json"
+    shutil.copy(EXAMPLE, dest)
+    raw = json.loads(dest.read_text())
+    assert raw["schedule"]["lat"] is None
+    assert raw["schedule"]["lon"] is None
+    media = tmp_path / "media"
+    media.mkdir(parents=True, exist_ok=True)
+    cfg = load_config_file(dest)
+    clock = FakeClock(PINNED_START)
+    deps = AppDeps(
+        settings_repo=FileSettingsRepo(dest),
+        prayer_repo=FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days),
+        clock=clock,  # type: ignore[arg-type]
+        event_bus=SSEBus(),
+        playlist_repo=FilePlaylistRepo(dest),
+        media_dir=media,
+        config_path=dest,
+    )
+    app = create_app(deps)
+    with TestClient(app) as client:
+        response = client.get("/display", params={"id": "main-hall"})
+        assert response.status_code == 404
+        assert "No schedule" in response.text
+        assert "coordinates" in response.text
+        assert "muhideen.json" in response.text
+        assert "sync" in response.text.lower()
+
+
+def test_coords_present_missing_timetable_keeps_bare_slate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ScheduleError with coords set: bare slate, no guidance copy (#86).
+
+    Coordinates are present so the operator needs no coordinate guidance;
+    the failure is timetable-only, so the slate keeps the bare message.
+    The error is forced via the engine (calc would resolve with coords).
+    """
+    from muhideen.adapters.file_config import (
+        FilePlaylistRepo,
+        FilePrayerRepo,
+        FileSettingsRepo,
+        load_config_file,
+    )
+    from muhideen.adapters.sse_bus import SSEBus
+    from muhideen.api.app import AppDeps, create_app
+    from muhideen.core.errors import ScheduleError
+    from muhideen.engine import Engine
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise ScheduleError("no schedule", zone="SGR01", date="2025-10-20")
+
+    monkeypatch.setattr(Engine, "resolve_day", _boom)
+    dest = _copy_with_coords(tmp_path)
+    cfg = load_config_file(dest)
+    clock = FakeClock(PINNED_START)
+    media = tmp_path / "media"
+    media.mkdir(exist_ok=True)
+    deps = AppDeps(
+        settings_repo=FileSettingsRepo(dest),
+        prayer_repo=FilePrayerRepo(tmp_path / "buffer.json", cfg.schedule.manual_days),
+        clock=clock,  # type: ignore[arg-type]
+        event_bus=SSEBus(),
+        playlist_repo=FilePlaylistRepo(dest),
+        media_dir=media,
+        config_path=dest,
+    )
+    app = create_app(deps)
+    with TestClient(app) as client:
+        response = client.get("/display", params={"id": "main-hall"})
+        assert response.status_code == 404
+        assert "No schedule" in response.text
+        assert "coordinates" not in response.text
+        assert "muhideen.json" not in response.text
