@@ -45,7 +45,7 @@
 **Files:** `src/muhideen/domain/stage.py` (docstring), `tests/unit/test_domain_stage.py`
 
 - [ ] Docstring: append to the cycle-budget parenthetical — open-window (no start bound) `repeat` never exhausts and is equivalent to `indefinite`, by intent.
-- [ ] Pin test mirroring `:381-392` style: `_playlist("open", None, None, cycle_mode="repeat", max_cycles=1)` still occupies at a `now` far past one full item-set loop. Run → Expected: PASS throughout (current-behavior guard).
+- [ ] Pin test mirroring `:381-392` style: `_playlist("open", None, None, cycle_mode="repeat", max_cycles=1)` still occupies at a `now` far past one full item-set loop. Run: `uv run pytest tests/unit/test_domain_stage.py -q` → Expected: PASS throughout (current-behavior guard).
 
 ### Task 4: Full gate and PR
 
