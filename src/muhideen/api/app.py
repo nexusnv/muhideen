@@ -15,6 +15,7 @@ import os
 import queue
 import re
 import threading
+import time
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -621,15 +622,30 @@ def create_app(deps: AppDeps) -> FastAPI:
                 # threads alive after the port closes, wedging the process
                 # (#87). Shutdown from the lifespan thread never blocks
                 # (wait=False wakes the scheduler loop); a never-started
-                # scheduler raises and is logged, never fatal. Joins stay
-                # bounded so teardown cannot outlive uvicorn's grace period.
+                # scheduler raises and is logged, never fatal. The first
+                # attempt can still land before a slow start transitions to
+                # running (APScheduler raises SchedulerNotRunningError), so
+                # re-attempt until the thread exits or the deadline passes —
+                # a late start cannot survive teardown. Joins stay bounded
+                # so teardown cannot outlive uvicorn's grace period.
                 background.stop.set()
                 try:
                     background.scheduler.shutdown(wait=False)
                 except Exception:
                     logger.debug("scheduler shutdown failed; continuing", exc_info=True)
                 background.ticker.join(2.0)
-                background.scheduler_thread.join(2.0)
+                deadline = time.monotonic() + 2.0
+                while (
+                    background.scheduler_thread.is_alive()
+                    and time.monotonic() < deadline
+                ):
+                    try:
+                        background.scheduler.shutdown(wait=False)
+                    except Exception:
+                        logger.debug(
+                            "scheduler shutdown failed; continuing", exc_info=True
+                        )
+                    background.scheduler_thread.join(0.5)
 
     app = FastAPI(
         title="muhideen",

@@ -526,3 +526,54 @@ def test_failed_pins_candidate_is_unwatched_after_recovery(
             assert Path(pins_next) in watcher._paths
         finally:
             deps.event_bus.unsubscribe(subscriber)
+
+
+def test_background_shutdown_survives_late_scheduler_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scheduler start landing after the first shutdown still exits (#87).
+
+    Slow ``start()`` (running flips True 0.3s in) means the first teardown
+    ``shutdown()`` raises ``SchedulerNotRunningError``; teardown must
+    re-attempt until the thread exits instead of leaving a serving
+    scheduler behind the closed port.
+    """
+    import time as time_mod
+
+    from apscheduler.schedulers.base import SchedulerNotRunningError
+
+    class _LateScheduler:
+        def __init__(self) -> None:
+            self.running = False
+            self.shutdown_calls = 0
+            self._release = threading.Event()
+
+        def start(self) -> None:
+            """Boot slowly, then serve until shutdown releases the loop."""
+            time_mod.sleep(0.3)
+            self.running = True
+            self._release.wait(5.0)
+
+        def shutdown(self, wait: bool = True) -> None:
+            """Raise until started (like APScheduler), then release."""
+            del wait
+            self.shutdown_calls += 1
+            if not self.running:
+                raise SchedulerNotRunningError("not running")
+            self.running = False
+            self._release.set()
+
+    late = _LateScheduler()
+    monkeypatch.setattr(app_module, "build_scheduler", lambda **kwargs: late)
+    _, deps = _file_deps(
+        tmp_path, FakeClock(), run_background=True, sync_client=FakeScheduleClient()
+    )
+    app = create_app(deps)
+    started = time.monotonic()
+    with TestClient(app) as client:
+        assert client.get("/api/version").status_code == 200
+    elapsed = time.monotonic() - started
+    assert late.shutdown_calls >= 2
+    assert late.running is False
+    assert app.state.background.scheduler_thread.is_alive() is False
+    assert elapsed < 6.0
