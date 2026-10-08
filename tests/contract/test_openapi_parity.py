@@ -160,6 +160,11 @@ def test_openapi_declares_public_and_config_paths() -> None:
         # Task 6: media list (public) + upload/delete (gated) (spec §4).
         "/api/media",
         "/api/media/{path}",
+        # Task 7: backup export (gated GET zip) + restore (gated
+        # multipart) + logs (spec §4).
+        "/api/backup/export",
+        "/api/backup/restore",
+        "/api/logs",
     }
 
 

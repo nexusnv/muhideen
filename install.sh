@@ -123,6 +123,25 @@ else
   maybe_run cp "$ROOT_DIR/config/muhideen.example.json" "$CONFIG_FILE"
 fi
 
+ADMIN_TOKEN_FILE="${CONFIG_DIR}/admin_token"
+if [[ -f "$ADMIN_TOKEN_FILE" ]]; then
+  # Rotation is rewrite-the-file + restart; re-installs never rotate.
+  note "admin_token: ${ADMIN_TOKEN_FILE} already exists — leaving it (rewrite + restart to rotate)"
+elif [[ "$MUHIDEEN_DRY_RUN" == "1" ]]; then
+  printf '  dry-run: python3 -c %s > %s\n' \
+    "'import secrets; print(secrets.token_urlsafe(32))'" "$ADMIN_TOKEN_FILE"
+  printf '  dry-run: chmod 0600 %s\n' "$ADMIN_TOKEN_FILE"
+  printf '  dry-run: chown muhideen %s\n' "$ADMIN_TOKEN_FILE"
+else
+  # One-time generation: 256-bit token, owner-read-only, service-owned.
+  note "admin_token: generating ${ADMIN_TOKEN_FILE} (one-time, never clobbered)"
+  python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$ADMIN_TOKEN_FILE"
+  chmod 0600 "$ADMIN_TOKEN_FILE"
+  if ! maybe_run chown muhideen "$ADMIN_TOKEN_FILE"; then
+    note "warn: chown ${ADMIN_TOKEN_FILE} failed — ensure User=muhideen can read it"
+  fi
+fi
+
 # Pre-file-config installs kept all state in a SQLite database, which this
 # layout no longer reads: flag it loudly so the operator recreates the
 # settings by hand instead of wondering why the display is unconfigured.

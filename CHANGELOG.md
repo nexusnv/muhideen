@@ -8,6 +8,63 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Token-gated file-config admin API (no database/sessions): static
+  Bearer token (`<config-dir>/admin_token`, `0600`, generated once by
+  `install.sh`, never clobbered; `--admin-token-file` plumbed from the
+  service unit through `create_production_app`; missing/blank file
+  disables gated endpoints with `503 "admin writes disabled"` while
+  reads keep serving). Every gated request is audit-logged
+  (`peer method path -> status`, never tokens). Writes serialize on one
+  shared process-wide lock around read + merge + validate + rename
+  (`workers=1`); validation failures are `422 [{loc,msg}]`, never 500.
+  - Per-section `PATCH /api/config/{masjid,schedule,timing,theme,adhan-audio}`
+    (all-optional partials, strip-then-reject-blank free text, one-level
+    deep merge for nested `jakim`/`aladhan`, full-file `ConfigFile` +
+    `Settings` + pins validation before rename; `restart_required` only
+    for timezone and effective-sync-client changes) plus public
+    `GET /api/config` (+ section GETs, `$schemaVersion` aliased) and
+    gated dry-run `POST .../validate` endpoints (section merges + full
+    file + bare pins array).
+  - Playlist CRUD + items + window-testing preview (`GET /api/playlists`
+    list/detail/preview stay public; create/patch/delete/items gated;
+    `1-64 [A-Za-z0-9_-]` ids on writes, duplicate id/`sort_order` are
+    409, playlist-PATCH `id`/`items` forbidden, dangling `image_path`
+    allowed, ambiguous `sort_order` DELETE is 409 with a hand-fix
+    detail).
+  - Display CRUD (`GET /api/displays` public; PUT upsert 201/200,
+    PATCH partial merge with `theme.<knob>=null` inherit, DELETE;
+    theme+dim-only scope, no schedule fork).
+  - Manual-days pins (`GET /api/config/manual-days` public with
+    `{source, pins}`; PUT upsert/DELETE/validate gated; file-vs-inline
+    routing by the `manual_days_file` ref with exclusivity 422; two-tier
+    validation with the pre-sync partial trap
+    `"no buffer row for <date> — sync first or send a full-day pin"`).
+  - Media binaries (`GET /api/media` public; multipart upload + delete
+    gated; `adhan`→root / `image`→`playlists/`, basename flatten +
+    reject-list, ≤5MB image / ≤10MB audio via bounded streaming reads
+    before decode (413 past), Pillow verify + re-encode with EXIF
+    stripped, weak MP3 magic check, tmp+rename atomic writes,
+    unconditional deletes with dangling refs allowed).
+  - Backup export (`GET /api/backup/export`, gated zip stream:
+    `muhideen.json` + pins file when the ref is set +
+    byte-copied-even-if-corrupt buffer + `manifest.json`
+    `{files:[{path,size_bytes,sha256}], exported_at}` + media under
+    `media/`; relative paths only; media summed before archiving, 413
+    past 50MB uncompressed) and restore (gated multipart zip, ≤50MB
+    bounded upload; zip-slip hardened; validate-all — config, pins,
+    buffer schema, staged pins vs STAGED buffer, media relpaths + cap —
+    before touching disk; same-filesystem `<config-dir>/.restore-*.tmp`
+    staging removed on success / kept on failure; ordered renames with
+    pre-rename backups for rollback; additive media, orphans persist).
+  - Service logs (`GET /api/logs?lines=200`, gated text/plain newest-last
+    via argv-only `journalctl -u muhideen --no-pager -n <lines>`, 5s
+    timeout; `lines` int 1–1000 else 422; 501 when journald is
+    unavailable).
+  - Frontend ergonomics: per-endpoint 422 examples in OpenAPI,
+    `api/fixtures/admin-*.json` samples per family/status, and an
+    extended stdlib-only `tools/mock_api.py` (`:8001`, fixed
+    `dev-admin-token` gate with device-identical 401/503 shapes,
+    in-memory state, canned 422s only).
 - File-config refactor (no database): the admin UI, auth, SQLite repos,
   migrations, seed, and backup/logs/QR routes are deleted. One hand-edited
   `config/muhideen.json` (validated by `file_models.py`, hot-reloaded in

@@ -12,21 +12,31 @@ and no audit).
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import logging
+import os
 import posixpath
 import re
 import secrets
+import shutil
+import stat
+import subprocess
+import tempfile
 import threading
-from collections.abc import Callable, Coroutine, Mapping, Sequence
+import zipfile
+from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
+from contextlib import suppress
+from datetime import UTC, datetime
 from datetime import date as _date
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
@@ -2042,3 +2052,709 @@ def delete_media(request: Request, path: str) -> dict[str, bool]:
             detail=_scrub_config_error(f"{dest}: cannot delete media file: {exc}"),
         ) from exc
     return {"ok": True}
+
+
+# --- Backup export/restore + logs (spec §4). ---
+
+BACKUP_MEDIA_CAP_BYTES = 50 * 1024 * 1024
+"""Uncompressed media cap for export sums and restore media totals.
+
+Past it the export aborts with ``413`` before archiving and the
+restore aborts with ``413`` before touching disk.
+"""
+
+BACKUP_UPLOAD_CAP_BYTES = 50 * 1024 * 1024
+"""Bounded-streaming cap for the restore zip upload (``413`` past it)."""
+
+_BACKUP_CHUNK_BYTES = 64 * 1024
+"""Streaming quantum for restore uploads and export zip streaming."""
+
+_BACKUP_CONFIG_NAME = "muhideen.json"
+_BACKUP_PINS_NAME = "pins.json"
+_BACKUP_BUFFER_NAME = "prayer_buffer.json"
+_BACKUP_MANIFEST_NAME = "manifest.json"
+_BACKUP_MEDIA_PREFIX = "media/"
+"""Archive layout: config/pins/buffer/manifest at the root, media below."""
+
+_BACKUP_NON_MEDIA_CAP_BYTES = 10 * 1024 * 1024
+"""Sanity cap per non-media zip member (guards staging disk; 422 past it)."""
+
+_RESTORE_STAGING_PREFIX = ".restore-"
+_RESTORE_STAGING_SUFFIX = ".tmp"
+"""Staging dirs read ``<config-dir>/.restore-*.tmp`` (same filesystem)."""
+
+_LOGS_UNIT = "muhideen"
+_LOGS_TIMEOUT_S = 5
+"""``journalctl`` argv unit and timeout (timeout answers 501, like missing)."""
+
+
+def _live_buffer_path(request: Request, config_path: Path) -> Path:
+    """Live buffer file: the repo's path, else the config sibling default."""
+    repo = getattr(request.app.state, "prayer_repo", None)
+    if isinstance(repo, FilePrayerRepo):
+        return repo.buffer_path
+    return config_path.parent / "prayer_buffer.json"
+
+
+def _export_manifest_entry(path: str, data: bytes) -> dict[str, Any]:
+    """One manifest row: relative path, byte size, and SHA256 hex digest."""
+    return {
+        "path": path,
+        "size_bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def _iter_file_and_cleanup(path: str) -> Iterator[bytes]:
+    """Stream a temp zip in chunks, unlinking it on every exit path."""
+    try:
+        with open(path, "rb") as handle:
+            while True:
+                chunk = handle.read(_BACKUP_CHUNK_BYTES)
+                if not chunk:
+                    break
+                yield chunk
+    finally:
+        with suppress(OSError):
+            os.unlink(path)
+
+
+@admin_router.get(
+    "/api/backup/export",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": (
+                "Whole-installation zip (config + pins + buffer + manifest + media)."
+            ),
+            "content": {
+                "application/zip": {"schema": {"type": "string", "format": "binary"}}
+            },
+        },
+        401: {"description": "Missing or wrong admin token."},
+        413: {
+            "description": (
+                "Uncompressed media exceeds the 50MB cap (summed before archiving)."
+            ),
+            "content": {
+                "application/json": {
+                    "example": {"detail": "backup media exceeds 52428800 bytes"}
+                }
+            },
+        },
+        503: {"description": "Admin writes disabled or broken config."},
+    },
+)
+def export_backup(request: Request) -> StreamingResponse:
+    """Download the installation as one zip (streams, never fully buffered).
+
+    Members are ``muhideen.json`` + the pins file when the ref is set +
+    ``prayer_buffer.json`` when present (byte-copied as-is, even corrupt
+    — backup is not validation) + ``manifest.json``
+    (``{files:[{path,size_bytes,sha256}], exported_at}``) + media
+    binaries under ``media/``. Every member path is relative, never
+    absolute. Media sizes sum before archiving (over the cap → ``413``);
+    media files enter the archive straight from disk, so the response
+    never holds every binary in memory at once.
+    """
+    lock = get_write_lock(request)
+    config_path = _config_path(request)
+    with lock:
+        raw = _read_raw_config(config_path)
+        try:
+            config_data = config_path.read_bytes()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(f"{config_path}: cannot read config: {exc}"),
+            ) from exc
+        pins_data: bytes | None = None
+        pins_path = _manual_pins_path(config_path, _manual_schedule_section(raw))
+        if pins_path is not None:
+            try:
+                pins_data = pins_path.read_bytes()
+            except OSError as exc:
+                ref = raw.get("schedule", {}).get("manual_days_file")
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        _pins_file_detail(ref, exc)
+                        if isinstance(ref, str)
+                        else _scrub_config_error(str(exc))
+                    ),
+                ) from exc
+        buffer_data: bytes | None = None
+        live_buffer = _live_buffer_path(request, config_path)
+        if live_buffer.is_file():
+            try:
+                buffer_data = live_buffer.read_bytes()
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_scrub_config_error(
+                        f"{live_buffer}: cannot read prayer buffer: {exc}"
+                    ),
+                ) from exc
+        media_root = _media_dir(request)
+        entries = list_media_files(media_root)
+        media_total = sum(entry["size_bytes"] for entry in entries)
+        if media_total > BACKUP_MEDIA_CAP_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"backup media exceeds {BACKUP_MEDIA_CAP_BYTES} bytes",
+            )
+        members: list[tuple[str, bytes]] = [(_BACKUP_CONFIG_NAME, config_data)]
+        if pins_data is not None:
+            members.append((_BACKUP_PINS_NAME, pins_data))
+        if buffer_data is not None:
+            members.append((_BACKUP_BUFFER_NAME, buffer_data))
+        manifest = {
+            "files": [_export_manifest_entry(path, data) for path, data in members]
+            + [
+                {
+                    "path": f"{_BACKUP_MEDIA_PREFIX}{entry['path']}",
+                    "size_bytes": entry["size_bytes"],
+                    "sha256": hashlib.sha256(
+                        (media_root / entry["path"]).read_bytes()
+                    ).hexdigest(),
+                }
+                for entry in entries
+            ],
+            "exported_at": datetime.now(UTC).isoformat(),
+        }
+        manifest_data = (json.dumps(manifest, indent=2) + "\n").encode()
+        members.append((_BACKUP_MANIFEST_NAME, manifest_data))
+        fd, tmp_name = tempfile.mkstemp(prefix="muhideen-backup-", suffix=".zip")
+        try:
+            os.close(fd)
+            with zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zf:
+                for path, data in members:
+                    zf.writestr(path, data)
+                for entry in entries:
+                    zf.write(
+                        str(media_root / entry["path"]),
+                        f"{_BACKUP_MEDIA_PREFIX}{entry['path']}",
+                    )
+        except BaseException:
+            with suppress(OSError):
+                os.unlink(tmp_name)
+            raise
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    filename = f"muhideen-backup-{stamp}.zip"
+    size = os.path.getsize(tmp_name)
+    return StreamingResponse(
+        _iter_file_and_cleanup(tmp_name),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
+        },
+    )
+
+
+def _zip_relpath(raw: str) -> str:
+    """Harden one zip member name to a relative relpath (zip-slip gate).
+
+    Rejects empty names, backslash separators, absolute and
+    drive-letter paths, and any ``..`` segment — before ``normpath``,
+    so ``a/../b``-style collapses never smuggle an escape. Anything
+    escaping the archive root after normalization is rejected too.
+    """
+    if not raw:
+        raise invalid("file", "backup archive has an empty member name")
+    if "\\" in raw:
+        raise invalid("file", f"backup member must use '/' separators: {raw!r}")
+    if raw.startswith("/") or re.match(r"^[A-Za-z]:", raw) is not None:
+        raise invalid("file", f"backup member must be relative: {raw!r}")
+    if any(segment == ".." for segment in raw.split("/")):
+        raise invalid("file", f"backup member escapes the archive root: {raw!r}")
+    norm = posixpath.normpath(raw)
+    if norm in ("", ".") or norm == ".." or norm.startswith(("../", "/")):
+        raise invalid("file", f"backup member escapes the archive root: {raw!r}")
+    return norm
+
+
+def _cleanup_stale_staging(config_path: Path) -> None:
+    """Remove previous ``.restore-*.tmp`` dirs (kept for forensics, now spent)."""
+    for stale in sorted(config_path.parent.glob(f"{_RESTORE_STAGING_PREFIX}*")):
+        if stale.name.endswith(_RESTORE_STAGING_SUFFIX) and stale.is_dir():
+            shutil.rmtree(stale, ignore_errors=True)
+
+
+def _read_restore_upload(request: Request, file: UploadFile) -> bytes:
+    """Bounded streaming read of the restore zip (``413`` past the cap).
+
+    Sync ``def`` compatible: reads the already-parsed multipart part via
+    its file object in chunks, so the cap aborts at cap+1 without ever
+    buffering the whole body first.
+    """
+    claimed = request.headers.get("content-length")
+    if claimed is not None:
+        try:
+            declared = int(claimed)
+        except ValueError:
+            declared = None
+        if (
+            declared is not None
+            and declared > BACKUP_UPLOAD_CAP_BYTES + UPFRONT_SLACK_BYTES
+        ):
+            raise HTTPException(
+                status_code=413,
+                detail=f"upload exceeds {BACKUP_UPLOAD_CAP_BYTES} bytes",
+            )
+    part = file.file
+    part.seek(0)
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = part.read(_BACKUP_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > BACKUP_UPLOAD_CAP_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"upload exceeds {BACKUP_UPLOAD_CAP_BYTES} bytes",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _harden_restore_members(
+    zf: zipfile.ZipFile,
+) -> tuple[bytes, bytes | None, bytes | None, bytes | None, list[tuple[str, int, str]]]:
+    """Partition hardened members: config/pins/buffer/manifest + media list.
+
+    Returns the small members' bytes plus ``[(member, file_size, rel)]``
+    for media (extracted streaming later). Unknown top-level members,
+    symlinks, encrypted entries, duplicates, oversize non-media members,
+    and an over-cap media total all fail here — before live disk moves.
+    """
+    infos = zf.infolist()
+    seen: set[str] = set()
+    config_data: bytes | None = None
+    pins_data: bytes | None = None
+    buffer_data: bytes | None = None
+    manifest_data: bytes | None = None
+    media: list[tuple[str, int, str]] = []
+    media_total = 0
+    for info in infos:
+        if (info.external_attr >> 16) & 0o170000 == stat.S_IFLNK:
+            raise invalid("file", f"backup member is a symlink: {info.filename!r}")
+        if info.flag_bits & 0x1:
+            raise invalid("file", f"backup member is encrypted: {info.filename!r}")
+        rel = _zip_relpath(info.filename)
+        if info.is_dir():
+            if rel != _BACKUP_MEDIA_PREFIX.rstrip("/"):
+                raise invalid("file", f"unknown backup member: {rel!r}")
+            continue
+        if rel in seen:
+            raise invalid("file", f"duplicate backup member: {rel!r}")
+        seen.add(rel)
+        if rel == _BACKUP_CONFIG_NAME:
+            if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
+                raise invalid("file", f"backup member too large: {rel!r}")
+            config_data = zf.read(info.filename)
+        elif rel == _BACKUP_PINS_NAME:
+            if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
+                raise invalid("file", f"backup member too large: {rel!r}")
+            pins_data = zf.read(info.filename)
+        elif rel == _BACKUP_BUFFER_NAME:
+            if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
+                raise invalid("file", f"backup member too large: {rel!r}")
+            buffer_data = zf.read(info.filename)
+        elif rel == _BACKUP_MANIFEST_NAME:
+            if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
+                raise invalid("file", f"backup member too large: {rel!r}")
+            manifest_data = zf.read(info.filename)
+        elif rel.startswith(_BACKUP_MEDIA_PREFIX):
+            sub = rel[len(_BACKUP_MEDIA_PREFIX) :]
+            if not sub:
+                raise invalid("file", f"backup member must name a file: {rel!r}")
+            try:
+                normalized = normalize_media_rel(sub)
+            except ValueError as exc:
+                raise invalid(rel, str(exc)) from exc
+            media_total += info.file_size
+            if media_total > BACKUP_MEDIA_CAP_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"backup media exceeds {BACKUP_MEDIA_CAP_BYTES} bytes",
+                )
+            media.append((info.filename, info.file_size, normalized))
+        else:
+            raise invalid("file", f"unknown backup member: {rel!r}")
+    if config_data is None:
+        raise invalid("file", "backup archive is missing muhideen.json")
+    if manifest_data is not None:
+        try:
+            manifest = json.loads(manifest_data.decode("utf-8"))
+        except (UnicodeError, ValueError) as exc:
+            raise invalid(
+                _BACKUP_MANIFEST_NAME, f"manifest is not JSON: {exc}"
+            ) from exc
+        if not isinstance(manifest, dict):
+            raise invalid(
+                _BACKUP_MANIFEST_NAME, "manifest must be {files: [...], exported_at}"
+            )
+        manifest_obj = cast(dict[str, Any], manifest)
+        if not isinstance(manifest_obj.get("files"), list):
+            raise invalid(
+                _BACKUP_MANIFEST_NAME, "manifest must be {files: [...], exported_at}"
+            )
+    return config_data, pins_data, buffer_data, manifest_data, media
+
+
+def _validate_staged_config(config_data: bytes) -> ConfigFile:
+    """Full-file ``ConfigFile`` + ``Settings`` validation of staged bytes."""
+    try:
+        text = config_data.decode("utf-8")
+    except UnicodeError as exc:
+        raise invalid(_BACKUP_CONFIG_NAME, f"config is not UTF-8: {exc}") from exc
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise invalid(_BACKUP_CONFIG_NAME, f"config is not JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise invalid(_BACKUP_CONFIG_NAME, "config root must be an object")
+    try:
+        cfg = ConfigFile.model_validate(data)
+    except ValidationError as exc:
+        detail: list[dict[str, Any]] = []
+        for err in exc.errors():
+            loc: list[str | int] = list(err["loc"])
+            if not loc:
+                loc = ["schedule"]
+            detail.append(
+                {"loc": ["body", *loc], "msg": err["msg"], "type": err["type"]}
+            )
+        raise HTTPException(status_code=422, detail=detail) from exc
+    try:
+        _settings_from_config(cfg)
+    except ValueError as exc:
+        raise invalid(_BACKUP_CONFIG_NAME, str(exc)) from exc
+    return cfg
+
+
+def _check_staged_completion(
+    pins: Sequence[ManualDay], zone: str, buffer_path: Path
+) -> None:
+    """Completion-check staged pins against the staged-outcome buffer.
+
+    Partial pins with no row for their date+zone fail with the same
+    pre-sync trap as the manual-days endpoints (never 500).
+    """
+    try:
+        FilePrayerRepo(buffer_path).validate_pins(pins, zone)
+    except ConfigError as exc:
+        text = _scrub_config_error(str(exc))
+        if "missing markers" in text:
+            match = re.search(r"\d{4}-\d{2}-\d{2}", text)
+            day = match.group(0) if match else "that date"
+            text = f"no buffer row for {day} — sync first or send a full-day pin"
+        raise invalid(_BACKUP_PINS_NAME, text) from exc
+
+
+def _promote(staged: Path, live: Path, renamed: list[tuple[Path, Path | None]]) -> None:
+    """Rename staged → live on the same filesystem (EXDEV falls back to copy).
+
+    Records ``(live, backup-or-None)`` for rollback; the caller keeps
+    pre-rename backups inside staging, which forensics keeps on failure.
+    """
+    backup = staged.parent / "backups" / f"{live.name}.{os.getpid()}.bak"
+    prior: Path | None = None
+    if live.is_file():
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(live, backup)
+        prior = backup
+    try:
+        os.replace(staged, live)
+    except OSError as exc:
+        if exc.errno != 18:  # EXDEV: staging and target share no filesystem
+            raise
+        live.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(staged, live)
+    renamed.append((live, prior))
+
+
+def _rollback_restore(renamed: list[tuple[Path, Path | None]]) -> None:
+    """Best-effort rollback of promoted files from staging backups."""
+    for live, backup in reversed(renamed):
+        try:
+            if backup is not None:
+                shutil.copyfile(backup, live)
+            else:
+                live.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("restore rollback failed for %s; keeping staging", live)
+
+
+def _apply_restore(
+    request: Request, config_path: Path, staging: Path, payload: bytes
+) -> None:
+    """Validate-all then staged-atomic apply (ordered renames + media).
+
+    Staged-atomic, not single-rename atomic: after the first rename the
+    watcher may reload a mixed generation (new config + old pins/buffer)
+    and publish one transient ``config-update`` before the next rename
+    converges it — subscribers tolerate one mixed-state event. Buffer
+    race: a scheduler ``save_day`` landing between validate-all and the
+    buffer rename is accepted last-wins either way; the next sync heals.
+    """
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+    except zipfile.BadZipFile as exc:
+        raise invalid("file", f"backup archive is not a valid zip: {exc}") from exc
+    renamed: list[tuple[Path, Path | None]] = []
+    try:
+        with archive:
+            config_data, pins_data, buffer_data, _, media = _harden_restore_members(
+                archive
+            )
+            staged_config = staging / _BACKUP_CONFIG_NAME
+            staged_config.write_bytes(config_data)
+            cfg = _validate_staged_config(config_data)
+            staged_pins = staging / _BACKUP_PINS_NAME
+            if pins_data is not None:
+                staged_pins.write_bytes(pins_data)
+                try:
+                    staged_pin_list = load_manual_days_file(staged_pins)
+                except ConfigError as exc:
+                    raise invalid(
+                        _BACKUP_PINS_NAME, _scrub_config_error(str(exc))
+                    ) from exc
+            else:
+                staged_pin_list = []
+            staged_buffer = staging / _BACKUP_BUFFER_NAME
+            if buffer_data is not None:
+                staged_buffer.write_bytes(buffer_data)
+                try:
+                    FilePrayerRepo(staged_buffer).validate_buffer()
+                except ConfigError as exc:
+                    raise invalid(
+                        _BACKUP_BUFFER_NAME, _scrub_config_error(str(exc))
+                    ) from exc
+            live_buffer = _live_buffer_path(request, config_path)
+            if buffer_data is not None:
+                completion_buffer = staged_buffer
+            else:
+                completion_buffer = live_buffer
+            ref = cfg.schedule.manual_days_file
+            if pins_data is not None and ref is None:
+                raise invalid(
+                    _BACKUP_PINS_NAME,
+                    "backup pins without a manual_days_file ref in muhideen.json",
+                )
+            pins_to_check: Sequence[ManualDay]
+            if pins_data is not None:
+                pins_to_check = staged_pin_list
+            elif cfg.schedule.manual_days:
+                pins_to_check = list(cfg.schedule.manual_days)
+            elif ref is not None:
+                live_pins = resolve_pins_path(config_path, ref)
+                if live_pins.is_file():
+                    try:
+                        pins_to_check = load_manual_days_file(live_pins)
+                    except ConfigError as exc:
+                        raise invalid(
+                            _BACKUP_PINS_NAME, _scrub_config_error(str(exc))
+                        ) from exc
+                else:
+                    pins_to_check = []
+            else:
+                pins_to_check = []
+            if pins_to_check:
+                _check_staged_completion(
+                    pins_to_check, cfg.schedule.effective_zone, completion_buffer
+                )
+            media_bytes: list[tuple[str, bytes]] = []
+            for member_name, _, normalized in media:
+                with archive.open(member_name) as src:
+                    chunks: list[bytes] = []
+                    while True:
+                        chunk = src.read(_BACKUP_CHUNK_BYTES)
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                media_bytes.append((normalized, b"".join(chunks)))
+            if sum(len(data) for _, data in media_bytes) > BACKUP_MEDIA_CAP_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"backup media exceeds {BACKUP_MEDIA_CAP_BYTES} bytes",
+                )
+            _promote(staged_config, config_path, renamed)
+            if pins_data is not None and ref is not None:
+                live_pins = resolve_pins_path(config_path, ref)
+                live_pins.parent.mkdir(parents=True, exist_ok=True)
+                _promote(staged_pins, live_pins, renamed)
+            if buffer_data is not None:
+                live_buffer.parent.mkdir(parents=True, exist_ok=True)
+                _promote(staged_buffer, live_buffer, renamed)
+            media_root = _media_dir(request)
+            for normalized, data in sorted(media_bytes):
+                dest = media_path_for_rel(media_root, normalized)
+                backup = (
+                    staging / "backups" / "media" / f"{normalized}.{os.getpid()}.bak"
+                )
+                prior: Path | None = None
+                if dest_is_file(dest):
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(dest, backup)
+                    prior = backup
+                try:
+                    atomic_write_bytes(dest, data)
+                except ValueError as exc:
+                    raise invalid(
+                        f"{_BACKUP_MEDIA_PREFIX}{normalized}", str(exc)
+                    ) from exc
+                renamed.append((dest, prior))
+            _publish_config_update(request)
+    except (HTTPException, OSError):
+        _rollback_restore(renamed)
+        raise
+    # Success-only staging removal happens in the caller (failures keep
+    # the dir for forensics until the next restore cleans it).
+
+
+@admin_router.post(
+    "/api/backup/restore",
+    responses={
+        200: {
+            "description": "Restore applied (staged-atomic, ordered renames).",
+            "content": {"application/json": {"example": {"ok": True}}},
+        },
+        401: {"description": "Missing or wrong admin token."},
+        413: {
+            "description": "Zip upload or media total exceeds the 50MB cap.",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "upload exceeds 52428800 bytes"}
+                }
+            },
+        },
+        422: {
+            "description": (
+                "Zip-slip member or validate-all failure (config/pins/buffer/media)."
+            ),
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "loc": ["body", "pins.json"],
+                                "msg": "pins.json: invalid JSON",
+                                "type": "value_error",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+        503: {"description": "Admin writes disabled or a rename hit disk failure."},
+    },
+)
+def restore_backup(
+    request: Request, file: Annotated[UploadFile, File()]
+) -> dict[str, bool]:
+    """Replace the installation from a multipart backup zip (staged-atomic).
+
+    The upload streams bounded (``≤50MB`` → ``413``), then zip-slip
+    hardening (absolute/``..``/symlink/drive-letter rejected) and
+    validate-all (config, pins-file semantics, buffer schema, staged
+    pins completion against the STAGED buffer, media relpaths + total
+    cap) run BEFORE live disk moves. Apply uses a same-filesystem
+    staging dir with ordered renames (config → pins → buffer) plus
+    additive per-file tmp+rename media (orphans persist, never
+    deleted); pre-rename backups roll back on failure, staging is
+    removed on success and kept on failure until the next restore.
+    """
+    payload = _read_restore_upload(request, file)
+    lock = get_write_lock(request)
+    config_path = _config_path(request)
+    with lock:
+        _cleanup_stale_staging(config_path)
+        staging = Path(
+            tempfile.mkdtemp(
+                dir=str(config_path.parent),
+                prefix=_RESTORE_STAGING_PREFIX,
+                suffix=_RESTORE_STAGING_SUFFIX,
+            )
+        )
+        try:
+            _apply_restore(request, config_path, staging, payload)
+        except HTTPException:
+            raise
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(
+                    f"{config_path}: cannot apply restore: {exc}"
+                ),
+            ) from exc
+        shutil.rmtree(staging, ignore_errors=True)
+    return {"ok": True}
+
+
+@admin_router.get(
+    "/api/logs",
+    response_class=PlainTextResponse,
+    responses={
+        200: {
+            "description": "Newest-last journal lines as text/plain.",
+            "content": {"text/plain": {"example": "Oct 08 12:00:01 muhideen: tick\n"}},
+        },
+        401: {"description": "Missing or wrong admin token."},
+        422: {
+            "description": "``lines`` is not an int in 1-1000.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "loc": ["query", "lines"],
+                                "msg": "Input should be greater than or equal to 1",
+                                "type": "greater_than_equal",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+        501: {
+            "description": "journald unavailable (compose/dev) or the unit is missing.",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "logs unavailable: journald is not available"}
+                }
+            },
+        },
+        503: {"description": "Admin writes disabled."},
+    },
+)
+def read_logs(
+    request: Request, lines: Annotated[int, Query(ge=1, le=1000)] = 200
+) -> PlainTextResponse:
+    """Tail the service journal newest-last (argv-only ``journalctl``).
+
+    Runs ``journalctl -u muhideen --no-pager -n <lines>`` with no shell
+    and a 5s timeout; timeouts, a missing binary, a failing exit, and
+    journald-less hosts (compose/dev) all fail soft to ``501``
+    (never 500). Non-int or out-of-range ``lines`` is ``422``.
+    """
+    del request  # Gated by the router dependency; no per-request state needed.
+    argv = ["journalctl", "-u", _LOGS_UNIT, "--no-pager", "-n", str(lines)]
+    try:
+        proc = subprocess.run(argv, capture_output=True, timeout=_LOGS_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(
+            status_code=501, detail="logs unavailable: journalctl timed out"
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=501, detail="logs unavailable: journald is not available"
+        ) from exc
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=501, detail="logs unavailable: journalctl failed"
+        )
+    return PlainTextResponse(proc.stdout.decode("utf-8", errors="replace"))
