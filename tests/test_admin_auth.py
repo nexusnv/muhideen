@@ -467,11 +467,20 @@ def test_invalid_helper_supports_nested_fields() -> None:
     ]
 
 
-def test_admin_router_registered_without_business_routes_yet() -> None:
-    """The gated router is mounted but exposes no business routes yet."""
+def test_admin_router_registers_config_patch_and_validate_routes() -> None:
+    """The gated router exposes the config PATCH + dry-run validate routes."""
     from muhideen.api.admin import admin_router
 
-    assert admin_router.routes == []
+    routes = {
+        (sorted(route.methods or [])[0], route.path)
+        for route in admin_router.routes
+        if hasattr(route, "methods") and hasattr(route, "path")
+    }
+    sections = ["masjid", "schedule", "timing", "theme", "adhan-audio"]
+    for section in sections:
+        assert ("PATCH", f"/api/config/{section}") in routes
+        assert ("POST", f"/api/config/{section}/validate") in routes
+    assert ("POST", "/api/config/validate") in routes
 
 
 def test_enabled_non_ascii_bearer_is_401_with_challenge_never_500() -> None:

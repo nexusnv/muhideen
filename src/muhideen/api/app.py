@@ -60,6 +60,7 @@ from muhideen.adapters.time_sync import SystemTimeSyncProbe
 from muhideen.api.admin import (
     admin_router,
     admin_token_file_for_config,
+    public_config_router,
     read_admin_token,
 )
 from muhideen.api.dto import (
@@ -689,9 +690,14 @@ def create_app(deps: AppDeps) -> FastAPI:
             )
     app.state.admin_token = deps.admin_token
     app.state.write_lock = deps.write_lock
-    # Gated admin surface: empty until business routes are added
-    # (auth + audit + mount plumbing is verified by tests/test_admin_auth.py).
+    app.state.config_path = deps.config_path
+    app.state.prayer_repo = deps.prayer_repo
+    app.state.event_bus = deps.event_bus
+    # Gated admin writes + dry-run validates (audited, Bearer) alongside
+    # the public config reads (spec §1 reads stay public, §2 by_alias GET).
+    # Auth + mount plumbing is verified by tests/test_admin_auth.py.
     app.include_router(admin_router)
+    app.include_router(public_config_router)
 
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:

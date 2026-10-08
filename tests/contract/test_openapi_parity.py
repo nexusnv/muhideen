@@ -123,7 +123,7 @@ def test_api_package_exports_all_contract_dtos() -> None:
     assert callable(create_app)
 
 
-def test_openapi_declares_all_five_paths() -> None:
+def test_openapi_declares_public_and_config_paths() -> None:
     paths = _app().openapi()["paths"]
     assert set(paths) == {
         "/api/prayer-day",
@@ -131,6 +131,19 @@ def test_openapi_declares_all_five_paths() -> None:
         "/api/events",
         "/api/version",
         "/display",
+        "/api/config",
+        "/api/config/{section}",
+        "/api/config/masjid",
+        "/api/config/schedule",
+        "/api/config/timing",
+        "/api/config/theme",
+        "/api/config/adhan-audio",
+        "/api/config/validate",
+        "/api/config/masjid/validate",
+        "/api/config/schedule/validate",
+        "/api/config/timing/validate",
+        "/api/config/theme/validate",
+        "/api/config/adhan-audio/validate",
     }
 
 
