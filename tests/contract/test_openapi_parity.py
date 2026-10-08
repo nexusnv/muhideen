@@ -157,6 +157,9 @@ def test_openapi_declares_public_and_config_paths() -> None:
         "/api/config/manual-days",
         "/api/config/manual-days/validate",
         "/api/config/manual-days/{date}",
+        # Task 6: media list (public) + upload/delete (gated) (spec §4).
+        "/api/media",
+        "/api/media/{path}",
     }
 
 

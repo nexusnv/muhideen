@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -53,6 +53,21 @@ from muhideen.adapters.file_models import (
     PlaylistFile,
     TimeHHMM,
     ensure_unique_manual_dates,
+)
+from muhideen.adapters.media_store import (
+    UPFRONT_SLACK_BYTES,
+    MediaTooLargeError,
+    atomic_write_bytes,
+    cap_for_kind,
+    dest_is_file,
+    destination_for_kind,
+    list_media_files,
+    media_path_for_rel,
+    normalize_media_rel,
+    read_upload_bounded,
+    reencode_image,
+    sanitize_upload_basename,
+    verify_audio_mp3,
 )
 from muhideen.core.errors import ConfigError
 from muhideen.core.values import (
@@ -1915,4 +1930,115 @@ def validate_manual_days(request: Request, pins: list[ManualDay]) -> dict[str, b
         raw = _read_raw_config(config_path)
         zone = _effective_zone(_manual_schedule_section(raw))
         _check_completion(request, pins, zone, single=False)
+    return {"ok": True}
+
+
+# --- Media: public list + gated upload/delete (spec §4). ---
+
+public_media_router = APIRouter()
+"""Public media reads (spec §1): the file list stays open, no audit."""
+
+
+def _media_dir(request: Request) -> Path:
+    """Media root for this app; state set by ``create_app`` (fallback static)."""
+    media = getattr(request.app.state, "media_dir", None)
+    if media is None:
+        return Path(__file__).resolve().parent.parent / "static" / "uploads"
+    return Path(media)
+
+
+@public_media_router.get("/api/media")
+def list_media(request: Request) -> list[dict[str, Any]]:
+    """Serve every media file as media-relative ``[{path, size_bytes}]``."""
+    return list_media_files(_media_dir(request))
+
+
+@admin_router.post("/api/media")
+async def upload_media(
+    request: Request,
+    response: Response,
+    file: Annotated[UploadFile, File()],
+    kind: Annotated[str, Form()],
+) -> dict[str, str]:
+    """Store one upload atomically; ``kind`` routes root vs ``playlists/``.
+
+    ``adhan`` MP3s land at the media root, ``image`` files under
+    ``playlists/`` (created on write). Basenames flatten (no subdirs v1)
+    and overwrite is allowed: a new relpath answers ``201``, an existing
+    one ``200`` with ``{path}``. Oversize aborts the bounded streaming
+    read with ``413`` before any decode; every other content failure is
+    ``422``. No write lock: tmp-in-same-dir + rename is already atomic,
+    so concurrent ``/media`` reads never see torn binaries.
+    """
+    try:
+        basename = sanitize_upload_basename(file.filename)
+    except ValueError as exc:
+        raise invalid("file", str(exc)) from exc
+    try:
+        relpath = destination_for_kind(kind, basename)
+    except ValueError as exc:
+        raise invalid("kind", str(exc)) from exc
+    cap = cap_for_kind(kind)
+    claimed = request.headers.get("content-length")
+    if claimed is not None:
+        try:
+            declared = int(claimed)
+        except ValueError:
+            declared = None
+        if declared is not None and declared > cap + UPFRONT_SLACK_BYTES:
+            raise HTTPException(status_code=413, detail=f"upload exceeds {cap} bytes")
+    try:
+        data = await read_upload_bounded(file, cap)
+    except MediaTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    normalized_kind = kind.strip()
+    try:
+        if normalized_kind == "adhan":
+            verify_audio_mp3(data, basename)
+            payload = data
+        else:
+            payload = reencode_image(data, basename)
+    except ValueError as exc:
+        raise invalid("file", str(exc)) from exc
+    dest = media_path_for_rel(_media_dir(request), relpath)
+    try:
+        existed = dest_is_file(dest)
+        atomic_write_bytes(dest, payload)
+    except ValueError as exc:
+        raise invalid("file", str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_scrub_config_error(f"{dest}: cannot write media file: {exc}"),
+        ) from exc
+    response.status_code = 200 if existed else 201
+    return {"path": relpath}
+
+
+@admin_router.delete("/api/media/{path:path}")
+def delete_media(request: Request, path: str) -> dict[str, bool]:
+    """Delete one media file; unknown relpaths are 404.
+
+    Unconditional by design: files referenced by playlist items or the
+    adhan config delete fine (dangling refs stay permitted) — no
+    per-delete reference scan ever runs.
+    """
+    try:
+        rel = normalize_media_rel(path)
+    except ValueError as exc:
+        raise invalid("path", str(exc)) from exc
+    dest = media_path_for_rel(_media_dir(request), rel)
+    try:
+        found = dest_is_file(dest)
+    except ValueError as exc:
+        raise invalid("path", str(exc)) from exc
+    if not found:
+        raise HTTPException(status_code=404, detail=f"unknown media path: {path!r}")
+    try:
+        dest.unlink()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_scrub_config_error(f"{dest}: cannot delete media file: {exc}"),
+        ) from exc
     return {"ok": True}

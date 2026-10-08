@@ -175,6 +175,19 @@ def test_reintroduced_manual_days_writes_gated(file_client: TestClient) -> None:
     )
 
 
+def test_reintroduced_media_read_serves(file_client: TestClient) -> None:
+    """Task 6 reintroduces the media file list as public (spec §1/§4)."""
+    response = file_client.get("/api/media")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_reintroduced_media_writes_gated(file_client: TestClient) -> None:
+    """Task 6 reintroduces media upload/delete as gated (503, no boot token)."""
+    assert file_client.post("/api/media", data={"kind": "adhan"}).status_code == 503
+    assert file_client.delete("/api/media/adhan.mp3").status_code == 503
+
+
 def test_kept_public_surface_still_serves(file_client: TestClient) -> None:
     assert file_client.get("/api/version").status_code == 200
     day = file_client.get(

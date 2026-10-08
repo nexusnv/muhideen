@@ -62,6 +62,7 @@ from muhideen.api.admin import (
     admin_token_file_for_config,
     public_config_router,
     public_display_router,
+    public_media_router,
     public_playlist_router,
     read_admin_token,
 )
@@ -693,6 +694,7 @@ def create_app(deps: AppDeps) -> FastAPI:
     app.state.admin_token = deps.admin_token
     app.state.write_lock = deps.write_lock
     app.state.config_path = deps.config_path
+    app.state.media_dir = media_dir
     app.state.prayer_repo = deps.prayer_repo
     # Playlist preview (§3) resolves through these seams: the engine for
     # day/event resolution, the settings repo for the served zone, and the
@@ -713,6 +715,8 @@ def create_app(deps: AppDeps) -> FastAPI:
     app.include_router(public_playlist_router)
     # Public display collection read (spec §1/§3); writes stay gated above.
     app.include_router(public_display_router)
+    # Public media file list (spec §1/§4); upload + delete stay gated above.
+    app.include_router(public_media_router)
 
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:
