@@ -19,6 +19,7 @@ import re
 import secrets
 import threading
 from collections.abc import Callable, Coroutine, Mapping, Sequence
+from datetime import date as _date
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -33,10 +34,12 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationErr
 from muhideen.adapters.file_config import (
     FilePrayerRepo,
     _atomic_write_json,  # pyright: ignore[reportPrivateUsage]
+    _atomic_write_json_list,  # pyright: ignore[reportPrivateUsage]
     _playlist_from_file,  # pyright: ignore[reportPrivateUsage]
     _settings_from_config,  # pyright: ignore[reportPrivateUsage]
     load_config_file,
     load_manual_days_file,
+    manual_days_file_for_config,
     resolve_pins_path,
 )
 from muhideen.adapters.file_models import (
@@ -49,6 +52,7 @@ from muhideen.adapters.file_models import (
     ManualDay,
     PlaylistFile,
     TimeHHMM,
+    ensure_unique_manual_dates,
 )
 from muhideen.core.errors import ConfigError
 from muhideen.core.values import (
@@ -884,6 +888,50 @@ def get_full_config(request: Request) -> dict[str, Any]:
     return cfg.model_dump(mode="json", by_alias=True)
 
 
+@public_config_router.get("/api/config/manual-days")
+def get_manual_days(request: Request) -> dict[str, Any]:
+    """Serve the effective pins plus which store serves them (public read).
+
+    Registered before ``/{section}``: the generic section route would
+    otherwise claim ``manual-days`` as an unknown section (404). A
+    set-but-absent pins ref is 503 with a hand-fix detail (same
+    fail-loud as ``load_config_file``) — never an empty ``pins: []``
+    masking the missing file.
+    """
+    config_path = _config_path(request)
+    raw = _read_raw_config(config_path)
+    section = _manual_schedule_section(raw)
+    ref = section.get("manual_days_file")
+    pins_path = manual_days_file_for_config(config_path)
+    if pins_path is None:
+        cfg = load_config_file(config_path)
+        return {
+            "source": "inline",
+            "pins": [pin.model_dump(mode="json") for pin in cfg.schedule.manual_days],
+        }
+    if isinstance(section.get("manual_days"), list) and section["manual_days"]:
+        raise HTTPException(
+            status_code=503,
+            detail="schedule.manual_days and schedule.manual_days_file "
+            "are exclusive — hand-fix the config file until one is cleared",
+        )
+    try:
+        pins = load_manual_days_file(pins_path)
+    except ConfigError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                _pins_file_detail(ref, exc)
+                if isinstance(ref, str)
+                else _scrub_config_error(str(exc))
+            ),
+        ) from exc
+    return {
+        "source": "file",
+        "pins": [pin.model_dump(mode="json") for pin in pins],
+    }
+
+
 @public_config_router.get("/api/config/{section}")
 def get_config_section(request: Request, section: str) -> Any:
     """Serve one parsed section; unknown names are 404."""
@@ -1531,4 +1579,340 @@ def delete_display(request: Request, id: str) -> dict[str, bool]:
         del displays[id]
 
     _mutate_displays(request, _remove)
+    return {"ok": True}
+
+
+# --- Manual-days: PUT/DELETE/validate (spec §3; GET lives above, public). ---
+
+_MANUAL_MARKERS = (
+    "imsak",
+    "fajr",
+    "syuruq",
+    "dhuha",
+    "dhuhr",
+    "asr",
+    "maghrib",
+    "isha",
+)
+"""The eight day-local markers a pin may correct (mirrors file_models)."""
+
+
+class ManualDayPut(_Partial):
+    """Single-pin PUT body: date optional (path authoritative), markers optional."""
+
+    date: _date | None = None
+    imsak: TimeHHMM | None = None
+    fajr: TimeHHMM | None = None
+    syuruq: TimeHHMM | None = None
+    dhuha: TimeHHMM | None = None
+    dhuhr: TimeHHMM | None = None
+    asr: TimeHHMM | None = None
+    maghrib: TimeHHMM | None = None
+    isha: TimeHHMM | None = None
+
+
+def _manual_schedule_section(raw: dict[str, Any]) -> dict[str, Any]:
+    """Raw schedule section (missing/non-object routes as empty inline)."""
+    section = raw.get("schedule")
+    return cast(dict[str, Any], section) if isinstance(section, dict) else {}
+
+
+def _manual_pins_path(config_path: Path, section: Mapping[str, Any]) -> Path | None:
+    """Resolved pins path when the ref is set, else ``None`` for inline.
+
+    Blank refs route inline (mirrors ``manual_days_file_for_config``);
+    the ref string itself only changes via ``PATCH schedule``.
+    """
+    ref = section.get("manual_days_file")
+    if not isinstance(ref, str) or not ref.strip():
+        return None
+    return resolve_pins_path(config_path, ref)
+
+
+def _reject_coexisting_inline(section: Mapping[str, Any]) -> None:
+    """Inline pins plus a set ref stay exclusive (writes are 422)."""
+    current = section.get("manual_days")
+    if isinstance(current, list) and current:
+        raise invalid(
+            "manual_days_file",
+            "schedule.manual_days and schedule.manual_days_file are exclusive",
+        )
+
+
+def _pins_file_detail(ref: str, exc: Exception) -> str:
+    """Scrubbed pins-file error that still names the configured ref.
+
+    The scrubber hides server absolute paths (the resolved pins path
+    included), so the operator-facing detail prefixes the hand-fixable
+    ref (``pins.json``, never an absolute path) to stay actionable.
+    """
+    return f"manual_days_file {ref}: {_scrub_config_error(str(exc))}"
+
+
+def _manual_day_422(exc: ValidationError) -> HTTPException:
+    """Map one pin's structural failures to 422 [{loc, msg}] (never 500)."""
+    detail: list[dict[str, Any]] = []
+    for err in exc.errors():
+        loc: list[str | int] = list(err["loc"])
+        if not loc:
+            loc = ["date"]
+        detail.append({"loc": ["body", *loc], "msg": err["msg"], "type": err["type"]})
+    return HTTPException(status_code=422, detail=detail)
+
+
+def _pins_completion_422(
+    pins: Sequence[ManualDay], exc: ConfigError, *, single: bool
+) -> HTTPException:
+    """Map buffer-completion failures to 422 (trap message for partials).
+
+    A partial pin with no buffer row for its date+zone names the trap
+    (``no buffer row for <date> — sync first or send a full-day pin``);
+    ordering failures keep their scrubbed detail. Single-pin PUT locates
+    the date; bare-array validates locate the failing index.
+    """
+    text = _scrub_config_error(str(exc))
+    day: str | None = None
+    if "missing markers" in text:
+        match = re.search(r"\d{4}-\d{2}-\d{2}", text)
+        day = match.group(0) if match else None
+        text = (
+            f"no buffer row for {day or 'that date'} — "
+            "sync first or send a full-day pin"
+        )
+    loc: list[str | int] = ["body", "date"] if single else ["body"]
+    if not single and day is not None:
+        for index, pin in enumerate(pins):
+            if pin.date.isoformat() == day:
+                loc = ["body", index]
+                break
+    return HTTPException(
+        status_code=422,
+        detail=[{"loc": loc, "msg": text, "type": "value_error"}],
+    )
+
+
+def _check_completion(
+    request: Request, pins: Sequence[ManualDay], zone: str, *, single: bool
+) -> None:
+    """Run buffer-completion over candidate pins (structural already held)."""
+    repo = getattr(request.app.state, "prayer_repo", None)
+    if not isinstance(repo, FilePrayerRepo):
+        return
+    try:
+        repo.validate_pins(pins, zone)
+    except ConfigError as exc:
+        raise _pins_completion_422(pins, exc, single=single) from exc
+
+
+@admin_router.put("/api/config/manual-days/{date}")
+def put_manual_day(request: Request, date: _date, body: ManualDayPut) -> dict[str, Any]:
+    """Upsert one pin by date (replace on duplicate, 200 — never 409).
+
+    The path date is authoritative: a body date must match it or 422.
+    Writes route by the pins ref (file) or inline; a set-but-absent ref
+    is created here (parents mkdir'd, bare array atomically written).
+    """
+    if body.date is not None and body.date != date:
+        raise invalid(
+            "date",
+            f"body date {body.date.isoformat()} does not match "
+            f"path date {date.isoformat()}",
+        )
+    try:
+        candidate = ManualDay.model_validate(
+            {
+                "date": date.isoformat(),
+                **{
+                    key: getattr(body, key)
+                    for key in _MANUAL_MARKERS
+                    if getattr(body, key) is not None
+                },
+            }
+        )
+    except ValidationError as exc:
+        raise _manual_day_422(exc) from exc
+    lock = get_write_lock(request)
+    config_path = _config_path(request)
+    with lock:
+        raw = _read_raw_config(config_path)
+        section = _manual_schedule_section(raw)
+        pins_path = _manual_pins_path(config_path, section)
+        if pins_path is not None:
+            _reject_coexisting_inline(section)
+            ref = section.get("manual_days_file")
+            try:
+                pins = load_manual_days_file(pins_path)
+            except ConfigError as exc:
+                if pins_path.exists():
+                    raise HTTPException(
+                        status_code=422,
+                        detail=[
+                            {
+                                "loc": ["body", "manual_days_file"],
+                                "msg": (
+                                    _pins_file_detail(ref, exc)
+                                    if isinstance(ref, str)
+                                    else _scrub_config_error(str(exc))
+                                ),
+                                "type": "value_error",
+                            }
+                        ],
+                    ) from exc
+                pins = []
+            new_pins = [pin for pin in pins if pin.date != date]
+            new_pins.append(candidate)
+            try:
+                ensure_unique_manual_dates(new_pins)
+            except ValueError as exc:
+                raise invalid("date", str(exc)) from exc
+            _check_completion(request, new_pins, _effective_zone(section), single=True)
+            try:
+                pins_path.parent.mkdir(parents=True, exist_ok=True)
+                _atomic_write_json_list(
+                    pins_path, [pin.model_dump(mode="json") for pin in new_pins]
+                )
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_scrub_config_error(
+                        f"{pins_path}: cannot write manual days file: {exc}"
+                    ),
+                ) from exc
+            _publish_config_update(request)
+        else:
+            current = section.get("manual_days", [])
+            if "manual_days" in section and not isinstance(current, list):
+                raise HTTPException(
+                    status_code=503,
+                    detail=_scrub_config_error(
+                        f"{config_path}: schedule.manual_days must be a list"
+                    ),
+                )
+            rows = cast(list[Any], current)
+            kept: list[Any] = [
+                entry
+                for entry in rows
+                if not (
+                    isinstance(entry, dict)
+                    and _as_dict(entry).get("date") == date.isoformat()
+                )
+            ]
+            merged_section = dict(section)
+            merged_section["manual_days"] = [
+                *kept,
+                candidate.model_dump(mode="json"),
+            ]
+            merged = dict(raw)
+            merged["schedule"] = merged_section
+            cfg = _validate_merged(merged, "schedule", ("manual_days",))
+            _check_completion(
+                request,
+                list(cfg.schedule.manual_days),
+                cfg.schedule.effective_zone,
+                single=True,
+            )
+            _atomic_write_json(config_path, merged)
+            _publish_config_update(request)
+    return candidate.model_dump(mode="json")
+
+
+@admin_router.delete("/api/config/manual-days/{date}")
+def delete_manual_day(request: Request, date: _date) -> dict[str, bool]:
+    """Delete one pin by date; unknown dates are 404.
+
+    A set-but-absent pins ref is 503 like GET — there is no file to
+    delete from. File-mode DELETE shrinks the pins file; the orphaned
+    file on a file→inline migration is never auto-deleted.
+    """
+    lock = get_write_lock(request)
+    config_path = _config_path(request)
+    with lock:
+        raw = _read_raw_config(config_path)
+        section = _manual_schedule_section(raw)
+        pins_path = _manual_pins_path(config_path, section)
+        if pins_path is not None:
+            _reject_coexisting_inline(section)
+            ref = section.get("manual_days_file")
+            try:
+                pins = load_manual_days_file(pins_path)
+            except ConfigError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        _pins_file_detail(ref, exc)
+                        if isinstance(ref, str)
+                        else _scrub_config_error(str(exc))
+                    ),
+                ) from exc
+            kept = [pin for pin in pins if pin.date != date]
+            if len(kept) == len(pins):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"unknown manual day: {date.isoformat()!r}",
+                )
+            try:
+                _atomic_write_json_list(
+                    pins_path, [pin.model_dump(mode="json") for pin in kept]
+                )
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=_scrub_config_error(
+                        f"{pins_path}: cannot write manual days file: {exc}"
+                    ),
+                ) from exc
+            _publish_config_update(request)
+        else:
+            current = section.get("manual_days", [])
+            if not isinstance(current, list):
+                raise HTTPException(
+                    status_code=503,
+                    detail=_scrub_config_error(
+                        f"{config_path}: schedule.manual_days must be a list"
+                    ),
+                )
+            rows = cast(list[Any], current)
+            kept_raw: list[Any] = [
+                entry
+                for entry in rows
+                if not (
+                    isinstance(entry, dict)
+                    and _as_dict(entry).get("date") == date.isoformat()
+                )
+            ]
+            if len(kept_raw) == len(rows):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"unknown manual day: {date.isoformat()!r}",
+                )
+            merged_section = dict(section)
+            merged_section["manual_days"] = kept_raw
+            merged = dict(raw)
+            merged["schedule"] = merged_section
+            _validate_merged(merged, "schedule", ("manual_days",))
+            _atomic_write_json(config_path, merged)
+            _publish_config_update(request)
+    return {"ok": True}
+
+
+@admin_router.post("/api/config/manual-days/validate")
+def validate_manual_days(request: Request, pins: list[ManualDay]) -> dict[str, bool]:
+    """Dry-run bare-array validation (structural + buffer-completion).
+
+    The same two tiers as PUT — including the pre-sync partial trap —
+    gated like writes, writing nothing.
+    """
+    try:
+        ensure_unique_manual_dates(pins)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": ["body"], "msg": str(exc), "type": "value_error"}],
+        ) from exc
+    lock = get_write_lock(request)
+    config_path = _config_path(request)
+    with lock:
+        raw = _read_raw_config(config_path)
+        zone = _effective_zone(_manual_schedule_section(raw))
+        _check_completion(request, pins, zone, single=False)
     return {"ok": True}

@@ -153,6 +153,28 @@ def test_reintroduced_display_write_gated(file_client: TestClient) -> None:
     assert file_client.delete("/api/displays/HALL-01").status_code == 503
 
 
+def test_reintroduced_manual_days_read_serves(file_client: TestClient) -> None:
+    """Task 5 reintroduces the effective-pins read as public (spec §1/§3)."""
+    response = file_client.get("/api/config/manual-days")
+    assert response.status_code == 200
+    assert response.json()["source"] == "inline"
+    assert [pin["date"] for pin in response.json()["pins"]] == ["2026-04-01"]
+
+
+def test_reintroduced_manual_days_writes_gated(file_client: TestClient) -> None:
+    """Task 5 reintroduces manual-days writes as gated (503, no boot token)."""
+    pin = {"date": "2026-05-01", "fajr": "05:58"}
+    assert (
+        file_client.put("/api/config/manual-days/2026-05-01", json=pin).status_code
+        == 503
+    )
+    assert file_client.delete("/api/config/manual-days/2026-05-01").status_code == 503
+    assert (
+        file_client.post("/api/config/manual-days/validate", json=[pin]).status_code
+        == 503
+    )
+
+
 def test_kept_public_surface_still_serves(file_client: TestClient) -> None:
     assert file_client.get("/api/version").status_code == 200
     day = file_client.get(
