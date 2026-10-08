@@ -153,6 +153,10 @@ def test_openapi_declares_public_and_config_paths() -> None:
         # Task 4: display CRUD (spec §3).
         "/api/displays",
         "/api/displays/{id}",
+        # Task 5: manual-days pins (spec §3).
+        "/api/config/manual-days",
+        "/api/config/manual-days/validate",
+        "/api/config/manual-days/{date}",
     }
 
 
