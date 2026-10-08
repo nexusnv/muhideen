@@ -673,15 +673,23 @@ def create_app(deps: AppDeps) -> FastAPI:
         # Always mounted (mkdir -p first) so operator drops and uploads
         # serve without a restart. check_dir=False is supported by the
         # pinned Starlette; the mkdir above already guarantees the dir.
-        media_dir.mkdir(parents=True, exist_ok=True)
-        app.mount(
-            "/media",
-            StaticFiles(directory=str(media_dir), check_dir=False),
-            name="media",
-        )
+        # A path blocked by a regular file (or any other mkdir failure)
+        # warns and keeps serving without /media rather than crashing.
+        try:
+            media_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "media dir %s unavailable (%s): /media not mounted", media_dir, exc
+            )
+        else:
+            app.mount(
+                "/media",
+                StaticFiles(directory=str(media_dir), check_dir=False),
+                name="media",
+            )
     app.state.admin_token = deps.admin_token
     app.state.write_lock = deps.write_lock
-    # Gated admin surface: empty until later tasks add business routes
+    # Gated admin surface: empty until business routes are added
     # (auth + audit + mount plumbing is verified by tests/test_admin_auth.py).
     app.include_router(admin_router)
 

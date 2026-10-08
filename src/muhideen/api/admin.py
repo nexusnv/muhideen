@@ -1,11 +1,11 @@
 """Admin cross-cutting: token auth, audit, shared write lock, error shape.
 
-Task 1 foundation for the token-gated admin surface (spec §1): every
-later admin route lives on ``admin_router`` (Bearer-gated + audited by
+Foundation for the token-gated admin surface (spec §1): every admin
+route lives on ``admin_router`` (Bearer-gated + audited by
 construction) and holds ``get_write_lock`` around read + merge +
 validate + rename. No business routes yet — the router stays empty until
-later tasks add config PATCH, playlists, displays, manual-days, media,
-and backup/logs endpoints.
+config PATCH, playlists, displays, manual-days, media, and backup/logs
+endpoints are added.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def read_admin_token(path: str | Path | None) -> str | None:
     candidate = Path(path)
     try:
         text = candidate.read_text()
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         logger.warning(
             "admin token file %s unreadable (%s): admin writes disabled",
             candidate,
@@ -161,4 +161,4 @@ def invalid(field: str | Sequence[str], message: str) -> HTTPException:
 
 
 admin_router = APIRouter(route_class=AdminRoute, dependencies=[Depends(require_admin)])
-"""Gated admin router (no business routes yet — later tasks extend it)."""
+"""Gated admin router (no business routes yet)."""

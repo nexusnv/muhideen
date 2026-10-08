@@ -1,11 +1,11 @@
-"""Task 1: admin token auth + shared write lock + error shape + media mount.
+"""Admin token auth + shared write lock + error shape + media mount.
 
 Cross-cutting plumbing for the token-gated admin surface (spec §1). The
 business surface (config PATCH, playlists, displays, manual-days, media,
-backup/logs) lands in later tasks, so the gated endpoints exercised here
+backup/logs) is out of scope here, so the gated endpoints exercised here
 are synthetic probes reusing the real `require_admin` / `AdminRoute` /
 `get_write_lock` / `invalid` foundation. `tests/test_no_admin.py` must
-keep passing: the real admin router stays empty in this task.
+keep passing: the real admin router stays empty here.
 """
 
 from __future__ import annotations
@@ -293,6 +293,47 @@ def test_read_admin_token_returns_stripped_line(tmp_path: Path) -> None:
     assert read_admin_token(token_file) == "s3cret-token"
 
 
+def test_read_admin_token_binary_bytes_is_none_with_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Undecodable bytes disable admin writes, never crash the read."""
+    from muhideen.api.admin import read_admin_token
+
+    binary = tmp_path / "admin_token"
+    binary.write_bytes(b"\xff\xfe\x00\x01-not-utf8")
+    with caplog.at_level(logging.WARNING, logger="muhideen.api.admin"):
+        assert read_admin_token(binary) is None
+    assert any(
+        "admin writes disabled" in record.getMessage() for record in caplog.records
+    )
+
+
+def test_binary_token_file_boots_with_admin_disabled(tmp_path: Path) -> None:
+    """A binary token file boots disabled: gated 503s, public reads serve."""
+    from muhideen.api.admin import AdminRoute, require_admin
+    from muhideen.api.app import create_production_app
+
+    dest = _copy_config(tmp_path)
+    (tmp_path / "admin_token").write_bytes(b"\xff\xfe\x00\x01-not-utf8")
+    app = create_production_app(dest, run_background=False)
+    assert app.state.admin_token is None
+
+    probes = APIRouter(route_class=AdminRoute, dependencies=[Depends(require_admin)])
+
+    @probes.get("/api/probe/ping")
+    def _ping() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.include_router(probes)
+    with TestClient(app) as client:
+        assert client.get("/api/probe/ping").status_code == 503
+        assert client.get("/api/version").status_code == 200
+        day = client.get(
+            "/api/prayer-day", params={"date": "2025-10-20", "zone": "SGR01"}
+        )
+        assert day.status_code == 200
+
+
 def test_production_default_token_file_is_config_sibling_and_read_once(
     tmp_path: Path,
 ) -> None:
@@ -377,6 +418,21 @@ def test_media_mount_is_unconditional_after_mkdir(tmp_path: Path) -> None:
     assert response.text == "salam"
 
 
+def test_media_path_blocked_by_file_warns_and_keeps_serving(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A media path blocked by a file warns; boot keeps serving, no /media."""
+    blocker = tmp_path / "media-blocker"
+    blocker.write_text("not a dir")
+    with (
+        caplog.at_level(logging.WARNING, logger="muhideen.api.app"),
+        TestClient(_probe_app(tmp_path, admin_token=None, media_dir=blocker)) as client,
+    ):
+        assert client.get("/api/version").status_code == 200
+        assert client.get("/media/hello.txt").status_code == 404
+    assert any("/media not mounted" in record.getMessage() for record in caplog.records)
+
+
 def test_mapped_value_errors_use_body_loc_convention(
     enabled_client: TestClient,
 ) -> None:
@@ -412,7 +468,7 @@ def test_invalid_helper_supports_nested_fields() -> None:
 
 
 def test_admin_router_registered_without_business_routes_yet() -> None:
-    """The gated router is mounted but empty until later tasks add routes."""
+    """The gated router is mounted but exposes no business routes yet."""
     from muhideen.api.admin import admin_router
 
     assert admin_router.routes == []
