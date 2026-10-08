@@ -144,6 +144,12 @@ def test_openapi_declares_public_and_config_paths() -> None:
         "/api/config/timing/validate",
         "/api/config/theme/validate",
         "/api/config/adhan-audio/validate",
+        # Task 3: playlist CRUD + items + preview (spec §3).
+        "/api/playlists",
+        "/api/playlists/preview",
+        "/api/playlists/{id}",
+        "/api/playlists/{id}/items",
+        "/api/playlists/{id}/items/{sort_order}",
     }
 
 

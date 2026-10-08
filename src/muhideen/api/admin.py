@@ -3,19 +3,23 @@
 Foundation for the token-gated admin surface (spec §1): every admin
 write lives on ``admin_router`` (Bearer-gated + audited by
 construction) and holds ``get_write_lock`` around read + merge +
-validate + rename. Config section PATCH/validate routes (§2) live here;
-public config GETs live on ``public_config_router`` (spec §1 reads stay
-public, so no gate and no audit).
+validate + rename. Config section PATCH/validate routes (§2) and
+playlist/item writes (§3) live here; public config GETs live on
+``public_config_router`` and public playlist reads + preview on
+``public_playlist_router`` (spec §1 reads stay public, so no gate
+and no audit).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import posixpath
 import re
 import secrets
 import threading
 from collections.abc import Callable, Coroutine, Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -24,11 +28,12 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 
 from muhideen.adapters.file_config import (
     FilePrayerRepo,
     _atomic_write_json,  # pyright: ignore[reportPrivateUsage]
+    _playlist_from_file,  # pyright: ignore[reportPrivateUsage]
     _settings_from_config,  # pyright: ignore[reportPrivateUsage]
     load_config_file,
     load_manual_days_file,
@@ -39,6 +44,7 @@ from muhideen.adapters.file_models import (
     ConfigFile,
     IqamahRuleFile,
     ManualDay,
+    PlaylistFile,
     TimeHHMM,
 )
 from muhideen.core.errors import ConfigError
@@ -52,7 +58,10 @@ from muhideen.core.values import (
     ThemeFont,
     ThemeHijriForm,
     ThemePalette,
+    strip_legacy_media_prefix,
 )
+from muhideen.domain.playlist_window import parse_window
+from muhideen.domain.stage import resolve_stage, stage_id
 
 logger = logging.getLogger(__name__)
 
@@ -882,3 +891,452 @@ def get_config_section(request: Request, section: str) -> Any:
         )
     cfg = load_config_file(_config_path(request))
     return getattr(cfg, attr).model_dump(mode="json", by_alias=True)
+
+
+# --- Playlists + items + preview (spec §3). ---
+
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+"""Shared id grammar: writes only; legacy rows list as-is (slash: routing-404)."""
+
+public_playlist_router = APIRouter()
+"""Public playlist reads (spec §1): list, detail, preview stay open, no audit."""
+
+
+class PlaylistItemCreate(_Partial):
+    """Item create: path + seconds required; order auto-assigns when omitted."""
+
+    image_path: str
+    duration_s: Annotated[int, Field(gt=0)]
+    sort_order: Annotated[int, Field(ge=0)] | None = None
+
+
+class PlaylistCreate(_Partial):
+    """Playlist create: identity required, the rest files in with defaults."""
+
+    id: str
+    title: str
+    active: bool = True
+    window_start: str | None = None
+    window_end: str | None = None
+    anchor_marker: str | None = None
+    anchor_start_offset_min: int = 0
+    anchor_stop_offset_min: int = 0
+    cycle_mode: Literal["indefinite", "repeat"] = "indefinite"
+    max_cycles: int | None = None
+    items: list[PlaylistItemCreate] = Field(default_factory=list[PlaylistItemCreate])
+
+
+class PlaylistPatch(_Partial):
+    """Playlist partial: ``id`` rename and ``items`` ride other endpoints."""
+
+    title: str | None = None
+    active: bool | None = None
+    window_start: str | None = None
+    window_end: str | None = None
+    anchor_marker: str | None = None
+    anchor_start_offset_min: int | None = None
+    anchor_stop_offset_min: int | None = None
+    cycle_mode: Literal["indefinite", "repeat"] | None = None
+    max_cycles: int | None = None
+
+
+def _require_tz_aware_moment(value: datetime) -> datetime:
+    """Reject naive preview moments; require a UTC offset (like next-event)."""
+    if value.tzinfo is None:
+        raise ValueError("moment must include a UTC offset (tz-aware ISO8601)")
+    return value
+
+
+def _check_playlist_id(value: str) -> str:
+    """Strip + enforce the shared id grammar on a new value (422)."""
+    text = value.strip()
+    if not text:
+        raise invalid("id", "id must not be blank")
+    if _ID_RE.match(text) is None:
+        raise invalid("id", f"id must be 1-64 [A-Za-z0-9_-]: {value!r}")
+    return text
+
+
+def _normalize_image_path(value: str) -> str:
+    """Media-relative item path (``normalize_adhan_rel`` rules, dangling ok).
+
+    Existence is NOT required: files may be uploaded before or after the
+    item is created. Raises ``ValueError`` (mapped to 422) on blank,
+    NUL, directory-like, absolute/drive-letter, URL-structural, or
+    escaping values; a legacy ``media/`` prefix is stripped.
+    """
+    if not value or not value.strip():
+        raise ValueError("playlist item needs an image path")
+    if "\x00" in value:
+        raise ValueError(f"image_path must not contain NUL bytes: {value!r}")
+    candidate = value.replace("\\", "/")
+    if candidate.strip().endswith("/"):
+        raise ValueError(f"image_path must name a file, not a directory: {value!r}")
+    if candidate.startswith("/") or re.match(r"^[A-Za-z]:", candidate):
+        raise ValueError(f"image_path must be relative: {value!r}")
+    rel = strip_legacy_media_prefix(candidate)
+    if rel.startswith("/"):
+        raise ValueError(f"image_path must be relative: {value!r}")
+    if "?" in rel or "#" in rel:
+        raise ValueError(f"image_path must not contain '?' or '#': {value!r}")
+    norm = posixpath.normpath(rel)
+    if norm in ("", "."):
+        raise ValueError(f"image_path must name a file: {value!r}")
+    if norm == ".." or norm.startswith("../"):
+        raise ValueError(f"image_path escapes the media root: {value!r}")
+    return norm
+
+
+def _check_item_slot(image_path: str, duration_s: int) -> dict[str, Any]:
+    """Normalize one item's path; types/ranges already fell closed in parsing."""
+    try:
+        rel = _normalize_image_path(image_path)
+    except ValueError as exc:
+        raise invalid("image_path", str(exc)) from exc
+    return {"image_path": rel, "duration_s": duration_s}
+
+
+def _assign_create_orders(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Auto-assign missing orders (max+1, empty → 0); within-body dupes → 422."""
+    seen: set[int] = set()
+    for slot in slots:
+        order = slot["sort_order"]
+        if order is None:
+            order = (max(seen) + 1) if seen else 0
+        elif order in seen:
+            raise invalid("sort_order", f"duplicate sort_order in playlist: {order!r}")
+        seen.add(order)
+        slot["sort_order"] = order
+    return slots
+
+
+def _window_grammar_422(message: str) -> HTTPException:
+    """Route a window/anchor grammar failure at its field (422 shape)."""
+    lowered = message.lower()
+    if "window_start" in lowered:
+        return invalid("window_start", message)
+    if "window_end" in lowered:
+        return invalid("window_end", message)
+    if "anchor" in lowered:
+        return invalid("anchor_marker", message)
+    return invalid([], message)
+
+
+def _validate_playlist_entry(data: Any) -> PlaylistFile:
+    """Structural (pairing/cap) + window/anchor grammar before any rename.
+
+    The file model leaves windows/anchor unvalidated, so writes run
+    ``_playlist_from_file`` + ``parse_window`` here; every failure is
+    422 ``[{loc, msg}]``, never 500.
+    """
+    try:
+        entry = PlaylistFile.model_validate(data)
+    except ValidationError as exc:
+        detail: list[dict[str, Any]] = []
+        for err in exc.errors():
+            loc: list[str | int] = list(err["loc"])
+            if not loc:
+                loc = ["max_cycles"] if "max_cycles" in str(err["msg"]) else ["items"]
+            detail.append(
+                {"loc": ["body", *loc], "msg": err["msg"], "type": err["type"]}
+            )
+        raise HTTPException(status_code=422, detail=detail) from exc
+    try:
+        playlist = _playlist_from_file(entry)
+        parse_window(playlist)
+    except ConfigError as exc:
+        raise _window_grammar_422(str(exc)) from exc
+    except ValueError as exc:
+        raise _window_grammar_422(str(exc)) from exc
+    return entry
+
+
+def _mutate_playlists(
+    request: Request, mutate: Callable[[list[Any]], int | None]
+) -> tuple[list[Any], Any | None]:
+    """Locked playlist write: read + mutate + validate + rename.
+
+    ``mutate`` edits the raw entries and returns the affected index
+    (``None`` for pure removals, which only shrink a validated row).
+    The affected candidate gets structural + window validation, then the
+    full file gets ``ConfigFile`` + ``Settings`` validation, then the
+    rename. Returns the stored entries and the affected row (if any).
+    """
+    lock = get_write_lock(request)
+    config_path = _config_path(request)
+    with lock:
+        raw = _read_raw_config(config_path)
+        current: Any = raw.get("playlists", [])
+        if not isinstance(current, list):
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(f"{config_path}: playlists must be a list"),
+            )
+        entries: list[Any] = cast(list[Any], current)
+        affected = mutate(entries)
+        if affected is not None:
+            _validate_playlist_entry(entries[affected])
+        merged = dict(raw)
+        merged["playlists"] = entries
+        try:
+            cfg = ConfigFile.model_validate(merged)
+        except ValidationError as exc:
+            raise _mapped_422(exc, "playlists", ("playlists",)) from exc
+        try:
+            _settings_from_config(cfg)
+        except ValueError as exc:
+            raise invalid("playlists", str(exc)) from exc
+        _atomic_write_json(config_path, merged)
+        _publish_config_update(request)
+        stored = entries[affected] if affected is not None else None
+        return entries, stored
+
+
+def _find_playlist_index(entries: Sequence[Any], playlist_id: str) -> int | None:
+    """Row index for an exact id match (legacy rows compare as-is)."""
+    for index, row in enumerate(entries):
+        if isinstance(row, dict) and _as_dict(row).get("id") == playlist_id:
+            return index
+    return None
+
+
+def _as_dict(row: Any) -> dict[str, Any]:
+    """Treat a raw JSON row as a string-keyed dict (validated downstream)."""
+    return cast(dict[str, Any], row)
+
+
+def _row_items(row: dict[str, Any], playlist_id: str) -> list[Any]:
+    """Raw items list of one row; corrupt shapes are 422 (never 500)."""
+    raw: Any = row.get("items", [])
+    if not isinstance(raw, list):
+        raise invalid("items", f"playlist {playlist_id!r} items are corrupt")
+    return cast(list[Any], raw)
+
+
+def _slot_sort_order(item: Any) -> Any:
+    """One slot's ``sort_order`` (non-dict slots never match an order)."""
+    if not isinstance(item, dict):
+        return None
+    return _as_dict(item).get("sort_order")
+
+
+@public_playlist_router.get("/api/playlists")
+def list_playlists(request: Request) -> list[dict[str, Any]]:
+    """Serve every playlist in file order (legacy rows as-is, no windowing)."""
+    cfg = load_config_file(_config_path(request))
+    return [entry.model_dump(mode="json") for entry in cfg.playlists]
+
+
+@public_playlist_router.get("/api/playlists/preview")
+def preview_playlists(
+    request: Request,
+    moment: Annotated[datetime, AfterValidator(_require_tz_aware_moment)],
+) -> dict[str, Any]:
+    """Resolve one moment's stage plus active ids (window testing).
+
+    Registered before ``{id}``: ``preview`` matches the id
+    grammar, so order decides. Schedule/config failures map like
+    ``prayer-day`` (unresolvable → 404, invalid config → 503) by
+    letting those errors reach the shared handlers.
+    """
+    engine = getattr(request.app.state, "engine", None)
+    settings_repo = getattr(request.app.state, "settings_repo", None)
+    playlist_repo = getattr(request.app.state, "playlist_repo", None)
+    if engine is None or settings_repo is None:
+        raise HTTPException(status_code=503, detail="config: unavailable")
+    settings = settings_repo.load()
+    playlists: list[Any] = playlist_repo.list() if playlist_repo is not None else []
+    result = engine.resolve_day(moment.date(), settings.zone, moment)
+    event = engine.next_event(moment)
+    occupant = resolve_stage(moment, result.day, settings, event, playlists)
+    return {
+        "stage": stage_id(occupant),
+        "active_playlists": [item.id for item in playlists if item.active],
+    }
+
+
+@public_playlist_router.get("/api/playlists/{id}")
+def get_playlist(request: Request, id: str) -> dict[str, Any]:
+    """Serve one playlist by id; unknown ids are 404 (reads skip grammar)."""
+    cfg = load_config_file(_config_path(request))
+    for entry in cfg.playlists:
+        if entry.id == id:
+            return entry.model_dump(mode="json")
+    raise HTTPException(status_code=404, detail=f"unknown playlist id: {id!r}")
+
+
+@admin_router.post("/api/playlists", status_code=201)
+def create_playlist(request: Request, body: PlaylistCreate) -> dict[str, Any]:
+    """Create a playlist (duplicate ids conflict; grammar enforced)."""
+    pid = _check_playlist_id(body.id)
+    title = _stripped("title", body.title)
+    slots = [
+        {
+            **_check_item_slot(item.image_path, item.duration_s),
+            "sort_order": item.sort_order,
+        }
+        for item in body.items
+    ]
+    data: dict[str, Any] = {
+        "id": pid,
+        "title": title,
+        "active": body.active,
+        "window_start": (
+            body.window_start.strip() if body.window_start is not None else None
+        ),
+        "window_end": body.window_end.strip() if body.window_end is not None else None,
+        "anchor_marker": (
+            body.anchor_marker.strip() if body.anchor_marker is not None else None
+        ),
+        "anchor_start_offset_min": body.anchor_start_offset_min,
+        "anchor_stop_offset_min": body.anchor_stop_offset_min,
+        "cycle_mode": body.cycle_mode,
+        "max_cycles": body.max_cycles,
+        "items": _assign_create_orders(slots),
+    }
+
+    def _insert(entries: list[Any]) -> int:
+        if _find_playlist_index(entries, pid) is not None:
+            raise HTTPException(
+                status_code=409, detail=f"duplicate playlist id: {pid!r}"
+            )
+        entries.append(data)
+        return len(entries) - 1
+
+    _, stored = _mutate_playlists(request, _insert)
+    return cast(dict[str, Any], stored)
+
+
+@admin_router.patch("/api/playlists/{id}")
+def patch_playlist(request: Request, id: str, patch: PlaylistPatch) -> dict[str, Any]:
+    """Partial playlist merge (omitted = unchanged, null clears windows/anchor).
+
+    The ``id`` and ``items`` keys never reach here: the body model fails
+    them closed (422) so renames and order-bypassing edits cannot land.
+    """
+    _reject_explicit_nulls(
+        patch, {"window_start", "window_end", "anchor_marker", "max_cycles"}
+    )
+    changes: dict[str, Any] = {}
+    if "title" in patch.model_fields_set and patch.title is not None:
+        changes["title"] = _stripped("title", patch.title)
+    for key in (
+        "active",
+        "anchor_start_offset_min",
+        "anchor_stop_offset_min",
+        "cycle_mode",
+        "max_cycles",
+    ):
+        if key in patch.model_fields_set:
+            changes[key] = getattr(patch, key)
+    for key in ("window_start", "window_end", "anchor_marker"):
+        if key in patch.model_fields_set:
+            value = getattr(patch, key)
+            changes[key] = value.strip() if isinstance(value, str) else None
+
+    def _merge(entries: list[Any]) -> int:
+        index = _find_playlist_index(entries, id)
+        if index is None:
+            raise HTTPException(status_code=404, detail=f"unknown playlist id: {id!r}")
+        row = _as_dict(entries[index])
+        merged: dict[str, Any] = dict(row)
+        merged.update(changes)
+        entries[index] = merged
+        return index
+
+    _, stored = _mutate_playlists(request, _merge)
+    return cast(dict[str, Any], stored)
+
+
+@admin_router.delete("/api/playlists/{id}")
+def delete_playlist(request: Request, id: str) -> dict[str, bool]:
+    """Delete a playlist by id; unknown ids are 404."""
+
+    def _remove(entries: list[Any]) -> None:
+        index = _find_playlist_index(entries, id)
+        if index is None:
+            raise HTTPException(status_code=404, detail=f"unknown playlist id: {id!r}")
+        del entries[index]
+
+    _mutate_playlists(request, _remove)
+    return {"ok": True}
+
+
+@admin_router.post("/api/playlists/{id}/items", status_code=201)
+def create_playlist_item(
+    request: Request, id: str, body: PlaylistItemCreate
+) -> dict[str, Any]:
+    """Append one item (duplicate ``sort_order`` conflicts, missing auto-assigns).
+
+    Auto-assign is ``max(existing)+1`` (empty → ``0``): gaps persist and
+    freed slots are never backfilled.
+    """
+    slot = _check_item_slot(body.image_path, body.duration_s)
+    wanted = body.sort_order
+
+    def _insert(entries: list[Any]) -> int:
+        index = _find_playlist_index(entries, id)
+        if index is None:
+            raise HTTPException(status_code=404, detail=f"unknown playlist id: {id!r}")
+        row = _as_dict(entries[index])
+        current = _row_items(row, id)
+        orders: list[Any] = [_slot_sort_order(item) for item in current]
+        if wanted is None:
+            numeric = [
+                order
+                for order in orders
+                if isinstance(order, int) and not isinstance(order, bool)
+            ]
+            order = (max(numeric) + 1) if numeric else 0
+        else:
+            if wanted in orders:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(f"duplicate sort_order {wanted} in playlist {id!r}"),
+                )
+            order = wanted
+        created = {**slot, "sort_order": order}
+        updated: dict[str, Any] = dict(row)
+        updated["items"] = [*current, created]
+        entries[index] = updated
+        return index
+
+    _, stored = _mutate_playlists(request, _insert)
+    items: Any = cast(dict[str, Any], stored)["items"]
+    return cast(dict[str, Any], items[-1])
+
+
+@admin_router.delete("/api/playlists/{id}/items/{sort_order}")
+def delete_playlist_item(request: Request, id: str, sort_order: int) -> dict[str, bool]:
+    """Delete one item by its ``sort_order`` value (ambiguous → 409 hand-fix)."""
+
+    def _remove(entries: list[Any]) -> None:
+        index = _find_playlist_index(entries, id)
+        if index is None:
+            raise HTTPException(status_code=404, detail=f"unknown playlist id: {id!r}")
+        row = _as_dict(entries[index])
+        current = _row_items(row, id)
+        matches: list[Any] = [
+            item for item in current if _slot_sort_order(item) == sort_order
+        ]
+        if not matches:
+            raise HTTPException(
+                status_code=404,
+                detail=(f"unknown sort_order {sort_order} in playlist {id!r}"),
+            )
+        if len(matches) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"ambiguous sort_order {sort_order}: {len(matches)} items "
+                    f"share it in playlist {id!r} — hand-fix the "
+                    "config file until deduped"
+                ),
+            )
+        doomed = matches[0]
+        updated: dict[str, Any] = dict(row)
+        updated["items"] = [item for item in current if item is not doomed]
+        entries[index] = updated
+
+    _mutate_playlists(request, _remove)
+    return {"ok": True}

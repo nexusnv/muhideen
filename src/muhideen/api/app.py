@@ -61,6 +61,7 @@ from muhideen.api.admin import (
     admin_router,
     admin_token_file_for_config,
     public_config_router,
+    public_playlist_router,
     read_admin_token,
 )
 from muhideen.api.dto import (
@@ -692,12 +693,23 @@ def create_app(deps: AppDeps) -> FastAPI:
     app.state.write_lock = deps.write_lock
     app.state.config_path = deps.config_path
     app.state.prayer_repo = deps.prayer_repo
+    # Playlist preview (§3) resolves through these seams: the engine for
+    # day/event resolution, the settings repo for the served zone, and the
+    # playlist repo for the windowed set. Stored alongside prayer_repo so
+    # admin routes read them without reconstructing the composition root.
+    app.state.engine = engine
+    app.state.settings_repo = deps.settings_repo
+    app.state.playlist_repo = playlist_store
     app.state.event_bus = deps.event_bus
     # Gated admin writes + dry-run validates (audited, Bearer) alongside
     # the public config reads (spec §1 reads stay public, §2 by_alias GET).
     # Auth + mount plumbing is verified by tests/test_admin_auth.py.
     app.include_router(admin_router)
     app.include_router(public_config_router)
+    # Public playlist reads + preview (spec §1/§3). The preview route is
+    # registered before {playlist_id} inside the playlist router itself
+    # (preview matches the id grammar, so declaration order decides).
+    app.include_router(public_playlist_router)
 
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:
