@@ -150,6 +150,9 @@ def test_openapi_declares_public_and_config_paths() -> None:
         "/api/playlists/{id}",
         "/api/playlists/{id}/items",
         "/api/playlists/{id}/items/{sort_order}",
+        # Task 4: display CRUD (spec §3).
+        "/api/displays",
+        "/api/displays/{id}",
     }
 
 

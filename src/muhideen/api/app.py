@@ -61,6 +61,7 @@ from muhideen.api.admin import (
     admin_router,
     admin_token_file_for_config,
     public_config_router,
+    public_display_router,
     public_playlist_router,
     read_admin_token,
 )
@@ -710,6 +711,8 @@ def create_app(deps: AppDeps) -> FastAPI:
     # registered before {playlist_id} inside the playlist router itself
     # (preview matches the id grammar, so declaration order decides).
     app.include_router(public_playlist_router)
+    # Public display collection read (spec §1/§3); writes stay gated above.
+    app.include_router(public_display_router)
 
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:

@@ -86,12 +86,20 @@ def file_client(tmp_path: Path) -> Any:
         # reintroduced here as public reads (spec §1/§3) — see
         # test_reintroduced_playlist_reads_serve below. The remaining
         # entries stay 404 until their tasks land (full split in Task 7).
-        "/api/displays",
+        # NOTE (admin Task 4): /api/displays is likewise a public read now
+        # (see test_reintroduced_display_read_serves below).
         "/api/logs",
     ],
 )
 def test_removed_surface_returns_404(file_client: TestClient, path: str) -> None:
     assert file_client.get(path).status_code == 404
+
+
+def test_reintroduced_display_read_serves(file_client: TestClient) -> None:
+    """Task 4 reintroduces the display collection as public (spec §1/§3)."""
+    response = file_client.get("/api/displays")
+    assert response.status_code == 200
+    assert set(response.json()) >= {"main-hall", "entrance"}
 
 
 def test_reintroduced_playlist_reads_serve(file_client: TestClient) -> None:
@@ -119,7 +127,9 @@ def test_reintroduced_playlist_reads_serve(file_client: TestClient) -> None:
         ("delete", "/api/adhan-audio", None),
         ("post", "/api/backup/export", {}),
         ("post", "/api/backup/restore", {}),
-        ("patch", "/api/displays/HALL-01", {}),
+        # NOTE (admin Task 4): display writes are reintroduced as gated
+        # writes — without a boot token this fixture answers 503
+        # (see test_reintroduced_display_write_gated below), not 404.
         ("patch", "/api/display-groups/Default", {}),
     ],
 )
@@ -134,6 +144,13 @@ def test_removed_mutations_return_404(
 def test_reintroduced_playlist_write_gated(file_client: TestClient) -> None:
     """Task 3 reintroduces playlist writes as gated (503 with no boot token)."""
     assert file_client.post("/api/playlists", json={}).status_code == 503
+
+
+def test_reintroduced_display_write_gated(file_client: TestClient) -> None:
+    """Task 4 reintroduces display writes as gated (503 with no boot token)."""
+    assert file_client.put("/api/displays/HALL-01", json={}).status_code == 503
+    assert file_client.patch("/api/displays/HALL-01", json={}).status_code == 503
+    assert file_client.delete("/api/displays/HALL-01").status_code == 503
 
 
 def test_kept_public_surface_still_serves(file_client: TestClient) -> None:

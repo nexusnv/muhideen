@@ -42,7 +42,10 @@ from muhideen.adapters.file_config import (
 from muhideen.adapters.file_models import (
     REQUIRED_IQAMAH_PRAYERS,
     ConfigFile,
+    Display,
+    DisplayTheme,
     IqamahRuleFile,
+    Language,
     ManualDay,
     PlaylistFile,
     TimeHHMM,
@@ -1339,4 +1342,193 @@ def delete_playlist_item(request: Request, id: str, sort_order: int) -> dict[str
         entries[index] = updated
 
     _mutate_playlists(request, _remove)
+    return {"ok": True}
+
+
+# --- Displays: collection GET + PUT/PATCH/DELETE (spec §3). ---
+
+public_display_router = APIRouter()
+"""Public display reads (spec §1): the collection stays open, no audit."""
+
+
+class DisplayPut(_Partial):
+    """Display full-replace body: omitted resets to file-model defaults."""
+
+    name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    language: Language = "en"
+    theme: DisplayTheme = Field(default_factory=DisplayTheme)
+    dim_minutes_override: Annotated[int, Field(ge=5, le=60)] | None = None
+    carousel_enabled: bool = True
+
+
+class DisplayPatch(_Partial):
+    """Display partial: omitted = unchanged, theme knobs merge per knob."""
+
+    name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    language: Language | None = None
+    theme: DisplayTheme | None = None
+    dim_minutes_override: Annotated[int, Field(ge=5, le=60)] | None = None
+    carousel_enabled: bool | None = None
+
+
+def _validate_display_entry(data: Any) -> Display:
+    """Structural display check before any rename (422, body-relative locs)."""
+    try:
+        return Display.model_validate(data)
+    except ValidationError as exc:
+        detail: list[dict[str, Any]] = []
+        for err in exc.errors():
+            loc: list[str | int] = list(err["loc"])
+            if not loc:
+                loc = ["displays"]
+            detail.append(
+                {"loc": ["body", *loc], "msg": err["msg"], "type": err["type"]}
+            )
+        raise HTTPException(status_code=422, detail=detail) from exc
+
+
+def _mutate_displays(
+    request: Request, mutate: Callable[[dict[str, Any]], str | None]
+) -> tuple[dict[str, Any], Any | None]:
+    """Locked display write: read + mutate + validate + rename.
+
+    ``mutate`` edits the raw map and returns the affected id (``None``
+    for pure removals, which only shrink a validated row). The affected
+    candidate gets structural validation, then the full file gets
+    ``ConfigFile`` + ``Settings`` validation, then the rename. Returns
+    the stored map and the affected row (if any).
+    """
+    lock = get_write_lock(request)
+    config_path = _config_path(request)
+    with lock:
+        raw = _read_raw_config(config_path)
+        current: Any = raw.get("displays", {})
+        if not isinstance(current, dict):
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(
+                    f"{config_path}: displays must be an object"
+                ),
+            )
+        displays: dict[str, Any] = cast(dict[str, Any], current)
+        affected = mutate(displays)
+        if affected is not None:
+            _validate_display_entry(displays[affected])
+        merged = dict(raw)
+        merged["displays"] = displays
+        try:
+            cfg = ConfigFile.model_validate(merged)
+        except ValidationError as exc:
+            raise _mapped_422(exc, "displays", ("displays",)) from exc
+        try:
+            _settings_from_config(cfg)
+        except ValueError as exc:
+            raise invalid("displays", str(exc)) from exc
+        _atomic_write_json(config_path, merged)
+        _publish_config_update(request)
+        stored = displays[affected] if affected is not None else None
+        return displays, stored
+
+
+def _display_replace_body(body: DisplayPut) -> dict[str, Any]:
+    """Full-replace entry: stripped name, whole theme dump, validated ranges."""
+    return {
+        "name": _stripped("name", body.name) if body.name is not None else None,
+        "language": body.language,
+        "theme": body.theme.model_dump(),
+        "dim_minutes_override": body.dim_minutes_override,
+        "carousel_enabled": body.carousel_enabled,
+    }
+
+
+@public_display_router.get("/api/displays")
+def list_displays(request: Request) -> dict[str, Any]:
+    """Serve every display in file order (legacy rows as-is)."""
+    cfg = load_config_file(_config_path(request))
+    return {key: entry.model_dump(mode="json") for key, entry in cfg.displays.items()}
+
+
+@admin_router.put("/api/displays/{id}")
+def put_display(
+    request: Request, response: Response, id: str, body: DisplayPut
+) -> dict[str, Any]:
+    """Upsert a display by full replace (201 create, 200 replace).
+
+    Missing fields reset to defaults; ``{}`` resets to all-defaults.
+    A new id faces the shared grammar (422); replacing a legacy
+    out-of-grammar row keeps its key.
+    """
+    replacement = _display_replace_body(body)
+    existed_holder: list[bool] = []
+
+    def _upsert(displays: dict[str, Any]) -> str:
+        existed_holder.append(id in displays)
+        if not existed_holder[0]:
+            # Shared id grammar, new values only (legacy replaces keep keys).
+            _check_playlist_id(id)
+        displays[id] = replacement
+        return id
+
+    _, stored = _mutate_displays(request, _upsert)
+    response.status_code = 200 if existed_holder[0] else 201
+    return cast(dict[str, Any], stored)
+
+
+@admin_router.patch("/api/displays/{id}")
+def patch_display(request: Request, id: str, patch: DisplayPatch) -> dict[str, Any]:
+    """Partial display merge (omitted = unchanged, theme knobs per knob).
+
+    Explicit null clears nullable ``name``/``dim_minutes_override`` and
+    inherits that theme knob; null on ``language``/``carousel_enabled``
+    or the theme object itself is 422 (non-nullable).
+    """
+    _reject_explicit_nulls(patch, {"name", "dim_minutes_override"})
+    changes: dict[str, Any] = {}
+    if "name" in patch.model_fields_set:
+        changes["name"] = (
+            _stripped("name", patch.name) if patch.name is not None else None
+        )
+    for key in ("language", "dim_minutes_override", "carousel_enabled"):
+        if key in patch.model_fields_set:
+            changes[key] = getattr(patch, key)
+    knob_changes: dict[str, Any] | None = None
+    if "theme" in patch.model_fields_set and patch.theme is not None:
+        knob_changes = {
+            key: getattr(patch.theme, key) for key in patch.theme.model_fields_set
+        }
+
+    def _merge(displays: dict[str, Any]) -> str:
+        if id not in displays:
+            raise HTTPException(status_code=404, detail=f"unknown display id: {id!r}")
+        row = displays[id]
+        if not isinstance(row, dict):
+            raise invalid([], f"display {id!r} entry is corrupt")
+        merged: dict[str, Any] = dict(cast(dict[str, Any], row))
+        merged.update(changes)
+        if knob_changes is not None:
+            current_theme = merged.get("theme")
+            base: dict[str, Any] = (
+                dict(cast(dict[str, Any], current_theme))
+                if isinstance(current_theme, dict)
+                else {}
+            )
+            base.update(knob_changes)
+            merged["theme"] = base
+        displays[id] = merged
+        return id
+
+    _, stored = _mutate_displays(request, _merge)
+    return cast(dict[str, Any], stored)
+
+
+@admin_router.delete("/api/displays/{id}")
+def delete_display(request: Request, id: str) -> dict[str, bool]:
+    """Delete a display by id; unknown ids are 404."""
+
+    def _remove(displays: dict[str, Any]) -> None:
+        if id not in displays:
+            raise HTTPException(status_code=404, detail=f"unknown display id: {id!r}")
+        del displays[id]
+
+    _mutate_displays(request, _remove)
     return {"ok": True}
