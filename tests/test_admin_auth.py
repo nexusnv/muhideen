@@ -10,6 +10,7 @@ keep passing: the real admin router stays empty in this task.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import shutil
@@ -20,8 +21,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.routing import APIRouter
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
@@ -129,6 +131,11 @@ def _probe_app(
     def _export() -> dict[str, bool]:
         """Export-category probe (gated: bundles buffer+media)."""
         return {"ok": True}
+
+    @probes.get("/api/probe/boom")
+    def _boom() -> None:
+        """Crash-category probe: unexpected 500s are still audited."""
+        raise RuntimeError("boom")
 
     app.include_router(probes)
     return app
@@ -409,3 +416,69 @@ def test_admin_router_registered_without_business_routes_yet() -> None:
     from muhideen.api.admin import admin_router
 
     assert admin_router.routes == []
+
+
+def test_enabled_non_ascii_bearer_is_401_with_challenge_never_500() -> None:
+    """Non-ASCII Bearer is a 401 mismatch, never a 500.
+
+    ``secrets.compare_digest`` on ``str`` raises ``TypeError`` for non-ASCII
+    input; the gate compares UTF-8 bytes so every non-ASCII token — direct
+    or raw-UTF-8-bytes decoded as latin-1 per ASGI — is a 401 mismatch.
+    """
+    from muhideen.api.admin import require_admin
+
+    raw_utf8_as_latin1 = "tökén".encode().decode("latin-1")
+    for token in ("tökén-üñïcödé-☃", raw_utf8_as_latin1):
+        scope: dict[str, Any] = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/probe/write",
+            "headers": [],
+            "app": SimpleNamespace(state=SimpleNamespace(admin_token=ADMIN_TOKEN)),
+        }
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(require_admin(Request(scope), credentials))
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "invalid admin token"
+        assert exc_info.value.headers == {"WWW-Authenticate": "Bearer"}
+
+
+def test_unexpected_500_inside_gated_route_is_still_audited(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A RuntimeError behind the gate still emits an audit line (-> 500)."""
+    with (
+        TestClient(
+            _probe_app(tmp_path, admin_token=ADMIN_TOKEN),
+            raise_server_exceptions=False,
+        ) as client,
+        caplog.at_level(logging.INFO, logger="muhideen.api.admin"),
+    ):
+        response = client.get("/api/probe/boom", headers=_auth(ADMIN_TOKEN))
+        assert response.status_code == 500
+    messages = [record.getMessage() for record in caplog.records]
+    assert "testclient GET /api/probe/boom -> 500" in messages
+    assert all(ADMIN_TOKEN not in message for message in messages)
+
+
+def test_missing_app_state_fails_safe_to_503_never_500() -> None:
+    """App.state without admin_token/write_lock denies writes (503)."""
+    from muhideen.api.admin import get_write_lock, require_admin
+
+    scope: dict[str, Any] = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/probe/write",
+        "headers": [],
+        "app": SimpleNamespace(state=SimpleNamespace()),
+    }
+    request = Request(scope)
+    with pytest.raises(HTTPException) as auth_exc:
+        asyncio.run(require_admin(request, None))
+    assert auth_exc.value.status_code == 503
+    assert auth_exc.value.detail == "admin writes disabled"
+    with pytest.raises(HTTPException) as lock_exc:
+        get_write_lock(request)
+    assert lock_exc.value.status_code == 503
+    assert lock_exc.value.detail == "admin writes disabled"

@@ -76,11 +76,15 @@ async def require_admin(
     ``WWW-Authenticate: Bearer`` challenge. The expected token lives on
     ``request.app.state`` (set by ``create_app`` from ``AppDeps``).
     """
-    expected: str | None = request.app.state.admin_token
+    expected: str | None = getattr(request.app.state, "admin_token", None)
     if not expected:
         raise HTTPException(status_code=503, detail=ADMIN_WRITES_DISABLED)
     provided = credentials.credentials if credentials is not None else ""
-    if not provided or not secrets.compare_digest(provided, expected):
+    # Byte-wise compare: str compare_digest raises TypeError on non-ASCII
+    # (500); UTF-8 bytes compare so any non-ASCII Bearer is a 401 mismatch.
+    if not provided or not secrets.compare_digest(
+        provided.encode("utf-8"), expected.encode("utf-8")
+    ):
         raise HTTPException(
             status_code=401,
             detail=INVALID_ADMIN_TOKEN,
@@ -94,7 +98,8 @@ class AdminRoute(APIRoute):
     Only the path is logged (never query or headers), so the Bearer token
     cannot leak into journald. Denials (``require_admin`` 401/503) and
     body-validation 422s are raised as exceptions by the handler, so they
-    are logged and re-raised — every gated outcome is audited.
+    are logged and re-raised — every gated outcome is audited, including
+    unexpected 500s.
     """
 
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
@@ -109,6 +114,9 @@ class AdminRoute(APIRoute):
                 raise
             except HTTPException as exc:
                 _audit_log(request, exc.status_code)
+                raise
+            except Exception:
+                _audit_log(request, 500)
                 raise
             _audit_log(request, response.status_code)
             return response
@@ -129,8 +137,12 @@ def get_write_lock(request: Request) -> threading.Lock:
     do not serialize separate instances) around read + merge + validate
     + rename. ``workers=1`` makes in-process locking sufficient. Write
     endpoints stay sync ``def`` — never hold this inside ``async def``.
+    A missing lock is server misconfiguration: fail safe to 503 (deny the
+    write) rather than 500 or an unsynchronized write.
     """
-    lock: threading.Lock = request.app.state.write_lock
+    lock: threading.Lock | None = getattr(request.app.state, "write_lock", None)
+    if lock is None:
+        raise HTTPException(status_code=503, detail=ADMIN_WRITES_DISABLED)
     return lock
 
 
