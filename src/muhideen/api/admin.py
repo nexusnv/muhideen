@@ -2597,7 +2597,13 @@ def _apply_restore(
                     staging / "backups" / "media" / f"{normalized}.{os.getpid()}.bak"
                 )
                 prior: Path | None = None
-                if dest_is_file(dest):
+                try:
+                    already = dest_is_file(dest)
+                except ValueError as exc:
+                    raise invalid(
+                        f"{_BACKUP_MEDIA_PREFIX}{normalized}", str(exc)
+                    ) from exc
+                if already:
                     backup.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(dest, backup)
                     prior = backup
