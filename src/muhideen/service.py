@@ -5,6 +5,8 @@ Defaults serve `./config/muhideen.json` on loopback; the systemd unit passes
 `--host 0.0.0.0 --port 8000 --config /etc/muhideen/muhideen.json` so the
 device answers on the LAN and the FR-6.3 `.local` name resolves.
 A missing config file fails fast (non-zero exit); there is no seed flow.
+The admin token defaults to `<config-dir>/admin_token` and is read once
+at boot; a missing/blank file disables admin writes (public reads serve).
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import argparse
 
 import uvicorn
 
+from muhideen.api.admin import admin_token_file_for_config
 from muhideen.api.app import create_production_app
 
 
@@ -37,6 +40,11 @@ def _parser() -> argparse.ArgumentParser:
         help="media directory (adhan audio plus playlist images)",
     )
     parser.add_argument(
+        "--admin-token-file",
+        default=None,
+        help="admin Bearer token file (default: <config-dir>/admin_token)",
+    )
+    parser.add_argument(
         "--host",
         default="127.0.0.1",
         help="bind address (0.0.0.0 exposes the API to the LAN)",
@@ -48,9 +56,13 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     """Run the backend with a single worker (decision 3)."""
     args = _parser().parse_args(argv)
+    token_file = args.admin_token_file
+    if token_file is None:
+        token_file = str(admin_token_file_for_config(args.config))
     app = create_production_app(
         args.config,
         prayer_buffer=args.prayer_buffer,
         media_dir=args.media_dir,
+        admin_token_file=token_file,
     )
     uvicorn.run(app, host=args.host, port=args.port, workers=1)

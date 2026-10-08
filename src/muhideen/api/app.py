@@ -19,6 +19,7 @@ import time
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from dataclasses import field as _field
 from dataclasses import replace as _replace
 from datetime import date, datetime
 from importlib.metadata import version as package_version
@@ -56,6 +57,11 @@ from muhideen.adapters.scheduler import build_scheduler
 from muhideen.adapters.sse_bus import SSEBus
 from muhideen.adapters.system_clock import SystemClock
 from muhideen.adapters.time_sync import SystemTimeSyncProbe
+from muhideen.api.admin import (
+    admin_router,
+    admin_token_file_for_config,
+    read_admin_token,
+)
 from muhideen.api.dto import (
     ConfigUpdateEventDTO,
     NextEventDTO,
@@ -212,6 +218,10 @@ class AppDeps:
     playlist_repo: FilePlaylistRepo | None = None
     media_dir: Path | None = None
     config_path: Path | None = None
+    admin_token: str | None = None
+    """In-memory admin Bearer token (None → gated endpoints answer 503)."""
+    write_lock: threading.Lock = _field(default_factory=threading.Lock)
+    """Shared process-wide config write lock for all admin writers."""
 
 
 class EventStreamResponse(StreamingResponse):
@@ -660,19 +670,20 @@ def create_app(deps: AppDeps) -> FastAPI:
     )
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
     if not _media_inside_static(media_dir):
-        # Serve operator-dropped media (adhan audio, playlist images) from
-        # the configured dir. Starlette answers 404 for missing files and
-        # blocks traversal above the root. The mount is skipped when the
-        # dir does not exist yet (fresh checkout before the first media
-        # drop — the installer creates it); recreate + restart to serve.
-        if media_dir.is_dir():
-            app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")
-        else:
-            logger.warning(
-                "media dir %s missing: /media/* will 404 until the dir "
-                "exists and the service restarts",
-                media_dir,
-            )
+        # Always mounted (mkdir -p first) so operator drops and uploads
+        # serve without a restart. check_dir=False is supported by the
+        # pinned Starlette; the mkdir above already guarantees the dir.
+        media_dir.mkdir(parents=True, exist_ok=True)
+        app.mount(
+            "/media",
+            StaticFiles(directory=str(media_dir), check_dir=False),
+            name="media",
+        )
+    app.state.admin_token = deps.admin_token
+    app.state.write_lock = deps.write_lock
+    # Gated admin surface: empty until later tasks add business routes
+    # (auth + audit + mount plumbing is verified by tests/test_admin_auth.py).
+    app.include_router(admin_router)
 
     @app.exception_handler(ConfigError)
     async def _config_error(request: Request, exc: ConfigError) -> JSONResponse:
@@ -930,6 +941,7 @@ def create_production_app(
     media_dir: str | Path | None = None,
     tz: ZoneInfo = _PROD_TZ,
     run_background: bool = True,
+    admin_token_file: str | Path | None = None,
 ) -> FastAPI:
     """Production composition: SystemClock + file repos + SSEBus + JAKIM client.
 
@@ -938,10 +950,20 @@ def create_production_app(
     A readable file with bad values keeps the previous contract — the clock
     falls back to ``tz`` with a logged warning and settings-dependent
     routes serve 503 until the file is fixed.
+
+    The admin token is read once at startup into memory (default
+    ``<config-dir>/admin_token``): missing/blank/unreadable disables the
+    gated admin endpoints (503) while public reads keep serving.
     """
     cfg_path = Path(config_path)
     if not cfg_path.exists():
         raise FileNotFoundError(f"config file not found: {cfg_path}")
+    token_path = (
+        Path(admin_token_file)
+        if admin_token_file is not None
+        else admin_token_file_for_config(cfg_path)
+    )
+    admin_token = read_admin_token(token_path)
     try:
         manual_days = load_config_file(cfg_path).schedule.manual_days
     except ConfigError:
@@ -1011,5 +1033,7 @@ def create_production_app(
         playlist_repo=FilePlaylistRepo(cfg_path),
         media_dir=Path(media_dir) if media_dir is not None else None,
         config_path=cfg_path,
+        admin_token=admin_token,
+        write_lock=threading.Lock(),
     )
     return create_app(deps)
