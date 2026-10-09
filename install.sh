@@ -134,11 +134,18 @@ elif [[ "$MUHIDEEN_DRY_RUN" == "1" ]]; then
   printf '  dry-run: chown muhideen %s\n' "$ADMIN_TOKEN_FILE"
 else
   # One-time generation: 256-bit token, owner-read-only, service-owned.
-  # umask 077 closes the creation window: redirection creates the file
-  # 0600 from the first byte, never 0644-then-chmod.
+  # umask 077 closes the creation window: the temp file is 0600 from the
+  # first byte, and the rename only lands a complete token — a failed
+  # python3 never leaves an empty file behind for the next run to keep.
   note "admin_token: generating ${ADMIN_TOKEN_FILE} (one-time, never clobbered)"
-  (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$ADMIN_TOKEN_FILE")
-  chmod 0600 "$ADMIN_TOKEN_FILE"
+  tmp_token="$(mktemp "${ADMIN_TOKEN_FILE}.XXXXXX")"
+  if (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$tmp_token"); then
+    chmod 0600 "$tmp_token"
+    mv "$tmp_token" "$ADMIN_TOKEN_FILE"
+  else
+    rm -f "$tmp_token"
+    note "warn: admin_token generation failed — re-run install.sh (no empty file kept)"
+  fi
   if ! maybe_run chown muhideen "$ADMIN_TOKEN_FILE"; then
     note "warn: chown ${ADMIN_TOKEN_FILE} failed — ensure User=muhideen can read it"
   fi

@@ -23,6 +23,7 @@ import re
 import secrets
 import shutil
 import stat
+import struct
 import subprocess
 import tempfile
 import threading
@@ -2135,6 +2136,18 @@ _BACKUP_MANIFEST_NAME = "manifest.json"
 _BACKUP_MEDIA_PREFIX = "media/"
 """Archive layout: config/pins/buffer/manifest at the root, media below."""
 
+_ZIP_DECODE_ERRORS: tuple[type[BaseException], ...] = (
+    zipfile.BadZipFile,
+    zipfile.LargeZipFile,
+    RuntimeError,
+    NotImplementedError,
+    EOFError,
+    ValueError,
+    zlib.error,
+    struct.error,
+)
+"""Truncated/crafted-zip decode failures: 422, never 500 (rollback safe)."""
+
 _BACKUP_NON_MEDIA_CAP_BYTES = 10 * 1024 * 1024
 """Sanity cap per non-media zip member (guards staging disk; 422 past it)."""
 
@@ -2479,14 +2492,7 @@ def _harden_restore_members(
     def _read_member(name: str, rel: str) -> bytes:
         try:
             return zf.read(name)
-        except (
-            zipfile.BadZipFile,
-            zipfile.LargeZipFile,
-            RuntimeError,
-            NotImplementedError,
-            EOFError,
-            zlib.error,
-        ) as exc:
+        except _ZIP_DECODE_ERRORS as exc:
             raise invalid("file", f"backup member unreadable: {rel!r} ({exc})") from exc
 
     infos = zf.infolist()
@@ -2670,7 +2676,7 @@ def _apply_restore(
     """
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
-    except zipfile.BadZipFile as exc:
+    except _ZIP_DECODE_ERRORS as exc:
         raise invalid("file", f"backup archive is not a valid zip: {exc}") from exc
     renamed: list[tuple[Path, Path | None]] = []
     try:
@@ -2739,14 +2745,7 @@ def _apply_restore(
             for member_name, _, normalized in media:
                 try:
                     opener = archive.open(member_name)
-                except (
-                    zipfile.BadZipFile,
-                    zipfile.LargeZipFile,
-                    RuntimeError,
-                    NotImplementedError,
-                    EOFError,
-                    zlib.error,
-                ) as exc:
+                except _ZIP_DECODE_ERRORS as exc:
                     raise invalid(
                         "file",
                         f"backup member unreadable: {member_name!r} ({exc})",
@@ -2756,14 +2755,7 @@ def _apply_restore(
                     while True:
                         try:
                             chunk = src.read(_BACKUP_CHUNK_BYTES)
-                        except (
-                            zipfile.BadZipFile,
-                            zipfile.LargeZipFile,
-                            RuntimeError,
-                            NotImplementedError,
-                            EOFError,
-                            zlib.error,
-                        ) as exc:
+                        except _ZIP_DECODE_ERRORS as exc:
                             raise invalid(
                                 "file",
                                 f"backup member unreadable: {member_name!r} ({exc})",

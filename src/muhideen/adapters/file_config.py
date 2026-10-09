@@ -60,7 +60,7 @@ def load_config_file(path: str | Path) -> ConfigFile:
     raw_path = Path(path)
     try:
         text = raw_path.read_text()
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise ConfigError(f"{raw_path}: cannot read config file: {exc}") from exc
     try:
         data = json.loads(text)
@@ -121,7 +121,7 @@ def load_manual_days_file(pins_path: str | Path) -> list[ManualDay]:
     resolved = Path(pins_path)
     try:
         text = resolved.read_text()
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise ConfigError(f"{resolved}: cannot read manual days file: {exc}") from exc
     try:
         raw_data: object = json.loads(text)
@@ -157,7 +157,7 @@ def manual_days_file_for_config(config_path: str | Path) -> Path | None:
     raw_path = Path(config_path)
     try:
         text = raw_path.read_text()
-    except OSError:
+    except (OSError, UnicodeError):
         return None
     try:
         raw_data: object = json.loads(text)
@@ -333,7 +333,7 @@ class FileSettingsRepo:
         with self._lock:
             try:
                 raw_data: object = json.loads(self._path.read_text())
-            except OSError as exc:
+            except (OSError, UnicodeError) as exc:
                 raise ConfigError(
                     f"{self._path}: cannot read config file: {exc}"
                 ) from exc
@@ -695,7 +695,7 @@ class FilePrayerRepo:
             return {}
         try:
             text = self._buffer.read_text()
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             raise ConfigError(
                 f"{self._buffer}: cannot read prayer buffer: {exc}"
             ) from exc
