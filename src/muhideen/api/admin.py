@@ -2275,7 +2275,15 @@ def export_backup(request: Request) -> StreamingResponse:
                         size = 0
                         with zf.open(f"{_BACKUP_MEDIA_PREFIX}{rel}", "w") as dest:
                             while True:
-                                chunk = src.read(_BACKUP_CHUNK_BYTES)
+                                try:
+                                    chunk = src.read(_BACKUP_CHUNK_BYTES)
+                                except OSError as exc:
+                                    raise HTTPException(
+                                        status_code=503,
+                                        detail=_scrub_config_error(
+                                            f"backup export failed: {exc}"
+                                        ),
+                                    ) from exc
                                 if not chunk:
                                     break
                                 size += len(chunk)
@@ -2289,14 +2297,22 @@ def export_backup(request: Request) -> StreamingResponse:
                                         ),
                                     )
                                 digest.update(chunk)
-                                dest.write(chunk)
+                                try:
+                                    dest.write(chunk)
+                                except OSError as exc:
+                                    raise HTTPException(
+                                        status_code=503,
+                                        detail=_scrub_config_error(
+                                            f"backup export failed: {exc}"
+                                        ),
+                                    ) from exc
                 except HTTPException:
                     raise
                 except OSError as exc:
-                    logger.warning(
-                        "backup export skipping %s (concurrent change: %s)", rel, exc
-                    )
-                    continue
+                    raise HTTPException(
+                        status_code=503,
+                        detail=_scrub_config_error(f"backup export failed: {exc}"),
+                    ) from exc
                 media_manifest.append(
                     {
                         "path": f"{_BACKUP_MEDIA_PREFIX}{rel}",
@@ -2787,13 +2803,21 @@ def restore_backup(
     config_path = _config_path(request)
     with lock:
         _cleanup_stale_staging(config_path)
-        staging = Path(
-            tempfile.mkdtemp(
-                dir=str(config_path.parent),
-                prefix=_RESTORE_STAGING_PREFIX,
-                suffix=_RESTORE_STAGING_SUFFIX,
+        try:
+            staging = Path(
+                tempfile.mkdtemp(
+                    dir=str(config_path.parent),
+                    prefix=_RESTORE_STAGING_PREFIX,
+                    suffix=_RESTORE_STAGING_SUFFIX,
+                )
             )
-        )
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(
+                    f"{config_path}: cannot apply restore: {exc}"
+                ),
+            ) from exc
         try:
             _apply_restore(request, config_path, staging, payload)
         except HTTPException:
