@@ -440,6 +440,19 @@ def _read_raw_config(config_path: Path) -> dict[str, Any]:
     return cast(dict[str, Any], data)
 
 
+def _write_config_json(config_path: Path, merged: dict[str, Any]) -> None:
+    """Atomic config rename; disk faults are 503 (never 500)."""
+    try:
+        _atomic_write_json(config_path, merged)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_scrub_config_error(
+                f"{config_path}: cannot write config file: {exc}"
+            ),
+        ) from exc
+
+
 def _section_dict(raw: dict[str, Any], section: str) -> dict[str, Any]:
     """Current raw section (missing/non-object heals through validation)."""
     current = raw.get(section)
@@ -621,7 +634,7 @@ def _merge_validate_write(
         ):
             _check_pins(request, config_path, merged_section, cfg, provided)
         if not dry_run:
-            _atomic_write_json(config_path, merged)
+            _write_config_json(config_path, merged)
             _publish_config_update(request)
     return old_section, merged_section
 
@@ -1185,7 +1198,7 @@ def _mutate_playlists(
             _settings_from_config(cfg)
         except ValueError as exc:
             raise invalid("playlists", str(exc)) from exc
-        _atomic_write_json(config_path, merged)
+        _write_config_json(config_path, merged)
         _publish_config_update(request)
         stored = entries[affected] if affected is not None else None
         return entries, stored
@@ -1520,7 +1533,7 @@ def _mutate_displays(
             _settings_from_config(cfg)
         except ValueError as exc:
             raise invalid("displays", str(exc)) from exc
-        _atomic_write_json(config_path, merged)
+        _write_config_json(config_path, merged)
         _publish_config_update(request)
         stored = displays[affected] if affected is not None else None
         return displays, stored
@@ -1859,7 +1872,7 @@ def put_manual_day(request: Request, date: _date, body: ManualDayPut) -> dict[st
                 cfg.schedule.effective_zone,
                 single=True,
             )
-            _atomic_write_json(config_path, merged)
+            _write_config_json(config_path, merged)
             _publish_config_update(request)
     return candidate.model_dump(mode="json")
 
@@ -1938,7 +1951,7 @@ def delete_manual_day(request: Request, date: _date) -> dict[str, bool]:
             merged = dict(raw)
             merged["schedule"] = merged_section
             _validate_merged(merged, "schedule", ("manual_days",))
-            _atomic_write_json(config_path, merged)
+            _write_config_json(config_path, merged)
             _publish_config_update(request)
     return {"ok": True}
 
@@ -2026,6 +2039,11 @@ def upload_media(
         data = read_upload_bounded_sync(file, cap)
     except MediaTooLargeError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_scrub_config_error(f"cannot read upload: {exc}"),
+        ) from exc
     normalized_kind = kind.strip()
     try:
         if normalized_kind == "adhan":
@@ -2073,6 +2091,11 @@ def delete_media(request: Request, path: str) -> dict[str, bool]:
             found = dest_is_file(dest)
         except ValueError as exc:
             raise invalid("path", str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(f"{dest}: cannot delete media file: {exc}"),
+            ) from exc
         if not found:
             raise HTTPException(status_code=404, detail=f"unknown media path: {path!r}")
         try:
@@ -2252,10 +2275,11 @@ def export_backup(request: Request) -> StreamingResponse:
         small_members.append((_BACKUP_PINS_NAME, pins_data))
     if buffer_data is not None:
         small_members.append((_BACKUP_BUFFER_NAME, buffer_data))
-    fd, tmp_name = tempfile.mkstemp(prefix="muhideen-backup-", suffix=".zip")
     media_manifest: list[dict[str, Any]] = []
     media_streamed_total = 0
+    tmp_name = ""
     try:
+        fd, tmp_name = tempfile.mkstemp(prefix="muhideen-backup-", suffix=".zip")
         os.close(fd)
         with zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zf:
             for path, data in small_members:
@@ -2410,11 +2434,23 @@ def _read_restore_upload(request: Request, file: UploadFile) -> bytes:
                 detail=f"upload exceeds {BACKUP_UPLOAD_CAP_BYTES} bytes",
             )
     part = file.file
-    part.seek(0)
+    try:
+        part.seek(0)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_scrub_config_error(f"cannot read upload: {exc}"),
+        ) from exc
     chunks: list[bytes] = []
     total = 0
     while True:
-        chunk = part.read(_BACKUP_CHUNK_BYTES)
+        try:
+            chunk = part.read(_BACKUP_CHUNK_BYTES)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(f"cannot read upload: {exc}"),
+            ) from exc
         if not chunk:
             break
         total += len(chunk)
@@ -2436,7 +2472,15 @@ def _harden_restore_members(
     for media (extracted streaming later). Unknown top-level members,
     symlinks, encrypted entries, duplicates, oversize non-media members,
     and an over-cap media total all fail here — before live disk moves.
+    Truncated/crafted members that fail to decode are 422, never 500.
     """
+
+    def _read_member(name: str, rel: str) -> bytes:
+        try:
+            return zf.read(name)
+        except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:
+            raise invalid("file", f"backup member unreadable: {rel!r} ({exc})") from exc
+
     infos = zf.infolist()
     seen: set[str] = set()
     config_data: bytes | None = None
@@ -2461,25 +2505,25 @@ def _harden_restore_members(
         if rel == _BACKUP_CONFIG_NAME:
             if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
-            config_data = zf.read(info.filename)
+            config_data = _read_member(info.filename, rel)
             if len(config_data) > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
         elif rel == _BACKUP_PINS_NAME:
             if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
-            pins_data = zf.read(info.filename)
+            pins_data = _read_member(info.filename, rel)
             if len(pins_data) > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
         elif rel == _BACKUP_BUFFER_NAME:
             if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
-            buffer_data = zf.read(info.filename)
+            buffer_data = _read_member(info.filename, rel)
             if len(buffer_data) > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
         elif rel == _BACKUP_MANIFEST_NAME:
             if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
-            manifest_data = zf.read(info.filename)
+            manifest_data = _read_member(info.filename, rel)
             if len(manifest_data) > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
         elif rel.startswith(_BACKUP_MEDIA_PREFIX):
@@ -2685,10 +2729,27 @@ def _apply_restore(
             media_bytes: list[tuple[str, bytes]] = []
             media_actual_total = 0
             for member_name, _, normalized in media:
-                with archive.open(member_name) as src:
+                try:
+                    opener = archive.open(member_name)
+                except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:
+                    raise invalid(
+                        "file",
+                        f"backup member unreadable: {member_name!r} ({exc})",
+                    ) from exc
+                with opener as src:
                     chunks: list[bytes] = []
                     while True:
-                        chunk = src.read(_BACKUP_CHUNK_BYTES)
+                        try:
+                            chunk = src.read(_BACKUP_CHUNK_BYTES)
+                        except (
+                            zipfile.BadZipFile,
+                            RuntimeError,
+                            NotImplementedError,
+                        ) as exc:
+                            raise invalid(
+                                "file",
+                                f"backup member unreadable: {member_name!r} ({exc})",
+                            ) from exc
                         if not chunk:
                             break
                         chunks.append(chunk)
