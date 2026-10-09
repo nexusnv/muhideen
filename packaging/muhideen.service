@@ -11,7 +11,7 @@ User=muhideen
 Environment=PYTHONUNBUFFERED=1
 # Hand-edited config under /etc/muhideen; machine-written timetable cache
 # and media live under /var/lib/muhideen (User=muhideen must write them).
-ExecStart=@VENV@/bin/muhideen --host 0.0.0.0 --port 8000 --config /etc/muhideen/muhideen.json --prayer-buffer /var/lib/muhideen/prayer_buffer.json --media-dir /var/lib/muhideen/media
+ExecStart=@VENV@/bin/muhideen --host 0.0.0.0 --port 8000 --config /etc/muhideen/muhideen.json --prayer-buffer /var/lib/muhideen/prayer_buffer.json --media-dir /var/lib/muhideen/media --admin-token-file /etc/muhideen/admin_token
 Restart=always
 RestartSec=5
 

@@ -130,6 +130,7 @@ def test_main_defaults_bind_loopback_and_port(
     assert spy.seen["factory_kwargs"] == {
         "prayer_buffer": "./config/prayer_buffer.json",
         "media_dir": "./media",
+        "admin_token_file": "config/admin_token",
     }
     assert spy.seen["run"] == {"host": "127.0.0.1", "port": 8000, "workers": 1}
 
@@ -163,6 +164,7 @@ def test_main_argv_overrides_host_port_and_config(
     assert spy.seen["factory_kwargs"] == {
         "prayer_buffer": buffer,
         "media_dir": media,
+        "admin_token_file": str(tmp_path / "admin_token"),
     }
     assert spy.seen["run"] == {"host": "0.0.0.0", "port": 9000, "workers": 1}
 

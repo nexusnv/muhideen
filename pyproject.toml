@@ -25,6 +25,8 @@ dependencies = [
     "httpx>=0.27",
     "hijridate==2.6.0",
     "al-falak==1.0.0",
+    "pillow>=11",
+    "python-multipart>=0.0.18",
 ]
 
 [project.urls]

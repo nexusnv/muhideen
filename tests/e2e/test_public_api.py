@@ -162,10 +162,11 @@ def test_version_reports_package_version(
 def test_heartbeat_route_removed(surface: SimpleNamespace, client: TestClient) -> None:
     """v1.0 drops device registration: heartbeats are no longer accepted."""
     response = client.post("/api/displays/heartbeat", json={"id": "HALL-01"})
-    # 404: the whole /api/displays/* registry surface is gone with the
-    # database stack, so the old {"ok": True, "registered": ...} envelope
-    # cannot come back under any method.
-    assert response.status_code == 404
+    # NOTE (admin Task 4): /api/displays/{id} now serves PUT/PATCH/DELETE,
+    # so POST on that prefix answers 405 (path matches, method doesn't)
+    # instead of 404 — either way the old {"ok": True, "registered": ...}
+    # heartbeat envelope cannot come back.
+    assert response.status_code in (404, 405)
     assert "registered" not in response.json()
 
 

@@ -1,17 +1,19 @@
 # API Contract (normative)
 
-> File-config history note: the served surface is read-only —
-> `prayer-day`, `next-event`, `events` (SSE), `version`, and `/display`.
-> Every admin/database section below (`settings` writes, `manual-day`,
-> `auth`, `playlists` CRUD, `adhan-audio` uploads, `displays`/`display-groups`,
-> `backup`, `logs`) documents the pre-file-config API and now answers
-> 404. Those sections are retained as documentation history (the parity
-> tests map only the kept routes); fixtures win on conflict, and CI
-> enforces parity for the kept surface.
+> Admin surface note: the served surface is the public display reads
+> (`prayer-day`, `next-event`, `events` (SSE), `version`, `/display`,
+> plus the public config/playlist/display/manual-days/media reads below)
+> and the token-gated admin writes (`PATCH`/`POST`/`PUT`/`DELETE` on the
+> admin paths, plus `GET /api/backup/export` and `GET /api/logs`).
+> Every admin/database section of the pre-file-config API that is not
+> reintroduced here (session auth, full-replace settings, legacy
+> manual-day/adhan-audio JSON shapes, display groups) answers 404 (see
+> "Removed surface"). Fixtures win on conflict, and CI enforces parity
+> for the kept surface.
 
 Single-repo logical split. Backend implements first; frontend builds against `api/fixtures/`. Any example here duplicated in fixtures — fixtures win on conflict, and CI enforces parity.
 
-Base URL (device): `http://muhideen.local:8000`. Mock: `http://localhost:8001` via `uv run tools/mock_api.py`.
+Base URL (device): `http://muhideen.local:8000`. Mock: `http://localhost:8001` via `uv run tools/mock_api.py` (fixed token `dev-admin-token`; in-memory state; canned 422s only — not full validation parity).
 
 ## `GET /api/prayer-day?date=YYYY-MM-DD&zone=SGR01`
 
@@ -60,376 +62,111 @@ Events: `state` (on transition), `tick` (1/min heartbeat with server `now` + Mai
 {"version": "0.1.0", "api": "v1"}
 ```
 
-## `GET /api/settings`
+## Admin auth (static Bearer token)
 
-Admin session required. Full installation settings including the boundary offsets (imsak 0–10 default 10 with 0 hiding imsak on display; dhuha 15–30 default 28), the calculation `method` (`MABIMS`/`MWL`/`ISNA`/`Egyptian`) plus `asr_juristic` (`shafi`/`hanafi`, default `shafi`), the `boundary_countdown` opt-in and `calc_only` offline mode, the pre-adhan Stage-takeover window (global default 5 min, range 0–90, with optional per-prayer overrides keyed by prayer name; absent prayer = default), the `timezone` IANA device-clock zone (e.g. `Asia/Kuala_Lumpur`, default `Asia/Kuala_Lumpur`; changing it requires a service restart to take effect), and the `theme` knobs (closed enums: `palette` ∈ `classic-green|midnight|sand`, `font` ∈ `outfit|system`, `countdown_style` ∈ `boxes|inline`, `clock_format` ∈ `24h|24h-seconds|12h`, `hijri_form` ∈ `long|short`, `boundary_strip` ∈ `show|hide`, `density` ∈ `comfortable|compact`; anything else is 422). Per-display `display_settings` rows (`theme.*` plus `dim_minutes_override` 5–60) override the knobs and dim for one `GET /display?id=` render. Adhan audio is additive and silent by default: `adhan_audio_enabled` (default `false`), `adhan_volume` 0–100 (default 70), `quiet_hours_start`/`quiet_hours_end` (`HH:MM`, both-or-neither; overnight wrap allowed, e.g. `22:00`–`06:00` quiets when the current time is at or past start or before end), and `adhan_muted_prayers` (prayer-name list, default `[]`).
+No sessions, no users, no login rate-limit. The device holds one 256-bit token in `<config-dir>/admin_token` (`0600`, service-owned, generated once by `install.sh`, never clobbered; rotation = rewrite the file + restart). The service reads it once at boot (`--admin-token-file`, default `<config-dir>/admin_token`); a missing/blank/unreadable file disables every gated endpoint (`503 {"detail": "admin writes disabled"}`, even with a Bearer header) while public reads keep serving. Every other gated request carries `Authorization: Bearer <token>`; missing/mismatched/empty answers `401 {"detail": "invalid admin token"}` with `WWW-Authenticate: Bearer`. Every gated request (writes + gated GETs) logs one INFO audit line `peer method path -> status` (path only — never query, headers, or tokens). Plaintext HTTP on the LAN means the Bearer is sniffable locally: run on a trusted LAN / isolated IoT VLAN.
 
-```json
-{
-  "masjid_name": "Masjid Test",
-  "zone": "SGR01",
-  "hijri_offset": 0,
-  "imsak_offset_min": 10,
-  "adhan_duration_s": 180,
-  "adhan_audio_enabled": false,
-  "adhan_volume": 70,
-  "adhan_muted_prayers": [],
-  "dim_minutes_default": 20,
-  "dim_minutes_jumuah": 45,
-  "iqamah_rules": [
-    {"prayer": "fajr", "mode": "delay", "delay_minutes": 15, "fixed_time": null},
-    {"prayer": "dhuhr", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
-    {"prayer": "asr", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
-    {"prayer": "maghrib", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
-    {"prayer": "isha", "mode": "delay", "delay_minutes": 15, "fixed_time": null},
-    {"prayer": "jumuah", "mode": "delay", "delay_minutes": 10, "fixed_time": null}
-  ],
-  "lat": 3.07,
-  "lon": 101.69,
-  "method": "MABIMS",
-  "asr_juristic": "shafi",
-  "dhuha_offset_min": 28,
-  "boundary_countdown": false,
-  "calc_only": false,
-  "countdown_before_adhan_min": 5,
-  "countdown_before_adhan_overrides": {"fajr": 10},
-  "quiet_hours_start": null,
-  "quiet_hours_end": null,
-  "theme": {
-    "palette": "classic-green",
-    "font": "outfit",
-    "countdown_style": "boxes",
-    "clock_format": "12h",
-    "hijri_form": "long",
-    "boundary_strip": "show",
-    "density": "comfortable"
-  },
-  "timezone": "Asia/Kuala_Lumpur"
-}
-```
+Gated: every `PATCH`/`POST`/`PUT`/`DELETE` on `/api/config/*`, `/api/playlists/*`, `/api/displays/*`, `/api/media/*`, `/api/backup/restore`, every `.../validate` dry-run POST, plus `GET /api/backup/export` (bundles buffer+media) and `GET /api/logs` (leaks journald paths/errors). Reads stay public: `prayer-day`, `next-event`, `events`, `version`, `display`, `GET /api/config` + section GETs, `GET /api/playlists` + `preview` + detail, `GET /api/displays`, `GET /api/config/manual-days`, `GET /api/media`.
 
-## `PUT /api/settings`
+## `GET /api/config` + `GET /api/config/{masjid,schedule,timing,theme,adhan-audio}`
 
-Admin session required. Full-replace body; the response echoes the stored settings. The adhan-audio fields ride the same full-replace body (see `GET /api/settings`). A successful write publishes a `config-update` event with the `settings` group. `timezone` is an IANA zone name (default `Asia/Kuala_Lumpur`); a changed timezone takes effect on service restart.
+Public. Full file (export source, reserialized with `$schemaVersion`) and one parsed section; unknown section names are 404.
+
+## `PATCH /api/config/masjid`
+
+Gated. All-optional partial (`{"name", "timezone"}`); omitted = unchanged, explicit `null` → 422. Free text is stripped, whitespace-only → 422. Unknown timezone → 422. Response `{ok, restart_required}` (`true` only when `timezone` changed — restart to apply). Fixtures: `api/fixtures/admin-masjid-200.json` (request), `api/fixtures/admin-masjid-422.json` (blank-name 422 sample).
 
 ```json
-{
-  "masjid_name": "Masjid Test",
-  "zone": "SGR01",
-  "hijri_offset": 0,
-  "imsak_offset_min": 10,
-  "adhan_duration_s": 180,
-  "adhan_audio_enabled": false,
-  "adhan_volume": 70,
-  "adhan_muted_prayers": [],
-  "dim_minutes_default": 20,
-  "dim_minutes_jumuah": 45,
-  "iqamah_rules": [
-    {"prayer": "fajr", "mode": "delay", "delay_minutes": 15, "fixed_time": null},
-    {"prayer": "dhuhr", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
-    {"prayer": "asr", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
-    {"prayer": "maghrib", "mode": "delay", "delay_minutes": 10, "fixed_time": null},
-    {"prayer": "isha", "mode": "delay", "delay_minutes": 15, "fixed_time": null},
-    {"prayer": "jumuah", "mode": "delay", "delay_minutes": 10, "fixed_time": null}
-  ],
-  "lat": 3.07,
-  "lon": 101.69,
-  "method": "MABIMS",
-  "asr_juristic": "shafi",
-  "dhuha_offset_min": 28,
-  "boundary_countdown": false,
-  "calc_only": false,
-  "countdown_before_adhan_min": 5,
-  "countdown_before_adhan_overrides": {"fajr": 10},
-  "quiet_hours_start": null,
-  "quiet_hours_end": null,
-  "theme": {
-    "palette": "classic-green",
-    "font": "outfit",
-    "countdown_style": "boxes",
-    "clock_format": "12h",
-    "hijri_form": "long",
-    "boundary_strip": "show",
-    "density": "comfortable"
-  },
-  "timezone": "Asia/Kuala_Lumpur"
-}
-```
-
-## `PUT /api/manual-day`
-
-Admin session required. Pin one day's manual schedule (full 8-marker `HH:MM` body; `date` is `YYYY-MM-DD`). The request carries no zone — the day is stamped with `settings.zone` server-side, and a second PUT for the same date replaces the pin. Times must satisfy `Imsak < Fajr < Syuruq < Dhuha < Dhuhr < Asr < Maghrib < Isha`, else 422. The response echoes the pinned day in the `GET /api/prayer-day` shape with `"source": "manual"` and `"stale": true`. Precedence is structural: a manual pin outranks automatic sources (manual > JAKIM > calc) and the daily sync never overwrites it; deleting the pin re-exposes the date to the next sync.
-
-```json
-{"asr": "15:30", "date": "2025-10-20", "dhuha": "07:25", "dhuhr": "12:15", "fajr": "05:45", "imsak": "05:35", "isha": "19:25", "maghrib": "18:05", "syuruq": "06:55"}
-```
-
-## `DELETE /api/manual-day?date=YYYY-MM-DD`
-
-Admin session required. Release one day's manual pin; success returns an `ok` envelope and the date falls back to the automatic schedule. Dates with no manual pin are 404.
-
-## `POST /api/auth/setup`
-
-First-boot only: allowed while no admin exists, otherwise 409. Creates the admin and issues a session cookie. Rate limited to 5/min/IP.
-
-```json
-{"password": "password123"}
+{"name": "Masjid An-Nur", "timezone": "Asia/Kuala_Lumpur"}
 ```
 
 ```json
-{"ok": true}
+{"ok": true, "restart_required": false}
 ```
 
-Short passwords are 422, a second setup is 409, and the 6th attempt inside the window is 429.
+## `PATCH /api/config/schedule`
 
-## `POST /api/auth/login`
-
-Password-only admin login. Issues a session cookie on success. Rate limited to 5/min/IP; wrong passwords are 401.
+Gated. All-optional partial (`sync_provider`, `zone`, nested `jakim`/`aladhan` (one-level deep merge — sibling keys survive), `method` (`MABIMS`/`MWL`/`ISNA`/`Egyptian`), `asr_juristic`, `lat`/`lon`, `calc_only`, `hijri_offset` `-2..2`, `imsak_offset_min` `0..10`, `dhuha_offset_min` `15..30`, `boundary_countdown`, `manual_days_file`). `lat`+`lon` paired-or-null; `jakim.zone` required iff provider is `jakim`; `lat`/`lon` required iff provider is `aladhan`; inline `manual_days` + `manual_days_file` ref stay exclusive (422). `restart_required=true` only for the effective sync client (`sync_provider` flip, or `aladhan.*` while provider is `aladhan`). Fixtures: `api/fixtures/admin-schedule-200.json`, `api/fixtures/admin-schedule-422.json` (provider switch without coordinates).
 
 ```json
-{"password": "password123"}
+{"boundary_countdown": true, "jakim": {"zone": "SGR01"}}
 ```
 
 ```json
-{"ok": true}
+{"ok": true, "restart_required": false}
 ```
 
-## `POST /api/auth/logout`
+## `PATCH /api/config/timing`
 
-Clears the session cookie. Idempotent: always 200, even without a session.
+Gated. `{adhan_duration_s > 0, dim_minutes_default/dim_minutes_jumuah 5..60, countdown_before_adhan_min 0..90, countdown_before_adhan_overrides {prayer: 0..90}, iqamah_rules[6]}`. Override keys are prayer-only (`fajr,dhuhr,asr,maghrib,isha,jumuah`; boundary/unknown → 422; `dhuhr` ≠ `jumuah`). `iqamah_rules` is all-6 full replace (exactly once each; `delay 0..60` / `fixed` requires `fixed_time`). Never needs a restart.
+
+## `PATCH /api/config/theme`
+
+Gated. Seven closed enums, all optional, all non-nullable (`null` → 422): `palette` ∈ `classic-green|midnight|sand`, `font` ∈ `outfit|system`, `countdown_style` ∈ `boxes|inline`, `clock_format` ∈ `24h|24h-seconds|12h`, `hijri_form` ∈ `long|short`, `boundary_strip` ∈ `show|hide`, `density` ∈ `comfortable|compact`. Never needs a restart.
+
+## `PATCH /api/config/adhan-audio`
+
+Gated. `{enabled, volume 0..100, quiet_hours_start/end paired HH:MM|null, muted_prayers[] prayer-only, file (path-string only)}`. Volume/quiet-hours/mutes validate even when `enabled=false`; only `file` is ignored while disabled. Binaries arrive via `POST /api/media` (`kind=adhan`).
+
+## `POST /api/config/validate` + `POST /api/config/{masjid,schedule,timing,theme,adhan-audio}/validate`
+
+Gated dry-runs (Bearer required, nothing written, same `422 [{loc,msg}]` shape). Full-file validate takes the whole `ConfigFile` (`$schemaVersion` alias spelling); section validates merge the partial over the live file with the PATCH depth rule. `POST /api/config/manual-days/validate` takes a bare pins array (structural + buffer-completion, same pre-sync trap as PUT).
+
+## Playlists + items + preview
+
+`GET /api/playlists`, `GET /api/playlists/{id}`, `GET /api/playlists/preview?moment=<tz-aware ISO>` are public. The rest is gated. Ids are `1-64 [A-Za-z0-9_-]` on writes (legacy rows list as-is; slash-ids stay routing-404). `POST /api/playlists` requires `{id, title}` (`201`; duplicate `id` → 409). `PATCH /api/playlists/{id}` is a partial merge — `id` rename and any `items` key → 422. Windows are `HH:MM` clock bounds or marker names (or `null`); `anchor_marker` is prayer-only (boundary → 422); `cycle_mode=repeat` requires `max_cycles >= 1`, `indefinite` requires `max_cycles=null` (else 422). Items: `{image_path` (media-relative, dangling refs allowed — upload before or after), `duration_s > 0`, `sort_order >= 0 unique}`; malformed → 422, duplicate `sort_order` on POST → 409, omitted → `max(existing)+1` (empty → 0); ambiguous `sort_order` DELETE → 409 with a hand-fix detail. `preview` resolves one moment's stage plus active ids (`{stage, active_playlists[]}`); missing/naive `moment` → 422. Fixtures: `api/fixtures/admin-playlist-201.json`, `api/fixtures/admin-playlist-422.json`.
 
 ```json
-{"ok": true}
+{"id": "taraweeh", "title": "Taraweeh Slides"}
 ```
 
-## `GET /api/auth/session`
+## Displays
 
-Session status plus whether first-boot setup is still required. No auth required.
+`GET /api/displays` is public (id → entry map). `PUT /api/displays/{id}` (upsert: `201` create / `200` replace; `{}` resets to all-defaults), `PATCH /api/displays/{id}` (partial merge; `theme.<knob>=null` inherits that knob), `DELETE /api/displays/{id}` are gated. Body: `{name (1-200|null), language en|ms|ar|bm, theme (partial-7, each knob enum|null=inherits), dim_minutes_override 5-60|null, carousel_enabled bool}`; blank `name` / unknown `language` / null non-nullables → 422; unknown id on PATCH/DELETE → 404. No schedule/iqamah fork (theme+dim only). Fixtures: `api/fixtures/admin-display-201.json`, `api/fixtures/admin-display-422.json`.
 
 ```json
-{"authenticated": true, "setup_required": false}
+{"carousel_enabled": false, "dim_minutes_override": 30, "language": "ms", "name": "Lobby", "theme": {"palette": "midnight"}}
 ```
 
-## `POST /api/playlists`
+## Manual-days pins
 
-Admin session required. Create a playlist; the `id` is server-generated when the body omits it (`null`). Windows are `HH:MM` clock bounds (each end optionally a marker name); `anchor_marker` must name a Prayer Time Marker, never a boundary. More than 50 items is 422.
-
-Cycle modes (`cycle_mode` ∈ `indefinite|repeat`, default `indefinite`):
-
-| `cycle_mode` | `max_cycles` | Behaviour |
-| :--- | :--- | :--- |
-| `indefinite` | must be `null` | Loops forever; the Stage never releases on count. |
-| `repeat` | required, `>= 1` | Releases the Stage after N full passes. |
-
-Illegal pairings (`repeat` without `max_cycles`, `indefinite` with non-`null` `max_cycles`) are 422.
-
-Items are image-only in v1.0: each item carries an `image_path` only — no video/audio items. New images arrive via `POST /api/playlists/{playlist_id}/items` (JPG/PNG/WebP, 5MB cap, EXIF stripped, max 50 items per playlist). The response is the stored playlist.
+`GET /api/config/manual-days` is public (`{source: "inline"|"file", pins: [...]}`; ref-set-but-absent → 503 hand-fix detail, never empty `pins: []`). `PUT /api/config/manual-days/{date}` (upsert, `200` — never 409; path date authoritative, body mismatch → 422; ≥1 of the 8 `HH:MM` markers) and `DELETE` same (`404` unknown; ref-set-but-absent → 503) are gated. Writes route by the pins ref (file) or inline (ref changes only via schedule PATCH; orphan pins files are never auto-deleted). Validation is two-tier: structural always, plus buffer-completion — a partial pin with no buffer row for its date+zone fails `422` with `"no buffer row for <date> — sync first or send a full-day pin"`. Fixtures: `api/fixtures/admin-pin-200.json`, `api/fixtures/admin-pin-422.json`.
 
 ```json
-{
-  "id": null,
-  "title": "Evening Reminders",
-  "active": true,
-  "window_start": "09:00",
-  "window_end": "18:00",
-  "anchor_marker": null,
-  "anchor_start_offset_min": 0,
-  "anchor_stop_offset_min": 0,
-  "cycle_mode": "indefinite",
-  "max_cycles": null,
-  "items": [
-    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
-  ]
-}
+{"asr": "16:30", "date": "2026-05-01", "dhuha": "07:33", "dhuhr": "13:15", "fajr": "05:58", "imsak": "05:48", "isha": "20:30", "maghrib": "19:15", "syuruq": "07:05"}
 ```
+
+## Media
+
+`GET /api/media` is public (`[{path, size_bytes}]`, media-relative paths). `POST /api/media` (`multipart/form-data`: `file` binary + `kind` ∈ `adhan|image`) and `DELETE /api/media/{path}` are gated. `adhan` lands at the media root, `image` under `playlists/`; basenames flatten (no subdirs v1); overwrite of a relpath is allowed (`200`, new file `201`, body `{path}`). Basenames reject empty/NUL/`?`/`#`/trailing-`/`/backslash/drive/absolute/`..`/overlong (422). Content: images `jpg|jpeg|png|webp` ≤5MB (Pillow open-verified + re-encoded, EXIF stripped), audio `mp3` ≤10MB (ID3/frame-sync magic); oversize → 413 via bounded streaming reads (never buffered-then-checked); kind/ext mismatch → 422. `DELETE` is unconditional (dangling refs allowed, no reference scan); unknown → 404. Fixture: `api/fixtures/admin-media-201.json`.
 
 ```json
-{
-  "id": "p1",
-  "title": "Title p1",
-  "active": true,
-  "window_start": "09:00",
-  "window_end": "18:00",
-  "anchor_marker": null,
-  "anchor_start_offset_min": 0,
-  "anchor_stop_offset_min": 0,
-  "cycle_mode": "indefinite",
-  "max_cycles": null,
-  "items": [
-    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
-  ]
-}
+{"path": "playlists/slide.png"}
 ```
 
-## `GET /api/playlists`
+## `GET /api/backup/export`
 
-Admin session required. Lists every playlist with ordered items as a `playlists` envelope; each entry has the `POST /api/playlists` response shape (see `api/fixtures/playlist.json`).
-
-## `GET /api/playlists/preview`
-
-Admin session required. Server-side Stage preview computed over the Task 5 occupancy engine: `stage` is the current Stage id (`clock`, `countdown:adhan:<prayer>`, `countdown:iqamah:<prayer>`, `playlist:<id>`), and each entry reports `on_stage_now` plus the next 5-minute sample in the coming 24h at which it would hold the Stage (`next_at`, `null` when never in-window). 503 before setup, 404 without a schedule. The playlist-editor page embeds the same payload shape; when the preview cannot resolve (missing config or schedule) the embedded payload carries an additive `error` key with the reason (`stage` reads `error`, `playlists` is empty) instead of silent null, and the page renders the reason in the preview slot.
-
-## `GET /api/playlists/{playlist_id}`
-
-Admin session required. Returns one playlist with ordered items; unknown ids are 404.
-
-```json
-{
-  "id": "p1",
-  "title": "Title p1",
-  "active": true,
-  "window_start": "09:00",
-  "window_end": "18:00",
-  "anchor_marker": null,
-  "anchor_start_offset_min": 0,
-  "anchor_stop_offset_min": 0,
-  "cycle_mode": "indefinite",
-  "max_cycles": null,
-  "items": [
-    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
-  ]
-}
-```
-
-## `PUT /api/playlists/{playlist_id}`
-
-Admin session required. Full-replace body; the path id and body id must match (else 422), unknown ids are 404. Request and response share the playlist shape.
-
-```json
-{
-  "id": "p1",
-  "title": "Title p1",
-  "active": true,
-  "window_start": "09:00",
-  "window_end": "18:00",
-  "anchor_marker": null,
-  "anchor_start_offset_min": 0,
-  "anchor_stop_offset_min": 0,
-  "cycle_mode": "indefinite",
-  "max_cycles": null,
-  "items": [
-    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
-  ]
-}
-```
-
-```json
-{
-  "id": "p1",
-  "title": "Title p1",
-  "active": true,
-  "window_start": "09:00",
-  "window_end": "18:00",
-  "anchor_marker": null,
-  "anchor_start_offset_min": 0,
-  "anchor_stop_offset_min": 0,
-  "cycle_mode": "indefinite",
-  "max_cycles": null,
-  "items": [
-    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
-  ]
-}
-```
-
-## `PATCH /api/playlists/{playlist_id}`
-
-Admin session required. Flips one playlist's active flag without touching its items; unknown ids are 404.
-
-```json
-{"active": false}
-```
-
-```json
-{
-  "id": "p1",
-  "title": "Title p1",
-  "active": true,
-  "window_start": "09:00",
-  "window_end": "18:00",
-  "anchor_marker": null,
-  "anchor_start_offset_min": 0,
-  "anchor_stop_offset_min": 0,
-  "cycle_mode": "indefinite",
-  "max_cycles": null,
-  "items": [
-    {"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
-  ]
-}
-```
-
-## `DELETE /api/playlists/{playlist_id}`
-
-Admin session required. Deletes a playlist; its items cascade. Unknown ids are 404; success returns an `ok` envelope.
-
-## `POST /api/playlists/{playlist_id}/items`
-
-Admin session required. Stores one uploaded image (base64 JSON, 5MB cap, JPG/PNG/WebP with EXIF stripped via the shared image store) and appends it to the playlist items; a full 50-item playlist is 422. The response echoes the new item slot.
-
-```json
-{"image_base64": "aGVsbG8=", "duration_s": 7}
-```
-
-```json
-{"image_path": "a.jpg", "duration_s": 10, "sort_order": 0}
-```
-
-## `DELETE /api/playlists/{playlist_id}/items/{sort_order}`
-
-Admin session required. Removes the item at one sort position, keeping the rest in place. Unknown playlists and unknown positions are 404; success returns an `ok` envelope.
-
-## `POST /api/adhan-audio`
-
-Admin session required. Stores one adhan MP3 (base64 JSON, 10MB cap, MP3 magic only: `ID3` header or MPEG frame sync) under the canonical `adhan.mp3` name; uploads replace each other so the display URL stays stable. Invalid base64 and non-MP3 bytes are 400, payloads over 10MB are 413. Success is 201 with a `file`/`size` envelope (`{"file": "adhan.mp3", "size": 10}` for the sample below). The file is served via the existing `/static` mount at `/static/uploads/adhan.mp3` (custom `media_dir` deployments keep working iff the dir stays under the static root). The display plays it during the ADHAN overlay only (kiosk Chromium runs with no-gesture autoplay, so no user gesture is needed); every other state stays silent.
-
-```json
-{"audio_base64":"SUQzBAAAAAAAAA=="}
-```
-
-## `DELETE /api/adhan-audio`
-
-Admin session required. Removes the adhan MP3; idempotent (a missing file is still 200 with an `ok` envelope).
-
-## `GET /api/displays`
-
-Admin session required. Lists configured displays with effective theme and dim plus groups: each display carries its group dim override (or the settings default) and a `dim_source` of `group` or `settings`. Display identity is the screen URL id (`GET /display?id=...`) — there is no registration step.
-
-## `PATCH /api/displays/{display_id}`
-
-Admin session required. Sets per-display overrides (name, theme choice, group assignment), creating the display row when the id is unknown; empty bodies are 422, unknown groups are 422. An explicit `group_name` null clears the assignment (the effective dim falls back to settings); an explicit `current_theme` null is not an update, so a null-theme-only body is 422.
-
-```json
-{"name": null, "current_theme": "midnight", "group_name": null}
-```
-
-## `PATCH /api/display-groups/{name}`
-
-Admin session required. Sets group overrides (theme default, dim minutes 5–60, carousel flag); unknown groups are 404. `carousel_enabled` (default on) gates the `#carousel-dot` footer indicator on `GET /display?id=` for displays in the group — the footer itself still renders NORMAL-only (FR-3.3 pause rule), so the flag only toggles the dot. Unknown display ids render the global default (carousel on).
-
-Override scope is theme+dim-only by design: groups pin presentation (theme default, dim minutes, carousel flag), and per-display rows allow only the `theme.*` knobs plus `dim_minutes_override` — schedule, iqamah rules, and countdown windows are never forked per group or display.
-
-```json
-{"theme": "midnight", "dim_minutes_override": 30, "carousel_enabled": false}
-```
-
-## `POST /api/backup/export`
-
-Admin session required. Downloads the whole installation as one zip: the `muhideen.db` snapshot at the zip root plus the uploads tree under `media/`. The response is `application/zip` (not JSON, so no fixture) with an attachment filename of the form `muhideen-backup-<YYYYMMDD-HHMMSS>.zip`. The archive contains password hashes (`users` table) — treat the download as secret, with the same handling as the DB file itself. Defense-in-depth caps: total archive ≤256MB, per-member ≤64MB, member count ≤512 (media uploads are already capped upstream). Symlinks in the media tree are skipped on export (never followed); symlink members in an imported archive are rejected.
+Gated. Downloads the installation as one `application/zip` (`Content-Disposition: attachment; filename="muhideen-backup-<YYYYMMDD-HHMMSS>.zip"`). Members: `muhideen.json` + `pins.json` (when the ref is set) + `prayer_buffer.json` (when present — byte-copied as-is, even corrupt; backup is not validation) + `manifest.json` (`{files: [{path, size_bytes, sha256}], exported_at}`, sample in `api/fixtures/admin-backup-manifest.json`) + media binaries under `media/`. Every member path is relative, never absolute. Media sizes sum before archiving: over 50MB uncompressed → `413`; the zip streams (binaries are never all held in memory). Treat the download as secret (it restores operator configuration).
 
 ## `POST /api/backup/restore`
 
-Admin session required. Replaces the installation from a base64 backup zip (base64 JSON — no multipart parser on the offline-first footprint, mirroring the playlist/adhan uploads). The staged database is migrated before it replaces the live one (older versions migrate up; a backup from a newer application version than the installed build is rejected); the media tree swaps atomically; no restart is required. The pre-decode length bound mirrors the adhan route (payloads over ~341MB of base64 are 413); invalid base64 and bundle-validation failures (non-zip bytes, corrupt or encrypted members, traversal entries, aliased path segments, symlink or duplicate members, missing `muhideen.db`, oversize members) are 400. Success returns an `ok` envelope. Request shape matches `api/fixtures/backup-restore.json` (`request` key; `response` key is the `ok` envelope).
+Gated. Replaces the installation from a `multipart/form-data` backup zip (`file` field, ≤50MB upload via bounded streaming → `413`). Hardens zip-slip (absolute, `..`, symlink, drive-letter members rejected → 422), then validates everything — config (`ConfigFile` + settings), pins (pins-file semantics), buffer schema, staged pins completion against the STAGED buffer (not the live one), media relpaths + total-size cap — BEFORE touching live disk (any failure → 422/413, disk untouched, staging kept for forensics). Applies staged-atomic through a same-filesystem staging dir (`<config-dir>/.restore-*.tmp`, removed on success, kept on failure until the next restore): ordered renames config → pins → buffer, pre-rename backups for rollback, additive per-file tmp+rename media (same relpath overwrites, unlisted files are never deleted — orphans persist). Not single-rename atomic: the watcher may emit one transient mixed-generation `config-update` (new config + old pins/buffer) before converging; a scheduler `save_day` racing the buffer rename is accepted last-wins (next sync heals). Success is `200 {"ok": true}` (fixture `api/fixtures/admin-restore-ok.json`); validation failures pin the member (`api/fixtures/admin-backup-422.json`).
 
 ```json
-{"archive_base64":"UEsDBA=="}
+{"ok": true}
 ```
 
-## `GET /api/logs`
+## `GET /api/logs?lines=200`
 
-Admin session required. Tails the `muhideen` systemd unit's journal (`journalctl -u muhideen --quiet --output=json -n <lines>`); `lines` counts journal entries (one JSON object per entry, so an entry with embedded newlines is a single line) and defaults to 100, clamped to 1..1000 by the query validator (out-of-range values are 422). With a journal the response carries the entry messages array (`{"available": true, "lines": [...]}`); without one (dev machines, failing probes, empty journal) it carries `{"available": false, "hint": "journalctl ..."}` — never a 500 for absent logs. Both shapes are pinned in `api/fixtures/logs.json` (`available`/`unavailable` keys).
+Gated. Tails the `muhideen` unit journal newest-last as `text/plain` (sample lines in `api/fixtures/admin-logs.txt`). `lines` is an int `1-1000` (default `200`; non-int/out-of-range → 422). Runs `journalctl -u muhideen --no-pager -n <lines>` via argv (no shell) with a 5s timeout; timeout, missing binary, failing exit, and journald-less hosts (compose/dev) fail soft to `501 {"detail": ...}` — never 500.
+
+## Removed surface
+
+Still 404 (session/database era, never returning): `/admin*` pages, `/api/settings`, `/api/auth/*`, `PUT /api/settings`, `PUT`/`DELETE /api/manual-day`, `POST`/`DELETE /api/adhan-audio` (base64 JSON), `PATCH /api/display-groups/*`.
 
 ## Errors
 
-Unknown schedules are 404 with a detail message — including a `zone` that is not the configured zone, even when calc coordinates are set. Missing or invalid configuration is 503: the wire detail is path-scrubbed (`config: …`; the full path goes to the server log), while domain causes (e.g. a `fixed` iqamah time at or before its adhan) pass through verbatim. Invalid bodies and query inputs are 422; naive `now` values are 422. `/docs`, `/redoc`, and `/openapi.json` are public by decision (read-only schemas only). The admin/database error codes (401 sessions, 429 rate limits) no longer exist on this surface.
+Unknown ids/dates/paths/sections are 404 with a detail message. Missing or invalid configuration is 503: the wire detail is path-scrubbed (`config: …`; the full path goes to the server log), while domain causes (e.g. a `fixed` iqamah time at or before its adhan) pass through verbatim. Invalid bodies and query inputs are 422 (`{detail: [{loc, msg, type}]}`, body-relative locs like `["body", "jakim", "zone"]`, query locs like `["query", "lines"]`); naive `now`/`moment` values are 422. Duplicate playlist ids / item orders are 409. Oversize uploads/exports are 413. Missing/wrong admin tokens are 401 (+`WWW-Authenticate: Bearer`); a missing/unreadable token file disables gated endpoints with 503 `admin writes disabled` (distinct from broken-config 503s). Missing journals/units are 501. `/docs`, `/redoc`, and `/openapi.json` are public by decision (read-only schemas only, OpenAPI carries per-endpoint 422 examples). No stack traces or absolute paths on the wire.
 
 ## Versioning
 Additive fields allowed without bump — e.g. `time_synced` on `next-event` and SSE `state` payloads (slice 1A-8), and `stage` on SSE `tick` payloads. Renames/removals/semantic changes require `/api/v2/...` + fixtures + changelog + migration note.

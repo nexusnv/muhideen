@@ -29,6 +29,7 @@ def test_parser_takes_config_not_db() -> None:
     assert not hasattr(args, "db")
     assert hasattr(args, "prayer_buffer")
     assert hasattr(args, "media_dir")
+    assert args.admin_token_file is None
 
 
 def test_parser_defaults_serve_file_config_on_loopback() -> None:
@@ -39,6 +40,7 @@ def test_parser_defaults_serve_file_config_on_loopback() -> None:
     assert args.config == "./config/muhideen.json"
     assert args.prayer_buffer == "./config/prayer_buffer.json"
     assert args.media_dir == "./media"
+    assert args.admin_token_file is None
     assert args.host == "127.0.0.1"
     assert args.port == 8000
 
@@ -66,7 +68,11 @@ def test_main_wires_config_through_to_factory(
     media = str(tmp_path / "media")
     service.main(["--config", cfg, "--prayer-buffer", buf, "--media-dir", media])
     assert seen["config"] == cfg
-    assert seen["kwargs"] == {"prayer_buffer": buf, "media_dir": media}
+    assert seen["kwargs"] == {
+        "prayer_buffer": buf,
+        "media_dir": media,
+        "admin_token_file": str(tmp_path / "admin_token"),
+    }
     assert seen["run"] == {"host": "127.0.0.1", "port": 8000, "workers": 1}
 
 

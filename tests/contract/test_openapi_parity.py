@@ -123,7 +123,7 @@ def test_api_package_exports_all_contract_dtos() -> None:
     assert callable(create_app)
 
 
-def test_openapi_declares_all_five_paths() -> None:
+def test_openapi_declares_public_and_config_paths() -> None:
     paths = _app().openapi()["paths"]
     assert set(paths) == {
         "/api/prayer-day",
@@ -131,6 +131,40 @@ def test_openapi_declares_all_five_paths() -> None:
         "/api/events",
         "/api/version",
         "/display",
+        "/api/config",
+        "/api/config/{section}",
+        "/api/config/masjid",
+        "/api/config/schedule",
+        "/api/config/timing",
+        "/api/config/theme",
+        "/api/config/adhan-audio",
+        "/api/config/validate",
+        "/api/config/masjid/validate",
+        "/api/config/schedule/validate",
+        "/api/config/timing/validate",
+        "/api/config/theme/validate",
+        "/api/config/adhan-audio/validate",
+        # Task 3: playlist CRUD + items + preview (spec §3).
+        "/api/playlists",
+        "/api/playlists/preview",
+        "/api/playlists/{id}",
+        "/api/playlists/{id}/items",
+        "/api/playlists/{id}/items/{sort_order}",
+        # Task 4: display CRUD (spec §3).
+        "/api/displays",
+        "/api/displays/{id}",
+        # Task 5: manual-days pins (spec §3).
+        "/api/config/manual-days",
+        "/api/config/manual-days/validate",
+        "/api/config/manual-days/{date}",
+        # Task 6: media list (public) + upload/delete (gated) (spec §4).
+        "/api/media",
+        "/api/media/{path}",
+        # Task 7: backup export (gated GET zip) + restore (gated
+        # multipart) + logs (spec §4).
+        "/api/backup/export",
+        "/api/backup/restore",
+        "/api/logs",
     }
 
 

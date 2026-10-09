@@ -316,7 +316,8 @@ def normalize_adhan_rel(value: str) -> str:
 
     Raises ``ValueError`` on empty/whitespace-only, NUL bytes (which the
     filesystem layer rejects with an unwrapped ``ValueError`` instead of
-    the 503 slate), directory-like
+    the 503 slate), backslashes (Windows separators are never valid here;
+    matches playlist-item and media-rel rules), directory-like
     (trailing ``/``), absolute (including the degenerate
     ``media//...`` leftover of the legacy prefix), URL-structural
     (``?``/``#`` would split the served URL), or escaping values.
@@ -329,7 +330,9 @@ def normalize_adhan_rel(value: str) -> str:
         raise ValueError("adhan_audio.file must be non-empty")
     if "\x00" in value:
         raise ValueError(f"adhan_audio.file must not contain NUL bytes: {value!r}")
-    candidate = value.replace("\\", "/")
+    if "\\" in value:
+        raise ValueError(f"adhan_audio.file must not contain backslashes: {value!r}")
+    candidate = value
     if candidate.strip().endswith("/"):
         raise ValueError(
             f"adhan_audio.file must name a file, not a directory: {value!r}"

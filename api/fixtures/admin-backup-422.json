@@ -1,0 +1,1 @@
+{"detail": [{"loc": ["body", "pins.json"], "msg": "no buffer row for 2026-05-01 — sync first or send a full-day pin", "type": "value_error"}]}

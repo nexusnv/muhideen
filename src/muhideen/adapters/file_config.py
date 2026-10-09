@@ -60,7 +60,7 @@ def load_config_file(path: str | Path) -> ConfigFile:
     raw_path = Path(path)
     try:
         text = raw_path.read_text()
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise ConfigError(f"{raw_path}: cannot read config file: {exc}") from exc
     try:
         data = json.loads(text)
@@ -121,7 +121,7 @@ def load_manual_days_file(pins_path: str | Path) -> list[ManualDay]:
     resolved = Path(pins_path)
     try:
         text = resolved.read_text()
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise ConfigError(f"{resolved}: cannot read manual days file: {exc}") from exc
     try:
         raw_data: object = json.loads(text)
@@ -157,7 +157,7 @@ def manual_days_file_for_config(config_path: str | Path) -> Path | None:
     raw_path = Path(config_path)
     try:
         text = raw_path.read_text()
-    except OSError:
+    except (OSError, UnicodeError):
         return None
     try:
         raw_data: object = json.loads(text)
@@ -176,8 +176,8 @@ def manual_days_file_for_config(config_path: str | Path) -> Path | None:
     return _normalize_path(resolve_pins_path(raw_path, ref))
 
 
-def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    """Write JSON via tmp+rename so readers see the old or new file, never torn.
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write text via tmp+rename so readers see the old or new file, never torn.
 
     The tmp file is mkstemp-unique per write, so concurrent writers — even
     threads sharing one pid — can never share (and truncate/replace away)
@@ -191,7 +191,7 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     )
     try:
         with os.fdopen(fd, "w") as handle:
-            handle.write(json.dumps(payload, indent=2) + "\n")
+            handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_name, path)
@@ -209,6 +209,25 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
         pass
     finally:
         os.close(dir_fd)
+
+
+def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    """Write JSON via tmp+rename so readers see the old or new file, never torn.
+
+    Shared text core serves both the object helper here and the bare-array
+    pins-file helper below.
+    """
+    _atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
+
+
+def _atomic_write_json_list(path: Path, payload: Sequence[Any]) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Write a bare JSON array via tmp+rename (pins-file use).
+
+    Same tmp+rename+fsync crash-safety as :func:`_atomic_write_json`;
+    a separate helper because that one is typed ``Mapping`` and cannot
+    take the bare array a pins file holds.
+    """
+    _atomic_write_text(path, json.dumps(list(payload), indent=2) + "\n")
 
 
 def _iqamah_rules_from_file(cfg: ConfigFile) -> tuple[IqamahRule, ...]:
@@ -314,7 +333,7 @@ class FileSettingsRepo:
         with self._lock:
             try:
                 raw_data: object = json.loads(self._path.read_text())
-            except OSError as exc:
+            except (OSError, UnicodeError) as exc:
                 raise ConfigError(
                     f"{self._path}: cannot read config file: {exc}"
                 ) from exc
@@ -676,7 +695,7 @@ class FilePrayerRepo:
             return {}
         try:
             text = self._buffer.read_text()
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             raise ConfigError(
                 f"{self._buffer}: cannot read prayer buffer: {exc}"
             ) from exc
