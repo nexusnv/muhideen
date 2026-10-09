@@ -134,8 +134,10 @@ elif [[ "$MUHIDEEN_DRY_RUN" == "1" ]]; then
   printf '  dry-run: chown muhideen %s\n' "$ADMIN_TOKEN_FILE"
 else
   # One-time generation: 256-bit token, owner-read-only, service-owned.
+  # umask 077 closes the creation window: redirection creates the file
+  # 0600 from the first byte, never 0644-then-chmod.
   note "admin_token: generating ${ADMIN_TOKEN_FILE} (one-time, never clobbered)"
-  python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$ADMIN_TOKEN_FILE"
+  (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$ADMIN_TOKEN_FILE")
   chmod 0600 "$ADMIN_TOKEN_FILE"
   if ! maybe_run chown muhideen "$ADMIN_TOKEN_FILE"; then
     note "warn: chown ${ADMIN_TOKEN_FILE} failed — ensure User=muhideen can read it"

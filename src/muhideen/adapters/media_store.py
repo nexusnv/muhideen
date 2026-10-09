@@ -173,6 +173,11 @@ async def read_upload_bounded(upload: UploadFile, cap_bytes: int) -> bytes:
     A known per-part size over the cap fails before any read; otherwise
     chunks accumulate with a running total and the first chunk past the
     cap raises ``MediaTooLargeError`` (at most cap + one chunk buffered).
+
+    Prefer :func:`read_upload_bounded_sync` in endpoints: this async
+    variant blocks the event loop on Pillow/fsync callers anyway, and
+    endpoints must be sync ``def`` to hold the shared write lock.
+    Retained for the chunked-gate unit test.
     """
     upfront: Any = getattr(upload, "size", None)
     if isinstance(upfront, int) and upfront > cap_bytes:
@@ -181,6 +186,34 @@ async def read_upload_bounded(upload: UploadFile, cap_bytes: int) -> bytes:
     total = 0
     while True:
         chunk = await upload.read(_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > cap_bytes:
+            raise MediaTooLargeError(cap_bytes)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def read_upload_bounded_sync(upload: UploadFile, cap_bytes: int) -> bytes:
+    """Sync variant for sync ``def`` endpoints (threadpool, may hold locks).
+
+    Same cap semantics as :func:`read_upload_bounded` but reads the
+    already-parsed multipart part via its file object, so callers never
+    block the event loop and may hold the shared write lock around the
+    final rename. Rewinds first: the framework may have left the cursor
+    anywhere.
+    """
+    upfront: Any = getattr(upload, "size", None)
+    if isinstance(upfront, int) and upfront > cap_bytes:
+        raise MediaTooLargeError(cap_bytes)
+    handle = upload.file
+    with suppress(OSError, ValueError):
+        handle.seek(0)
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = handle.read(_CHUNK_BYTES)
         if not chunk:
             break
         total += len(chunk)
@@ -284,18 +317,29 @@ def list_media_files(root: Path) -> list[dict[str, Any]]:
 
     Paths are media-relative posix, sorted for determinism; a missing
     root lists empty (the mount fix mkdirs at boot, but the OpenAPI
-    parity app never runs lifespan).
+    parity app never runs lifespan). Symlinks are skipped (never
+    followed): operator/shell-created links could otherwise expose
+    outside-root content through the public list, ``/media`` serving,
+    and backup export.
     """
     if not root.exists():
         return []
     entries: list[dict[str, Any]] = []
     for candidate in sorted(root.rglob("*")):
-        if not candidate.is_file():
+        try:
+            if candidate.is_symlink():
+                continue
+            if not candidate.is_file():
+                continue
+            size = candidate.stat().st_size
+        except OSError:
+            # Racing delete/perm change (public list holds no lock):
+            # skip rather than 500 the whole listing.
             continue
         entries.append(
             {
                 "path": candidate.relative_to(root).as_posix(),
-                "size_bytes": candidate.stat().st_size,
+                "size_bytes": size,
             }
         )
     return entries

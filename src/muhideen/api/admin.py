@@ -12,6 +12,7 @@ and no audit).
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import json
@@ -74,7 +75,7 @@ from muhideen.adapters.media_store import (
     list_media_files,
     media_path_for_rel,
     normalize_media_rel,
-    read_upload_bounded,
+    read_upload_bounded_sync,
     reencode_image,
     sanitize_upload_basename,
     verify_audio_mp3,
@@ -1024,7 +1025,13 @@ def _require_tz_aware_moment(value: datetime) -> datetime:
 
 
 def _check_playlist_id(value: str) -> str:
-    """Strip + enforce the shared id grammar on a new value (422)."""
+    """Strip + enforce the shared id grammar on a new value (422).
+
+    ``preview`` stays creatable: the static ``GET /api/playlists/preview``
+    route is registered before ``GET /api/playlists/{id}`` so it always
+    wins for reads (pinned by ``test_preview_not_shadowed_by_id_named_preview``);
+    the row itself remains visible in list + mutable via PATCH/DELETE.
+    """
     text = value.strip()
     if not text:
         raise invalid("id", "id must not be blank")
@@ -1038,14 +1045,16 @@ def _normalize_image_path(value: str) -> str:
 
     Existence is NOT required: files may be uploaded before or after the
     item is created. Raises ``ValueError`` (mapped to 422) on blank,
-    NUL, directory-like, absolute/drive-letter, URL-structural, or
-    escaping values; a legacy ``media/`` prefix is stripped.
+    NUL, backslash, directory-like, absolute/drive-letter, URL-structural,
+    or escaping values; a legacy ``media/`` prefix is stripped.
     """
     if not value or not value.strip():
         raise ValueError("playlist item needs an image path")
     if "\x00" in value:
         raise ValueError(f"image_path must not contain NUL bytes: {value!r}")
-    candidate = value.replace("\\", "/")
+    if "\\" in value:
+        raise ValueError(f"image_path must not contain backslashes: {value!r}")
+    candidate = value
     if candidate.strip().endswith("/"):
         raise ValueError(f"image_path must name a file, not a directory: {value!r}")
     if candidate.startswith("/") or re.match(r"^[A-Za-z]:", candidate):
@@ -1073,16 +1082,30 @@ def _check_item_slot(image_path: str, duration_s: int) -> dict[str, Any]:
 
 
 def _assign_create_orders(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Auto-assign missing orders (max+1, empty → 0); within-body dupes → 422."""
+    """Auto-assign missing orders (max+1, empty → 0); within-body dupes → 422.
+
+    Two-pass so assignment never depends on item order: explicit orders
+    are collected (and deduped) first, then each missing order takes the
+    next free value at/above ``max(explicit)+1``. ``[{auto}, {0}]`` yields
+    ``[1, 0]`` instead of a spurious duplicate.
+    """
     seen: set[int] = set()
     for slot in slots:
         order = slot["sort_order"]
-        if order is None:
-            order = (max(seen) + 1) if seen else 0
-        elif order in seen:
-            raise invalid("sort_order", f"duplicate sort_order in playlist: {order!r}")
-        seen.add(order)
-        slot["sort_order"] = order
+        if order is not None:
+            if order in seen:
+                raise invalid(
+                    "sort_order", f"duplicate sort_order in playlist: {order!r}"
+                )
+            seen.add(order)
+    next_order = (max(seen) + 1) if seen else 0
+    for slot in slots:
+        if slot["sort_order"] is None:
+            while next_order in seen:
+                next_order += 1
+            slot["sort_order"] = next_order
+            seen.add(next_order)
+            next_order += 1
     return slots
 
 
@@ -1964,7 +1987,7 @@ def list_media(request: Request) -> list[dict[str, Any]]:
 
 
 @admin_router.post("/api/media")
-async def upload_media(
+def upload_media(
     request: Request,
     response: Response,
     file: Annotated[UploadFile, File()],
@@ -1977,8 +2000,10 @@ async def upload_media(
     and overwrite is allowed: a new relpath answers ``201``, an existing
     one ``200`` with ``{path}``. Oversize aborts the bounded streaming
     read with ``413`` before any decode; every other content failure is
-    ``422``. No write lock: tmp-in-same-dir + rename is already atomic,
-    so concurrent ``/media`` reads never see torn binaries.
+    ``422``. Sync ``def`` (threadpool): Pillow re-encode + fsync never
+    block the event loop. The final existence-probe + rename holds the
+    shared write lock so backup export/restore cannot interleave a torn
+    manifest (validation + decode stay outside the lock).
     """
     try:
         basename = sanitize_upload_basename(file.filename)
@@ -1998,7 +2023,7 @@ async def upload_media(
         if declared is not None and declared > cap + UPFRONT_SLACK_BYTES:
             raise HTTPException(status_code=413, detail=f"upload exceeds {cap} bytes")
     try:
-        data = await read_upload_bounded(file, cap)
+        data = read_upload_bounded_sync(file, cap)
     except MediaTooLargeError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
     normalized_kind = kind.strip()
@@ -2011,16 +2036,18 @@ async def upload_media(
     except ValueError as exc:
         raise invalid("file", str(exc)) from exc
     dest = media_path_for_rel(_media_dir(request), relpath)
-    try:
-        existed = dest_is_file(dest)
-        atomic_write_bytes(dest, payload)
-    except ValueError as exc:
-        raise invalid("file", str(exc)) from exc
-    except OSError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=_scrub_config_error(f"{dest}: cannot write media file: {exc}"),
-        ) from exc
+    lock = get_write_lock(request)
+    with lock:
+        try:
+            existed = dest_is_file(dest)
+            atomic_write_bytes(dest, payload)
+        except ValueError as exc:
+            raise invalid("file", str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(f"{dest}: cannot write media file: {exc}"),
+            ) from exc
     response.status_code = 200 if existed else 201
     return {"path": relpath}
 
@@ -2031,26 +2058,34 @@ def delete_media(request: Request, path: str) -> dict[str, bool]:
 
     Unconditional by design: files referenced by playlist items or the
     adhan config delete fine (dangling refs stay permitted) — no
-    per-delete reference scan ever runs.
+    per-delete reference scan ever runs. The existence-probe + unlink
+    holds the shared write lock so backup export/restore cannot
+    interleave a torn manifest.
     """
     try:
         rel = normalize_media_rel(path)
     except ValueError as exc:
         raise invalid("path", str(exc)) from exc
     dest = media_path_for_rel(_media_dir(request), rel)
-    try:
-        found = dest_is_file(dest)
-    except ValueError as exc:
-        raise invalid("path", str(exc)) from exc
-    if not found:
-        raise HTTPException(status_code=404, detail=f"unknown media path: {path!r}")
-    try:
-        dest.unlink()
-    except OSError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=_scrub_config_error(f"{dest}: cannot delete media file: {exc}"),
-        ) from exc
+    lock = get_write_lock(request)
+    with lock:
+        try:
+            found = dest_is_file(dest)
+        except ValueError as exc:
+            raise invalid("path", str(exc)) from exc
+        if not found:
+            raise HTTPException(status_code=404, detail=f"unknown media path: {path!r}")
+        try:
+            dest.unlink()
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                raise HTTPException(
+                    status_code=404, detail=f"unknown media path: {path!r}"
+                ) from exc
+            raise HTTPException(
+                status_code=503,
+                detail=_scrub_config_error(f"{dest}: cannot delete media file: {exc}"),
+            ) from exc
     return {"ok": True}
 
 
@@ -2146,16 +2181,24 @@ def _iter_file_and_cleanup(path: str) -> Iterator[bytes]:
     },
 )
 def export_backup(request: Request) -> StreamingResponse:
-    """Download the installation as one zip (streams, never fully buffered).
+    """Download the installation as one zip (media streams, never buffered).
 
     Members are ``muhideen.json`` + the pins file when the ref is set +
     ``prayer_buffer.json`` when present (byte-copied as-is, even corrupt
     — backup is not validation) + ``manifest.json``
     (``{files:[{path,size_bytes,sha256}], exported_at}``) + media
     binaries under ``media/``. Every member path is relative, never
-    absolute. Media sizes sum before archiving (over the cap → ``413``);
-    media files enter the archive straight from disk, so the response
-    never holds every binary in memory at once.
+    absolute. Media sizes pre-sum before archiving (over the cap →
+    ``413``); each file then streams chunk-by-chunk into its zip member
+    (``O_NOFOLLOW`` open, never following symlinks) while its SHA256
+    accumulates, so the manifest describes the bytes actually archived
+    and RAM stays flat regardless of media totals. A running total
+    aborts ``413`` mid-stream if concurrent growth pushes past the cap.
+    Files vanishing mid-export are skipped (logged) rather than failing
+    the backup with a 500. The config/pins/buffer snapshot holds the
+    write lock only for the byte copies — the zip build runs outside
+    the lock so exports never block config writes. Disk faults while
+    building the archive are ``503`` like every other ``OSError`` path.
     """
     lock = get_write_lock(request)
     config_path = _config_path(request)
@@ -2203,45 +2246,93 @@ def export_backup(request: Request) -> StreamingResponse:
                 status_code=413,
                 detail=f"backup media exceeds {BACKUP_MEDIA_CAP_BYTES} bytes",
             )
-        members: list[tuple[str, bytes]] = [(_BACKUP_CONFIG_NAME, config_data)]
-        if pins_data is not None:
-            members.append((_BACKUP_PINS_NAME, pins_data))
-        if buffer_data is not None:
-            members.append((_BACKUP_BUFFER_NAME, buffer_data))
-        manifest = {
-            "files": [_export_manifest_entry(path, data) for path, data in members]
-            + [
-                {
-                    "path": f"{_BACKUP_MEDIA_PREFIX}{entry['path']}",
-                    "size_bytes": entry["size_bytes"],
-                    "sha256": hashlib.sha256(
-                        (media_root / entry["path"]).read_bytes()
-                    ).hexdigest(),
-                }
-                for entry in entries
-            ],
-            "exported_at": datetime.now(UTC).isoformat(),
-        }
-        manifest_data = (json.dumps(manifest, indent=2) + "\n").encode()
-        members.append((_BACKUP_MANIFEST_NAME, manifest_data))
-        fd, tmp_name = tempfile.mkstemp(prefix="muhideen-backup-", suffix=".zip")
-        try:
-            os.close(fd)
-            with zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zf:
-                for path, data in members:
-                    zf.writestr(path, data)
-                for entry in entries:
-                    zf.write(
-                        str(media_root / entry["path"]),
-                        f"{_BACKUP_MEDIA_PREFIX}{entry['path']}",
+        rels = [entry["path"] for entry in entries]
+    small_members: list[tuple[str, bytes]] = [(_BACKUP_CONFIG_NAME, config_data)]
+    if pins_data is not None:
+        small_members.append((_BACKUP_PINS_NAME, pins_data))
+    if buffer_data is not None:
+        small_members.append((_BACKUP_BUFFER_NAME, buffer_data))
+    fd, tmp_name = tempfile.mkstemp(prefix="muhideen-backup-", suffix=".zip")
+    media_manifest: list[dict[str, Any]] = []
+    media_streamed_total = 0
+    try:
+        os.close(fd)
+        with zipfile.ZipFile(tmp_name, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path, data in small_members:
+                zf.writestr(path, data)
+            for rel in rels:
+                candidate = media_root / rel
+                try:
+                    raw_fd = os.open(candidate, os.O_RDONLY | os.O_NOFOLLOW)
+                except OSError as exc:
+                    logger.warning(
+                        "backup export skipping %s (concurrent change: %s)", rel, exc
                     )
-        except BaseException:
-            with suppress(OSError):
-                os.unlink(tmp_name)
-            raise
+                    continue
+                try:
+                    with os.fdopen(raw_fd, "rb") as src:
+                        digest = hashlib.sha256()
+                        size = 0
+                        with zf.open(f"{_BACKUP_MEDIA_PREFIX}{rel}", "w") as dest:
+                            while True:
+                                chunk = src.read(_BACKUP_CHUNK_BYTES)
+                                if not chunk:
+                                    break
+                                size += len(chunk)
+                                media_streamed_total += len(chunk)
+                                if media_streamed_total > BACKUP_MEDIA_CAP_BYTES:
+                                    raise HTTPException(
+                                        status_code=413,
+                                        detail=(
+                                            "backup media exceeds "
+                                            f"{BACKUP_MEDIA_CAP_BYTES} bytes"
+                                        ),
+                                    )
+                                digest.update(chunk)
+                                dest.write(chunk)
+                except HTTPException:
+                    raise
+                except OSError as exc:
+                    logger.warning(
+                        "backup export skipping %s (concurrent change: %s)", rel, exc
+                    )
+                    continue
+                media_manifest.append(
+                    {
+                        "path": f"{_BACKUP_MEDIA_PREFIX}{rel}",
+                        "size_bytes": size,
+                        "sha256": digest.hexdigest(),
+                    }
+                )
+            manifest = {
+                "files": [
+                    _export_manifest_entry(path, data) for path, data in small_members
+                ]
+                + media_manifest,
+                "exported_at": datetime.now(UTC).isoformat(),
+            }
+            zf.writestr(
+                _BACKUP_MANIFEST_NAME,
+                (json.dumps(manifest, indent=2) + "\n").encode(),
+            )
+        size = os.path.getsize(tmp_name)
+    except HTTPException:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise
+    except OSError as exc:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise HTTPException(
+            status_code=503,
+            detail=_scrub_config_error(f"backup export failed: {exc}"),
+        ) from exc
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = f"muhideen-backup-{stamp}.zip"
-    size = os.path.getsize(tmp_name)
     return StreamingResponse(
         _iter_file_and_cleanup(tmp_name),
         media_type="application/zip",
@@ -2355,18 +2446,26 @@ def _harden_restore_members(
             if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
             config_data = zf.read(info.filename)
+            if len(config_data) > _BACKUP_NON_MEDIA_CAP_BYTES:
+                raise invalid("file", f"backup member too large: {rel!r}")
         elif rel == _BACKUP_PINS_NAME:
             if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
             pins_data = zf.read(info.filename)
+            if len(pins_data) > _BACKUP_NON_MEDIA_CAP_BYTES:
+                raise invalid("file", f"backup member too large: {rel!r}")
         elif rel == _BACKUP_BUFFER_NAME:
             if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
             buffer_data = zf.read(info.filename)
+            if len(buffer_data) > _BACKUP_NON_MEDIA_CAP_BYTES:
+                raise invalid("file", f"backup member too large: {rel!r}")
         elif rel == _BACKUP_MANIFEST_NAME:
             if info.file_size > _BACKUP_NON_MEDIA_CAP_BYTES:
                 raise invalid("file", f"backup member too large: {rel!r}")
             manifest_data = zf.read(info.filename)
+            if len(manifest_data) > _BACKUP_NON_MEDIA_CAP_BYTES:
+                raise invalid("file", f"backup member too large: {rel!r}")
         elif rel.startswith(_BACKUP_MEDIA_PREFIX):
             sub = rel[len(_BACKUP_MEDIA_PREFIX) :]
             if not sub:
@@ -2568,6 +2667,7 @@ def _apply_restore(
                     pins_to_check, cfg.schedule.effective_zone, completion_buffer
                 )
             media_bytes: list[tuple[str, bytes]] = []
+            media_actual_total = 0
             for member_name, _, normalized in media:
                 with archive.open(member_name) as src:
                     chunks: list[bytes] = []
@@ -2576,12 +2676,16 @@ def _apply_restore(
                         if not chunk:
                             break
                         chunks.append(chunk)
+                        media_actual_total += len(chunk)
+                        if media_actual_total > BACKUP_MEDIA_CAP_BYTES:
+                            raise HTTPException(
+                                status_code=413,
+                                detail=(
+                                    "backup media exceeds "
+                                    f"{BACKUP_MEDIA_CAP_BYTES} bytes"
+                                ),
+                            )
                 media_bytes.append((normalized, b"".join(chunks)))
-            if sum(len(data) for _, data in media_bytes) > BACKUP_MEDIA_CAP_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"backup media exceeds {BACKUP_MEDIA_CAP_BYTES} bytes",
-                )
             _promote(staged_config, config_path, renamed)
             if pins_data is not None and ref is not None:
                 live_pins = resolve_pins_path(config_path, ref)
@@ -2617,6 +2721,10 @@ def _apply_restore(
             _publish_config_update(request)
     except (HTTPException, OSError):
         _rollback_restore(renamed)
+        raise
+    except Exception:
+        _rollback_restore(renamed)
+        logger.exception("restore failed unexpectedly; rolled back")
         raise
     # Success-only staging removal happens in the caller (failures keep
     # the dir for forensics until the next restore cleans it).

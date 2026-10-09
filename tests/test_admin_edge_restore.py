@@ -190,15 +190,15 @@ def test_export_without_prayer_repo_skips_buffer(admin: Any) -> None:
 
 
 def test_export_zip_build_failure_cleans_tmp(admin: Any, monkeypatch: Any) -> None:
-    """A zip-build fault propagates (500) with the temp archive removed."""
+    """A zip-build disk fault maps to 503 with the temp archive removed."""
     before = set(Path(tempfile.gettempdir()).glob("muhideen-backup-*.zip"))
 
     def _boom(self: Any, *args: Any, **kwargs: Any) -> None:
         raise OSError("disk fault during zip build")
 
     monkeypatch.setattr(zipfile.ZipFile, "writestr", _boom)
-    with pytest.raises(OSError, match="zip build"):
-        admin.client.get("/api/backup/export", headers=_auth())
+    response = admin.client.get("/api/backup/export", headers=_auth())
+    assert response.status_code == 503
     assert set(Path(tempfile.gettempdir()).glob("muhideen-backup-*.zip")) == before
 
 
