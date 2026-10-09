@@ -27,6 +27,7 @@ import subprocess
 import tempfile
 import threading
 import zipfile
+import zlib
 from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -420,7 +421,7 @@ def _read_raw_config(config_path: Path) -> dict[str, Any]:
     """Parse the config file as a raw dict; breakage is 503 (scrubbed)."""
     try:
         text = config_path.read_text()
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise HTTPException(
             status_code=503,
             detail=_scrub_config_error(f"{config_path}: cannot read config: {exc}"),
@@ -2478,7 +2479,14 @@ def _harden_restore_members(
     def _read_member(name: str, rel: str) -> bytes:
         try:
             return zf.read(name)
-        except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:
+        except (
+            zipfile.BadZipFile,
+            zipfile.LargeZipFile,
+            RuntimeError,
+            NotImplementedError,
+            EOFError,
+            zlib.error,
+        ) as exc:
             raise invalid("file", f"backup member unreadable: {rel!r} ({exc})") from exc
 
     infos = zf.infolist()
@@ -2731,7 +2739,14 @@ def _apply_restore(
             for member_name, _, normalized in media:
                 try:
                     opener = archive.open(member_name)
-                except (zipfile.BadZipFile, RuntimeError, NotImplementedError) as exc:
+                except (
+                    zipfile.BadZipFile,
+                    zipfile.LargeZipFile,
+                    RuntimeError,
+                    NotImplementedError,
+                    EOFError,
+                    zlib.error,
+                ) as exc:
                     raise invalid(
                         "file",
                         f"backup member unreadable: {member_name!r} ({exc})",
@@ -2743,8 +2758,11 @@ def _apply_restore(
                             chunk = src.read(_BACKUP_CHUNK_BYTES)
                         except (
                             zipfile.BadZipFile,
+                            zipfile.LargeZipFile,
                             RuntimeError,
                             NotImplementedError,
+                            EOFError,
+                            zlib.error,
                         ) as exc:
                             raise invalid(
                                 "file",
